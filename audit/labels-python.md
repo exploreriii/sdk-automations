@@ -1,47 +1,55 @@
-# Label Inventory — Hiero Python SDK
+# Label Inventory: Hiero Python SDK
 
-> **Audit scope:** every label the maintainer-automation under `.github/` of
+> **What this covers:** every label that the maintainer automation under `.github/` of
 > [`hiero-ledger/hiero-sdk-python`](https://github.com/hiero-ledger/hiero-sdk-python) reads or writes,
-> mapped to the services that touch it, **plus the alias-drift catalog**.
-> **Source state:** `main` @ `cbb41d9` (moved from Phase 1's `5df93b7`; deltas noted inline).
-> **Phase:** 2 (Labels & flows). Builds on `audit/services-python.md`.
-> **Out of scope:** CI/build/security/release workflows (`pr-check-*`, `pre-commit`, `publish`,
-> `release-pr-coderabbit-gate`, `clusterfuzzlite`, `test-*`) — confirmed to read or write **no labels**;
-> `pr-check-feedback-all.yml` reads PR data only. Excluded from flow analysis (Appendix D).
+> which service touches it, and the catalog of label spellings that have drifted apart.
+> **Source state:** `main` at `cbb41d9` (it moved on from Phase 1's `5df93b7`; any differences are noted
+> inline).
+> **Phase:** 2 (Labels and flows). It builds on `audit/services-python.md`.
+> **Left out on purpose:** the CI, build, security, and release workflows (`pr-check-*`, `pre-commit`,
+> `publish`, `release-pr-coderabbit-gate`, `clusterfuzzlite`, `test-*`). They touch no labels.
+> `pr-check-feedback-all.yml` only reads PR data. All of this is excluded from the flow analysis
+> (Appendix D).
 
 ## How labels work in the Python SDK
 
-The opposite of C++. There is **no single policy file**. Label strings come from three places:
+This is the opposite of the C++ setup. There is no single policy file. Label strings come from three
+different places:
 
-1. `scripts/shared/labels.js` — the skill/difficulty constants (`GOOD_FIRST_ISSUE_LABEL`, …).
-2. `scripts/labels.js` and `scripts/review-sync/helpers/constants.js` — `notes:` and `queue:` constants.
-3. **Inlined literals** in individual workflow `if:` conditions and shell/JS scripts — `pending-review`,
-   `approved`, `discussion`, `notes: spam`, `notes: mentor-duty`, `priority: critical`, bare `beginner`.
+1. `scripts/shared/labels.js` holds the skill and difficulty constants (`GOOD_FIRST_ISSUE_LABEL`, and so
+   on).
+2. `scripts/labels.js` and `scripts/review-sync/helpers/constants.js` hold the `notes:` and `queue:`
+   constants.
+3. Plain string literals sit inside individual workflow `if:` conditions and shell or JS scripts. These
+   include `pending-review`, `approved`, `discussion`, `notes: spam`, `notes: mentor-duty`,
+   `priority: critical`, and the bare `beginner`.
 
-Because the same concept is expressed in several files, the Python surface carries **real alias drift**
-(§Alias-drift catalog) — the single most important input for the normalized taxonomy the shared app needs.
+Because the same idea gets written in several files, the Python side has real spelling drift, covered in
+the catalog below. That catalog is the single most useful input for the normalized taxonomy the shared
+app will need.
 
-## Label → service map
+## Which service touches which label
 
-Legend: **R** read/gate · **A** added · **D** removed.
+How to read the columns: **Read** means it checks the label as a condition. **Added** and **Removed**
+mean it writes the label.
 
-### Skill / difficulty
+### Skill and difficulty
 
 | Label | Read by | Added by | Removed by | Defined in |
 |---|---|---|---|---|
-| `Good First Issue` | GFI Assign, Beginner Assign (GFI guard), Assignment Limit Enforcer, Mentor Assignment (chained), Spam List Maintenance, Next Issue Recommendation | issue template | — | `scripts/shared/labels.js` (`GOOD_FIRST_ISSUE_LABEL`) — but re-hardcoded inline in `bot-beginner-assign-on-comment.js` (drift D) |
-| `Good First Issue Candidate` | GFI Candidate Notification | issue template | — | `scripts/shared/labels.js` (`GOOD_FIRST_ISSUE_CANDIDATE_LABEL`); workflow gate uses lowercase variant (drift A) |
-| `skill: beginner` | Beginner Assign, Intermediate Guard (prereq), Triage Review Request, CodeRabbit Plan Trigger, Next Issue Recommendation | issue template | — | `scripts/shared/labels.js` (`BEGINNER_LABEL`); bare `beginner` also checked (drift C) |
-| `skill: intermediate` | Intermediate Guard, Advanced Check (prereq), CodeRabbit Plan Trigger, Next Issue Recommendation | issue template | — | `scripts/shared/labels.js` (`INTERMEDIATE_LABEL`) |
-| `skill: advanced` | Advanced Check, CodeRabbit Plan Trigger, Next Issue Recommendation | issue template | — | `scripts/shared/labels.js` (`ADVANCED_LABEL`) |
+| `Good First Issue` | GFI Assign, Beginner Assign (the GFI guard), Assignment Limit Enforcer, Mentor Assignment (chained), Spam List Maintenance, Next Issue Recommendation | issue template | none | `scripts/shared/labels.js` as `GOOD_FIRST_ISSUE_LABEL`, but also re-typed by hand inside `bot-beginner-assign-on-comment.js` (drift D) |
+| `Good First Issue Candidate` | GFI Candidate Notification | issue template | none | `scripts/shared/labels.js` as `GOOD_FIRST_ISSUE_CANDIDATE_LABEL`; the workflow gate uses a lower-case spelling (drift A) |
+| `skill: beginner` | Beginner Assign, Intermediate Guard (prerequisite), Triage Review Request, CodeRabbit Plan Trigger, Next Issue Recommendation | issue template | none | `scripts/shared/labels.js` as `BEGINNER_LABEL`; a bare `beginner` is also checked (drift C) |
+| `skill: intermediate` | Intermediate Guard, Advanced Check (prerequisite), CodeRabbit Plan Trigger, Next Issue Recommendation | issue template | none | `scripts/shared/labels.js` as `INTERMEDIATE_LABEL` |
+| `skill: advanced` | Advanced Check, CodeRabbit Plan Trigger, Next Issue Recommendation | issue template | none | `scripts/shared/labels.js` as `ADVANCED_LABEL` |
 
-> Like C++, skill labels are **read-only** to the bots (templates apply them). They gate the assignment
-> ladder; none is added or removed programmatically.
+> Just like C++, the skill labels are read-only to the bots (templates apply them). They gate the
+> assignment ladder, but no bot adds or removes them.
 
 ### Review queue (the PR review state machine)
 
-All five are **owned and auto-created** by Review Queue Label Sync (`review-sync.yml`); it is the only
-writer.
+All five are owned and auto-created by the Review Queue Label Sync (`review-sync.yml`), which is the only
+service that writes them.
 
 | Label | Read by | Added by | Removed by | Defined in |
 |---|---|---|---|---|
@@ -49,182 +57,185 @@ writer.
 | `queue:committers` | Review Queue Sync | Review Queue Sync | Review Queue Sync | same |
 | `queue:maintainers` | Review Queue Sync | Review Queue Sync | Review Queue Sync | same |
 | `status: ready-to-merge` | Review Queue Sync | Review Queue Sync | Review Queue Sync | same |
-| `open to community review` | Review Queue Sync | Review Queue Sync (every open non-draft PR) | — (never removed) | same |
+| `open to community review` | Review Queue Sync | Review Queue Sync (added to every open non-draft PR) | none (it is never removed) | same |
 
-> **Cross-SDK collision to note:** `status: ready-to-merge` lives in the **`status:`** namespace but is
-> owned by Python's queue machine, while C++'s `status:` namespace is its issue/PR review machine. The
-> normalized taxonomy must reconcile these (see `docs/services.md`).
+> One cross-SDK clash to flag: `status: ready-to-merge` lives in the `status:` namespace but it belongs to
+> Python's review queue, while C++'s `status:` namespace is its issue and PR review machine. The
+> normalized taxonomy has to reconcile the two (see `docs/services.md`).
 
-### Lifecycle / moderation
-
-| Label | Read by | Added by | Removed by | Defined in |
-|---|---|---|---|---|
-| `pending-review` | (implied by approval flow) | New Issue Moderation | Issue Approval | inlined in workflows |
-| `approved` | Issue Approval (trigger `event.label.name == 'approved'`) | manual maintainer | — | inlined |
-| `discussion` | Inactivity Unassign (skip guard, `grep -qi` → case-insensitive) | manual | — | inlined in `bot-inactivity-unassign.sh` |
-
-### Notes / admin
+### Lifecycle and moderation
 
 | Label | Read by | Added by | Removed by | Defined in |
 |---|---|---|---|---|
-| `notes: broken markdown links` | Cron Broken Links (find existing issue) | Cron Broken Links (tracking issue) | — | `scripts/labels.js` |
-| `notes: automated` | Cron Broken Links, Spam List Maintenance | Cron Broken Links, Spam List Maintenance | — | `scripts/labels.js` |
-| `notes: spam` | Spam List Maintenance (query closed unmerged PRs) | manual maintainer | — | inlined (`cron-admin-update-spam-list.js`) |
-| `notes: spam-list-update` | Spam List Maintenance (dedup) | Spam List Maintenance (tracking issue) | — | inlined |
-| `notes: mentor-duty` | Assignment Limit Enforcer (excluded from triage-user count) | manual | — | inlined (`bot-assignment-check`) |
+| `pending-review` | the approval flow relies on it | New Issue Moderation | Issue Approval | typed inline in the workflows |
+| `approved` | Issue Approval (the trigger checks `event.label.name == 'approved'`) | a maintainer, by hand | none | typed inline |
+| `discussion` | Inactivity Unassign (a skip guard, using `grep -qi`, so it ignores case) | by hand | none | typed inline in `bot-inactivity-unassign.sh` |
+
+### Notes and admin
+
+| Label | Read by | Added by | Removed by | Defined in |
+|---|---|---|---|---|
+| `notes: broken markdown links` | Cron Broken Links (to find an existing tracking issue) | Cron Broken Links (on the tracking issue) | none | `scripts/labels.js` |
+| `notes: automated` | Cron Broken Links, Spam List Maintenance | Cron Broken Links, Spam List Maintenance | none | `scripts/labels.js` |
+| `notes: spam` | Spam List Maintenance (queries closed, unmerged PRs) | a maintainer, by hand | none | typed inline in `cron-admin-update-spam-list.js` |
+| `notes: spam-list-update` | Spam List Maintenance (dedup) | Spam List Maintenance (on the tracking issue) | none | typed inline |
+| `notes: mentor-duty` | Assignment Limit Enforcer (excluded from a triage user's count) | by hand | none | typed inline in `bot-assignment-check` |
 
 ### Priority
 
 | Label | Read by | Added by | Removed by | Defined in |
 |---|---|---|---|---|
-| `priority: critical` | P0 Issue Team Alert | manual | — | inlined (`bot-p0-issues-notify-team.js`) |
-| `Priority: Critical` | P0 Issue Team Alert (second `||` branch) | manual | — | inlined (workflow only) — drift B |
+| `priority: critical` | P0 Issue Team Alert | by hand | none | typed inline in `bot-p0-issues-notify-team.js` |
+| `Priority: Critical` | P0 Issue Team Alert (the second `||` branch) | by hand | none | typed inline (workflow only); this is drift B |
 
 ### Passthrough (no fixed string)
 
-| "Label" | Behaviour |
+| "Label" | What happens |
 |---|---|
-| _any label on a linked issue_ | **Linked Issue Label Sync** (compute + apply) copies **all** labels from a PR's linked issue onto the PR, with no allowlist. So `notes:`, `skill:`, lifecycle labels, etc. can propagate issue→PR. A generalization risk: no namespace gating. |
+| any label on a linked issue | The Linked Issue Label Sync (compute then apply) copies every label from a PR's linked issue onto the PR, with no allow-list. So `notes:`, `skill:`, and lifecycle labels can all spread from the issue to the PR. When this gets generalized, the lack of namespace gating is a risk to watch. |
 
-## Alias-drift catalog (the headline finding)
+## The spelling-drift catalog (the headline finding)
 
-Four drift sets. **Important correction:** GitHub Actions `contains()` is **case-insensitive** (per
-GitHub expression docs), so casing differences in workflow `if:` guards still *match* at runtime — none
-of these is a dead workflow. The risk is **fragility and ambiguity**, not breakage: the same concept has
-multiple canonical spellings, scattered definitions, and inconsistent normalization, which is exactly
-what a shared taxonomy must collapse.
+There are four drift sets. One thing to clear up first, because it changes how serious these are: GitHub
+Actions `contains()` is case-insensitive (this is in the GitHub expression docs). So when a workflow
+`if:` guard uses a different casing than the label, it still matches at runtime. None of these is a dead
+workflow. The real problem is fragility and ambiguity: the same idea has several accepted spellings,
+defined in scattered places and normalized inconsistently. That is exactly the kind of thing a shared
+taxonomy needs to collapse.
 
-### Drift A — GFI Candidate casing
-| Variant | Where | Match method |
+### Drift A: the GFI Candidate casing
+| Spelling | Where it appears | How it is matched |
 |---|---|---|
-| `Good First Issue Candidate` | `shared/labels.js` constant; issue template `labels:`; `bot-gfi-candidate-notification.js` (`.toLowerCase()` compare) | canonical |
-| `good first issue candidate` | `bot-gfi-candidate-notification.yaml` `if:` guard | `contains()` — case-insensitive, **so it matches** |
+| `Good First Issue Candidate` | the `shared/labels.js` constant, the issue template `labels:`, and `bot-gfi-candidate-notification.js` (a `.toLowerCase()` compare) | this is the canonical one |
+| `good first issue candidate` | the `bot-gfi-candidate-notification.yaml` `if:` guard | `contains()`, which is case-insensitive, so it still matches |
 
-**Severity: low-functional / high-hygiene.** Works today (contains is case-insensitive), but the gate
-string and the canonical constant disagree. A future move to a case-sensitive matcher, or a label
-rename, silently breaks it.
+**How much it matters:** low in practice, high for tidiness. It works today because `contains()` ignores
+case, but the gate string and the constant disagree. If someone later switches to a case-sensitive check,
+or renames the label, it breaks quietly.
 
-### Drift B — Priority Critical casing
-| Variant | Where |
+### Drift B: the Priority Critical casing
+| Spelling | Where it appears |
 |---|---|
-| `priority: critical` | `bot-p0-issues-notify-team.js` constant + workflow first branch |
-| `Priority: Critical` | workflow `if:` second `||` branch |
+| `priority: critical` | the `bot-p0-issues-notify-team.js` constant and the first workflow branch |
+| `Priority: Critical` | the second `||` branch of the workflow `if:` |
 
-**Severity: low/tolerated.** The workflow deliberately accepts both with `||`, and the JS normalizes via
-`.toLowerCase()`. But two distinct label strings exist for one concept, with no canonical source — the
-taxonomy must pick one.
+**How much it matters:** low, and it is tolerated on purpose. The workflow accepts both with `||`, and
+the JS normalizes with `.toLowerCase()`. Still, two label strings exist for one idea with no canonical
+source, so the taxonomy has to pick one.
 
-### Drift C — beginner: namespaced vs bare
-| Variant | Where |
+### Drift C: beginner, namespaced versus bare
+| Spelling | Where it appears |
 |---|---|
-| `skill: beginner` | `shared/labels.js`; beginner/intermediate/coderabbit/triage paths |
-| `beginner` (bare) | `request-triage-review.yml` — a third `contains()` trigger branch |
+| `skill: beginner` | `shared/labels.js`, plus the beginner, intermediate, CodeRabbit, and triage paths |
+| `beginner` (bare) | a third `contains()` branch in `request-triage-review.yml` |
 
-**Severity: medium.** The bare `beginner` has no definition and likely targets cross-repo PRs or legacy
-labels; it can over-trigger if a bare `beginner` is ever applied in this repo. Real namespace
-inconsistency for the same skill tier.
+**How much it matters:** medium. The bare `beginner` has no definition and most likely targets cross-repo
+PRs or old labels. It can over-trigger if a bare `beginner` ever gets applied in this repo. This is a real
+namespace inconsistency for the same skill tier.
 
-### Drift D — `Good First Issue` defined twice
+### Drift D: `Good First Issue` defined twice
 | Source | Form |
 |---|---|
-| `shared/labels.js` `GOOD_FIRST_ISSUE_LABEL` | imported by most scripts |
-| `bot-beginner-assign-on-comment.js` | re-declares `const GFI_LABEL = 'Good First Issue'` inline instead of importing |
+| `shared/labels.js`, `GOOD_FIRST_ISSUE_LABEL` | imported by most scripts |
+| `bot-beginner-assign-on-comment.js` | re-declares `const GFI_LABEL = 'Good First Issue'` by hand instead of importing |
 
-**Severity: low-medium (structural).** Same value today, but a rename of the GFI label updates the shared
-constant and **misses** this inlined copy — a latent single-rename-two-places hazard.
+**How much it matters:** low to medium, and it is structural. The value is the same today, but renaming
+the GFI label would update the shared constant and miss this hand-typed copy. It is a one-rename,
+two-places hazard waiting to happen.
 
-## Label flow — the state machines
+## How labels move: the state machines
 
-Python has **no unified status machine**. Labels move in two independent sub-machines; the skill ladder
-is a set of *read gates*, not transitions.
+Python has no single status machine. Labels move in two separate flows, and the skill ladder is a set of
+read checks rather than label changes.
 
 ### Issue moderation flow
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending_review: issue opened → New Issue Moderation (also locks issue)
-    pending_review --> approved: maintainer applies 'approved'
-    approved --> [*]: Issue Approval removes pending-review + unlocks
+    [*] --> pending_review: issue opened, New Issue Moderation also locks it
+    pending_review --> approved: a maintainer applies 'approved'
+    approved --> [*]: Issue Approval removes pending-review and unlocks
 ```
 
-| From | To | Service | Trigger |
+| From | To | Service | What triggers it |
 |---|---|---|---|
-| _(none)_ | `pending-review` | New Issue Moderation | `issues: opened` (also locks the issue) |
-| `pending-review` (+`approved`) | _(pending-review removed)_ | Issue Approval | `issues: labeled` = `approved` (also unlocks) |
+| (none) | `pending-review` | New Issue Moderation | `issues: opened` (it also locks the issue) |
+| `pending-review` (plus `approved`) | `pending-review` removed | Issue Approval | `issues: labeled` with `approved` (it also unlocks the issue) |
 
-### Review-queue flow (owned entirely by Review Queue Label Sync, `*/30` cron)
+### Review queue flow (owned entirely by Review Queue Label Sync, on a `*/30` cron)
 
 ```mermaid
 stateDiagram-v2
-    [*] --> junior: open non-draft PR (+ open to community review)
+    [*] --> junior: an open non-draft PR (plus open to community review)
     junior --> committers: any approval
-    committers --> maintainers: >=1 core approval, no maintainer yet
-    maintainers --> ready_to_merge: >=1 maintainer AND >=2 core approvals
+    committers --> maintainers: at least 1 core approval, no maintainer yet
+    maintainers --> ready_to_merge: at least 1 maintainer and at least 2 core approvals
     committers --> junior: CI failure (demote)
     maintainers --> junior: CI failure (demote)
     ready_to_merge --> junior: CI failure (demote)
 ```
 
-The sync is **add-then-remove** (target label added before stale labels removed) so a crash can never
-leave a PR with zero queue labels. It aborts if the rate-limit budget is `< 200`.
+The sync adds the new label before it removes the stale ones, so a crash can never leave a PR with zero
+queue labels. It stops early if the rate-limit budget drops below 200.
 
-> **Routing nuances** (the label is recomputed from scratch each cron cycle — it is a stateless
-> classifier, not edge-triggered). `determineLabel()` branches, in priority order: CI failing →
-> `junior-committer` (demote from any state); ≥1 maintainer **and** ≥2 core approvals → `ready to merge`;
-> ≥1 maintainer but `<2` core → `committers` (a maintainer approving *first* routes the PR back to
-> `committers` to attract committer review, **not** straight to `maintainers`); ≥1 core (no maintainer) →
-> `maintainers`; any approval → `committers`; else → `junior-committer`. The diagram shows the common
-> forward path; the early-maintainer case is the notable exception.
+> **A couple of routing details worth knowing.** The label is recomputed from scratch on every cron run,
+> so it is a stateless classifier, not something edge-triggered. `determineLabel()` checks these in order:
+> CI failing sends it to `junior-committer` (a demote from any state); at least 1 maintainer and at least
+> 2 core approvals means `ready to merge`; at least 1 maintainer but fewer than 2 core approvals sends it
+> to `committers` (so when a maintainer approves first, the PR routes back to `committers` to pull in
+> committer review, rather than jumping straight to `maintainers`); at least 1 core approval with no
+> maintainer means `maintainers`; any approval at all means `committers`; otherwise `junior-committer`.
+> The diagram shows the common forward path, and the early-maintainer case is the notable exception.
 
-### Skill ladder — read gates (not label writes)
+### The skill ladder, which is read checks, not label writes
 
 ```
-Good First Issue ──(≥1 closed GFI)──▶ skill: beginner ──(≥1 closed beginner)──▶ skill: intermediate ──(≥1 closed intermediate)──▶ skill: advanced
+Good First Issue --(>= 1 closed GFI)--> skill: beginner --(>= 1 closed beginner)--> skill: intermediate --(>= 1 closed intermediate)--> skill: advanced
 ```
 
-Each guard (`bot-beginner-assign-on-comment`, `bot-intermediate-assignment`, `bot-advanced-check`)
-**reads** the labels and the contributor's closed-issue history to allow or block/unassign. It never
-mutates the skill label. Core team (admin/maintain/write/triage, with per-guard variation) bypasses.
+Each guard (`bot-beginner-assign-on-comment`, `bot-intermediate-assignment`, `bot-advanced-check`) reads
+the labels and the contributor's history of closed issues, then allows the assignment or blocks and
+unassigns. It never changes the skill label itself. The core team (admin, maintain, write, triage, with
+small differences per guard) skips the checks.
 
-## Runtime-created labels
+## Labels created at runtime
 
-| Label(s) | Creator | Mechanism |
+| Label(s) | Created by | How |
 |---|---|---|
-| `queue:junior-committer`, `queue:committers`, `queue:maintainers`, `status: ready-to-merge`, `open to community review` | Review Queue Label Sync | `issues.createLabel()` via `ensureLabel()` (idempotent, 422-safe, fixed colors) |
-| `notes: broken markdown links`, `notes: automated` | Cron Broken Links | **not** created — passed to `issues.create({labels})`; must pre-exist or are dropped |
-| `notes: spam-list-update`, `notes: automated` | Spam List Maintenance | same — passed to `issues.create`, not created |
+| `queue:junior-committer`, `queue:committers`, `queue:maintainers`, `status: ready-to-merge`, `open to community review` | Review Queue Label Sync | `issues.createLabel()` through `ensureLabel()` (idempotent, safe on a 422, with fixed colors) |
+| `notes: broken markdown links`, `notes: automated` | Cron Broken Links | not created; they are passed to `issues.create({labels})`, so they have to already exist or they get dropped |
+| `notes: spam-list-update`, `notes: automated` | Spam List Maintenance | same; passed to `issues.create`, not created |
 
-**Contrast with C++:** Python *does* auto-create labels (queue family), but only there; the `notes:`
-tracking labels are assumed to pre-exist. A generalized app needs one consistent ensure-label policy.
+Compared with C++: Python does auto-create labels, but only the queue family. The `notes:` tracking
+labels are assumed to already exist. A generalized app needs one consistent ensure-label policy.
 
-## Defined-but-undefined / referenced-but-undefined
+## Labels that are used but never defined in a constants file
 
-Labels **used by active scripts but defined in no `labels.js`** (inlined literals — drift surface):
-`pending-review`, `approved`, `discussion`, `notes: spam`, `notes: spam-list-update`,
-`notes: mentor-duty`, `priority: critical`, `Priority: Critical`, bare `beginner`.
+These labels are used by active scripts but defined in no `labels.js`. They live only as string literals,
+which is the structural root of the drift: `pending-review`, `approved`, `discussion`, `notes: spam`,
+`notes: spam-list-update`, `notes: mentor-duty`, `priority: critical`, `Priority: Critical`, and the bare
+`beginner`. That is about nine labels with no single place to rename or validate them.
 
-This is the structural root of the drift: ~9 labels live only as scattered string literals, so there is
-no single place to rename or validate them.
+## Archive note (this feeds the "retired" column in `docs/services.md`)
 
-## Archive note (feeds "retired" classification in `docs/services.md`)
+The 10 archived workflows in `.github/workflows/archive/` reference no archive-only labels. The only label
+they touch, `Good First Issue`, is still active. `bot-mentor-assignment.yml` is archived because its logic
+was folded into `bot-gfi-assign-on-comment.js` (chained), not because it was retired. So the retired
+services leave no orphaned labels behind. They were merged in or dropped without any label residue.
 
-The 10 archived workflows in `.github/workflows/archive/` reference **no archive-only labels** — the only
-labels they touch (`Good First Issue`) are still active. `bot-mentor-assignment.yml` is archived because
-its logic was **inlined** into `bot-gfi-assign-on-comment.js` (chained), not retired. So "retired
-services" do not orphan any labels; they were folded or dropped without label residue.
+## Differences from Phase 1 (`5df93b7` to `cbb41d9`)
 
-## Delta vs Phase 1 (`5df93b7` → `cbb41d9`)
+This was re-read at the newer commit. The set of labels and the service-to-label mapping match the Phase 1
+Appendix B and C. No labels were added or removed between the two commits in a way that affects this
+inventory.
 
-Re-read at the newer commit. The label set and service-label mapping match the Phase 1 Appendix B/C; no
-labels were added or removed between the two commits that affect this inventory. (Any wording the
-verifiers flag against `cbb41d9` is corrected before commit.)
-
-## Appendix D — out-of-scope workflows (no label contact)
+## Appendix D: out-of-scope workflows (no label contact)
 
 `pr-check-primary-codecov`, `pr-check-primary-codeql`, `pr-check-primary-broken-links`,
 `pr-check-primary-test-files`, `clusterfuzzlite`,
 `pr-check-secondary-{deps-test,examples,tck-test,unit-integration-test}`, `pre-commit`, `publish`,
-`release-pr-coderabbit-gate`, `test-on-review`, `test-review-sync`, `pr-check-feedback-all` — read/write
-no labels (the last reads PR data only). The two `pr-check-primary-{broken-links,test-files}` are
-per-PR repo-hygiene checks (markdown links, test-file naming) — CI-adjacent, also no label contact.
-Project non-goal (`planning/goals.md` §Non-goals); excluded from flow analysis.
+`release-pr-coderabbit-gate`, `test-on-review`, `test-review-sync`, and `pr-check-feedback-all` all read
+and write no labels (that last one only reads PR data). The two `pr-check-primary-{broken-links,test-files}`
+workflows are per-PR repo-hygiene checks (markdown links and test-file naming). They are close to CI and
+they also touch no labels. All of this is a project non-goal (`planning/goals.md`, Non-goals) and is left
+out of the flow analysis.

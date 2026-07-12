@@ -25,23 +25,23 @@ and the label is only the most visible of four different kinds of sharing.
 The label baton is the first and deepest of the four, and the design has to answer all four, so it is worth
 naming them plainly before proposing a fix. They are drawn from the deep dive (`audit/deep-dive-cpp.md` §3).
 
-The first is shared status labels that act as moving state no single service owns. Status is passed from one
+- The first is shared status labels that act as moving state no single service owns. Status is passed from one
 service to the next, so whether an item is available to be worked on is a fact that lives in a label rather
 than in any one feature.
 
-The second is that services follow the link between an issue and its pull request and write to the far side.
+- The second is that services follow the link between an issue and its pull request and write to the far side.
 This would be fine if they all followed the link the same way, but today two of them resolve it differently,
 one with a precise query and one by scanning the text of the issue body, and the two ways can disagree about
 what is linked to what. So the issue side and the pull request side of the lifecycle cannot be moved
 independently.
 
-The third is that some services talk to each other through rendered text and exact names rather than through
+- The third is that some services talk to each other through rendered text and exact names rather than through
 a real interface. One service decides what to do by searching another service's comment for an exact phrase,
 and a second pair of workflows hand work between themselves only because they share an exact name string.
 Both of these break silently: change the wording or rename the workflow and nothing reports an error but just 
 stops. 
 
-The fourth is that unrelated features are bundled into the same deployment unit. One workflow file holds
+- The fourth is that unrelated features are bundled into the same deployment unit. One workflow file holds
 three separate commands behind one block of permissions, another holds two unrelated jobs, and three
 separate files share a single queue so that runs which look independent actually line up behind one another.
 Because of this, turning one feature off is a code or configuration-file edit rather than a setting.
@@ -132,19 +132,19 @@ A service is one small unit that can be switched on or off, talks only to the co
 service. What keeps it honest is a short contract it has to declare, and that contract has four parts, one to
 answer each of the four tangles in section 2.
 
--First, it declares the small slice of config it reads. This matters because today every
+- First, it declares the small slice of config it reads. This matters because today every
 service can read the whole configuration file even though each one really uses only a little of it: the status
 labels and the team names are read almost everywhere, while the skill ladder, the assignment limits, and the
 priority order are each read by only one or two services. A service that asks for only the keys it needs no
 longer shares the entire file with every other service. 
 
--Second, it declares which statuses it reads and which it sets, and it does this only through the core, 
+- Second, it declares which statuses it reads and which it sets, and it does this only through the core, 
 never by taking a label straight from a named neighbour.
 
--Third, it declares any read it makes across the issue-to-pull-request link, and performs that read through the
+- Third, it declares any read it makes across the issue-to-pull-request link, and performs that read through the
 one shared resolver, so no two services follow the link in ways that disagree. 
 
--Fourth, it is its own deployment unit, with its own trigger and its own permissions, sharing no file and no queue 
+- Fourth, it is its own deployment unit, with its own trigger and its own permissions, sharing no file and no queue 
 with anything unrelated.
 
 Those four declarations line up one for one with the four tangles: the config slice answers the shared file,

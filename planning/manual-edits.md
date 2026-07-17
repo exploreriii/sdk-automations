@@ -4,7 +4,7 @@
 > label "is ingested as a legitimate transition" (`solution.md` §4.1) — so what happens when a human
 > applies a label the state machine has no edge for? The answer follows from two commitments already
 > made: **no surprise actions** (`goals.md`) and **every state has a non-module way in**
-> (`opt-in-modules.md` §2.3). Positions are marked **proposed**. This gates the taxonomy ratification,
+> (`opt-in-modules.md` §1). Positions are marked **proposed**. This gates the taxonomy ratification,
 > the toggle matrix, and the safety engine.
 
 ## 1. Two rulebooks

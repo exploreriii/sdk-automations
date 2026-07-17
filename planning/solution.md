@@ -4,7 +4,7 @@
 > it supersedes the first hypothesis draft, which is preserved in git history. Where a decision is
 > still open, the text says so (§10), and where the design takes a position early it is marked
 > **proposed**, with the reasoning and with what would overturn it. This is the central design document
-> the shorter notes point toward: `planning/solution-overview.md` (the map),
+> the shorter notes point toward (the repo `README.md` gives the reading order):
 > `planning/opt-in-modules.md` (the modules), `planning/test-architecture.md` (the tests),
 > `planning/manual-edits.md` (the manual-edit semantics), `planning/operations.md` (hosting, rollout,
 > rate limits, failure loudness), `planning/taxonomy-draft.md` and
@@ -167,9 +167,9 @@ Shape now, keys later (§10):
 {
   "_extends": "org-repo",           // org defaults, repo overrides win
   "modules": {
-    "assignment": { "limits": { "concurrent": 2 } },   // presence = enabled
-    "inactivity": { "warnAfterDays": 5, "actAfterDays": 7 }
-    // absent module = off · no file at all = safe defaults
+    "assignment": { "maxOpenAssignments": 2 },   // presence = enabled
+    "inactivity": { "issue": { "warnAfterDays": 7, "unassignAfterDays": 21 } }
+    // absent module = off · no file at all = safe defaults · keys: config-draft.md
   }
 }
 ```
@@ -182,7 +182,7 @@ destructive.
 **Every state a module consumes can also be set another way** — a hand-applied label, a config default, a
 command. An upstream module is only ever a shortcut, never the only way in: the light has both a switch
 and a motion sensor, and removing the sensor leaves the switch working. (The state graph with the manual
-entry point drawn is `opt-in-modules.md` §4.1; the exact semantics of manual edits — the coherence
+entry point drawn is `opt-in-modules.md` §3; the exact semantics of manual edits — the coherence
 classes, the never-revert rule, the newer-fact rule — are `planning/manual-edits.md`.) Two corollaries,
 made explicit:
 

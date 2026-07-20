@@ -51,8 +51,12 @@ to enforce — not by quietly reading a comment somewhere.
 
 | Exception | What is read back | Why no alternative |
 |---|---|---|
-| **safety warned-at** | the warning's timestamp + schema-versioned metadata | warn-then-act needs durable memory of "warned at T"; no label can carry a timestamp, and the app has no store (`design/architecture.md` §4.1) |
-| **command ack marker** | the 👀 reaction's presence | the processed-marker that lets the sweep find un-acked commands after downtime — commands become durable with no store (`design/operations/README.md` §5) |
+| **safety warned-at** | warning timestamp; before destructive effects, pending/completed identity with item, edge, `expect`, safety-cause identity, target, and plan version | warn-then-act and crash recovery need durable correlation; no label can carry it, and the app has no owned store (`design/architecture.md` §4.1) |
+| **command ack marker** | receipt/completion state; before command effects, pending/completed identity with item, edge, `expect`, immutable comment ID as cause, target, and plan version | the sweep must distinguish received, incomplete, and completed commands and correlate partial GitHub effects after downtime (`design/architecture.md` §4; `design/operations/README.md` §5) |
+
+For either exception, the core must write and read back `pending` before the first compound effect. It marks
+`completed` only after reading the whole postcondition. A newer cause resolves the old record without further
+effects. Modules never receive this metadata or gain a comment-read API; the exception remains inside the core.
 
 ## 4. Voice: the templates are a product surface
 

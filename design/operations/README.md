@@ -8,18 +8,27 @@
 
 ## 1. The posture: the app must be safe to be down
 
-> **Proposed.** The app may be down, slow, or restarted at any moment without loss or corruption.
-> Downtime delays automation; it never breaks state.
+> **Proposed acceptance condition.** The app may be down or slow without loss or corruption. A transition
+> is buildable only if a restart between any two calls converges through its endpoint plan; downtime then
+> delays automation rather than breaking state.
 
 This is the stateless reducer (`design/architecture.md` §4.1) plus the sweeper (§2) read as an availability
-story: GitHub holds all state, missed webhooks heal on the next sweep, crashes are absorbed by
-idempotency. Everything follows from it:
+story: GitHub holds all state, missed webhooks heal on the next sweep, and crashes are absorbed only by
+transitions whose endpoint plans pass the recovery gate in `design/architecture.md` §4. Everything follows
+from it:
 
 - **No pager.** Operator response time is business-hours; an outage costs a delay in labels moving.
-- **Exactly one instance** *(proposed)* — the per-item serializer stays an in-process queue; a second
-  instance would reintroduce the race it exists to kill. **Overturned by:** growth past §4's
-  arithmetic, at which point the queue moves behind the shell, changing no module.
-- **Restart is the recovery tool.** There is no state to reconcile.
+- **Exactly one active instance, with no rolling overlap** *(proposed)* — the per-item serializer stays
+  an in-process queue; a second active instance can pass the same `expect` because GitHub offers no
+  compare-and-swap for these mutations (`design/architecture.md` §4). Deployment therefore stops the old
+  process before starting the new one. Before build, the selected hosting vehicle must name and test the
+  stop-before-start mechanism and verifiable active-replica count; if it cannot, D1 is overturned rather than
+  treating singleton operation as wishful configuration.
+  **Overturned by:** growth or availability requirements past §4's arithmetic, at which point durable
+  coordination moves behind the shell, changing no module and reopening D1.
+- **Restart plus sweep is the recovery tool.** There is no app-owned state to restore; the new process
+  re-observes GitHub. Compound effects recover only when their endpoint plan passes the partial-prefix
+  gate in `design/architecture.md` §4.
 - **Safe to shed, too:** the shell's queues are bounded — an event storm (a bulk-label import, 500
   webhooks at once) is shed past the bound and healed by the next sweep. Correctness never depends
   on processing any particular event (`threat-model.md` §3.4).
@@ -128,6 +137,9 @@ The decisions this fixes:
 | webhook outage | operator | delivery-lag metric; sweeps heal meanwhile |
 | poison item (processing crashes repeatedly) | operator | telemetry + skip; narrated only if a human is visibly waiting |
 | GitHub 5xx | nobody (retry) → operator if sustained | adapter retry + telemetry |
+| command transition remains `unknown` or partial | commenter | reply with the observed state and the safe next action |
+| background transition remains `unknown` or partial after a later sweep | operator | telemetry + decision log; the item is skipped, never guessed at |
+| active-process overlap detected by the selected hosting control | operator | deployment failure + telemetry; no item processing starts |
 
 The three repo-facing mechanisms, all inside the existing three scopes:
 
@@ -138,9 +150,10 @@ The three repo-facing mechanisms, all inside the existing three scopes:
   ("Automation health"): what is wrong, what runs meanwhile, the one-line fix; closed by the app when
   clear. Degradation is scoped and loud: a broken module block disables that module; a broken top
   level runs safe defaults. Never last-known-good — there is no memory to be good from.
-- **Command acks** — 👀 on intake (webhook, seconds), then ✅ or a reply explaining refusal. The
-  reaction doubles as the processed-marker, so the sweep finds and runs un-acked commands after
-  downtime — commands are durable with no store.
+- **Command acks** — 👀 means received, never completed. Before a compound command effect, the core writes
+  and verifies pending identity in the marker-keyed ack projection; ✅ is written only after the whole
+  postcondition is observed, or a reply explains refusal/`unknown`. The sweep finds both unreceived commands
+  and received-but-incomplete records, so receipt cannot hide a crash (`design/architecture.md` §4).
 
 ## 6. Telemetry, secrets, retention
 
@@ -161,9 +174,9 @@ injection through the app's voice, config as weapon, compromised accounts and ke
 1. **Adapter** (`design/architecture.md` §4): token bucket, write pacer, retry policy — budgets at the one
    door, nowhere else.
 2. **Shell** (`design/architecture.md` §2): single instance explicit; sweep jitter; command 👀-acks and the
-   un-acked-command scan.
+   unreceived-or-incomplete command scan.
 3. **Projections** (`design/architecture.md` §4): three new kinds — health issue, config PR comment, command
-   acks (the reaction-as-marker is the same sanctioned metadata carve-out as the safety engine's).
+   acks (ack transition identity and safety transition identity remain the two sanctioned metadata carve-outs).
 4. **Module contract** (`design/architecture.md` §5): *unchanged* — costs metered, not declared (§4).
 5. **Config** (`design/config/schema.md` §3): cadence joins the not-configurable list.
 6. **Tests** (`design/testing/README.md`): replay gate added; ring 0 = the E2E sandbox.

@@ -3,8 +3,8 @@
 > **Drafted — the exit from design into code (roadmap Track C1).** This is the core's public API as
 > modules see it, written *against* the six core docs; the type signatures are deliberately the
 > forcing function, and where a signature was hard to write, the exposed ambiguity is named in §5.
-> Also fixes the **one-winner serializer/idempotency semantics** `design/architecture.md` §10 left
-> open (§3). TypeScript is illustrative-but-binding: shapes are the contract, identifier spelling is
+> Also fixes the **serializer/convergence semantics** `design/architecture.md` §10 left open (§3).
+> TypeScript is illustrative-but-binding: shapes are the contract, identifier spelling is
 > refined at build.
 
 ## 1. The declaration — five fields answering the four tangles
@@ -42,9 +42,9 @@ interface Core<D extends ModuleDeclaration> {
 interface TransitionRequest<E extends Edge> {
   item: ItemRef;
   edge: E;
-  expect: ObservedState;   // what the module saw — the compare-and-set token (§3)
+  expect: ObservedState;   // what the module saw — an in-process admission guard, not a GitHub CAS (§3)
   cause: DatedFact;        // the dated fact justifying it — the newer-fact rule's input
-  effects?: { assign?: Login; unassign?: Login };   // coupled facts move in the same transition (A3)
+  effects?: { assign?: Login; unassign?: Login };   // whole target; endpoint calls are not atomic (A3)
 }
 ```
 
@@ -53,12 +53,15 @@ runtime as the boundary backstop (`design/architecture.md` §3, §5). `cause` is
 newer-fact rule (`design/core/manual-edits.md` §4) a field, not a convention — a request that cannot
 name its dated fact cannot be expressed.
 
-## 3. TransitionResult — the one-winner semantics, executable
+## 3. TransitionResult — admission and convergence, executable
 
 ```ts
 type TransitionResult =
-  | { outcome: 'applied' }                       // this request won; labels + effects written
-  | { outcome: 'already' }                       // target was current — idempotent success
+  | { outcome: 'applied' }                       // acknowledged calls + whole target verified; not a global winner
+  | { outcome: 'already' }                       // whole target observed; causation is not claimed
+  | { outcome: 'unknown'; reason:
+        'postcondition-unreadable'                // an ambiguous response could not be resolved by a read
+      | 'partial-effect' }                        // some calls landed; safe completion is not currently provable
   | { outcome: 'deferred'; until: Iso8601 }      // destructive: safety warned, grace running
   | { outcome: 'refused'; reason:
         'stale'         // expect ≠ current state — re-observe and retry if still warranted
@@ -67,13 +70,33 @@ type TransitionResult =
       | 'illegal' };    // edge not legal from current position — a contract bug, telemetry only
 ```
 
-The **one-winner invariant**, stated precisely (this closes `design/architecture.md` §10's open
-item): the shell's per-item serializer totally orders requests per item; each is validated against
-current observed state inside its turn, compare-and-set style via `expect`. For N concurrent
-conflicting requests: **exactly one** returns `applied`; others return `already` (same target) or
-`refused: stale` (different target). The app's own write, echoing back later as a webhook, resolves
-to `already`. `deferred` is how safety composes: the sweep re-derives the condition next pass and
-re-requests; after the grace elapses the same request returns `applied` — no module tracks timers.
+Inside the sole active process, the per-item serializer totally orders requests. The core reloads
+current state inside each turn and validates `expect` before writing. For conflicting requests queued
+in that process, the first still warranted request may return `applied`; later requests return
+`already` for the same target or `refused: stale` for a different target. The app's own write,
+echoing later as a webhook, resolves to `already`.
+
+That is an **admission guarantee, not distributed compare-and-set**. A second process can pass the
+same guard before either write is visible. D18 therefore requires a single active process with no
+rolling overlap; if active-active becomes a requirement, the serializer needs durable coordination
+and D1 is reopened. Same-target duplicates can still converge through idempotent endpoint calls, but
+the contract makes no exactly-one-`applied` claim across processes.
+
+For a compound transition, `effects` describes the whole desired target rather than an atomic write.
+The transition's endpoint plan must define the ordered calls, each observable partial prefix, and safe
+completion from that prefix under the newer-fact rule (`design/architecture.md` §4). `applied` is returned
+only after the whole target is verified. `already` covers a target observed before writing or after an
+ambiguous response. `unknown` is returned when observation fails or a partial target cannot yet be
+completed safely; modules do not retry it, and a later observation or sweep re-enters normal decision
+logic. A transition with no GitHub-observable, unambiguous recovery path cannot ship under D1.
+For the required single-assignee assign/unassign pair, the concrete endpoint plans are fixed in
+`design/architecture.md` §4. Recovery requires both the verified pending projection record, which identifies
+the transition and `cause`, and matching App-attributed timeline events, which identify the calls that landed.
+Human-created lookalike states do not qualify; they retain `design/core/manual-edits.md`'s semantics and Q5
+remains open.
+
+`deferred` is how safety composes: the sweep re-derives the condition next pass and re-requests; after
+the grace elapses the target can be satisfied — no module tracks timers.
 
 ## 4. The module runtime, and the fake core for free
 

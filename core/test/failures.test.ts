@@ -48,9 +48,10 @@ describe("classifyFailure (the matrix failure catalogue, executable)", () => {
         expect(classifyFailure(both).kind).toBe("secondaryLimit");
     });
 
-    it("401 splits on the expiry marker (expired-token body per GitHub docs; probe pins the exact shape)", () => {
-        expect(classifyFailure({ status: 401, body: '{"message":"This installation access token has expired."}', headers: {} }).kind).toBe("tokenExpired");
-        expect(classifyFailure({ status: 401, body: '{"message":"Bad credentials"}', headers: {} }).kind).toBe("badCredentials");
+    it("401 splits on LOCAL token age, never the body — an expired token returns the same body as a wrong key (probe `…T21-52-06-572Z#1`)", () => {
+        const observedExpiredBody = '{"message":"Bad credentials","documentation_url":"https://docs.github.com/rest","status":"401"}';
+        expect(classifyFailure({ status: 401, body: observedExpiredBody, headers: {}, tokenPastExpiry: true }).kind).toBe("tokenExpired");
+        expect(classifyFailure({ status: 401, body: observedExpiredBody, headers: {} }).kind).toBe("badCredentials");
     });
 
     it("404 is one class on purpose: existence is hidden, not-installed and nonexistent are indistinguishable (6.6 probe)", () => {

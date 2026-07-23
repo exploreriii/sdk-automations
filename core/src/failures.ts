@@ -15,6 +15,15 @@ export interface FailureObservation {
     readonly status: number;
     readonly body: string;
     readonly headers: Readonly<Record<string, string | undefined>>;
+    /**
+     * Whether the caller's token was already past its minted
+     * `expires_at` when the request was sent. REQUIRED for correct 401
+     * classification: an expired installation token returns the exact
+     * same body as a wrong key (`"Bad credentials"` — observed
+     * 2026-07-23, citation `…T21-52-06-572Z#1`), so expiry is
+     * distinguishable ONLY by this local fact, never by the response.
+     */
+    readonly tokenPastExpiry?: boolean;
 }
 
 export type FailureClass =
@@ -40,9 +49,10 @@ export type FailureClass =
 export function classifyFailure(o: FailureObservation): FailureClass {
     const body = o.body;
     if (o.status === 401) {
-        // Distinguisher per GitHub's documented expiry body; observed
-        // shape to be pinned by the 6.1 expired-token probe.
-        return /token.*expired/i.test(body)
+        // The 6.1 probe falsified body-based detection: an expired
+        // token and a wrong key both return "Bad credentials". Local
+        // token age is the only distinguisher.
+        return o.tokenPastExpiry === true
             ? { kind: "tokenExpired" }
             : { kind: "badCredentials" };
     }

@@ -38,7 +38,7 @@ observed at least once:
 
 | Failure | Status / body marker | Distinguishable from | Citation |
 |---|---|---|---|
-| Token expired | | bad credentials | |
+| Token expired | 401, body `"Bad credentials"` — **identical to a wrong key; NOT distinguishable from the response.** The only distinguisher is local: the `expires_at` returned at mint time. Adapters must track token age and treat any 401 on a stale token as expiry (refresh and retry) | bad credentials (same body — the distinction exists only in local state) | `2026-07-23T21-52-06-572Z#1` |
 | Permission missing | 403, `Resource not accessible by integration`, `x-accepted-github-permissions` names the grant. **Private repos only — public-repo reads succeed without the grant** | suspended | `2026-07-23T18-40-40-043Z#3` (private), `2026-07-23T18-34-51-975Z#4` (public 200) |
 | Installation suspended | 403, body "This GitHub App installation is currently suspended", **no** `x-accepted-github-permissions` header | permission missing (which has the header and a different body) | `2026-07-23T18-46-45-624Z#5` |
 | Repo outside installation | **404 `Not Found`** — existence hidden; indistinguishable from a nonexistent repo | permission missing (403 on a repo the App *is* installed on) | `2026-07-23T19-52-01-085Z#3` |

@@ -20,9 +20,7 @@ it applies that intent. A capability cannot use the adapter to bypass these chec
 
 ```mermaid
 flowchart TB
-    H["GitHub reports a human label edit"] --> HC{"Is the mapped state clear?"}
-    HC -->|"Yes"| HO["Capabilities evaluate the new observation"]
-    HC -->|"No"| HP["The configured conflict policy pauses or advises"]
+    H["GitHub reports a human label edit"] --> HO["Capabilities evaluate the current observation"]
     C["A capability returns an intent"] --> PC{"Does policy still allow it?"}
     PC -->|"Yes"| A["The executor applies and verifies the effect"]
     PC -->|"No"| N["The executor records a no-op or conflict"]
@@ -40,25 +38,27 @@ reordered. Useful evidence may include the label event timestamp, the command co
 review timestamp, or a repository-owned version value.
 
 If reliable ordering evidence is unavailable, the safe default is to return a conflict and do nothing.
-The App may explain the conflict through a managed comment when the repository has enabled that output.
+The App adds or updates one managed explanation only when a maintainer can act on the conflict and the
+repository enabled that output. Otherwise the conflict remains in operator diagnostics without a repository
+comment.
 
 This default does not prevent a repository from choosing a stricter policy later. Any strict gate must be
 explicitly configured, clearly explained, and tested as a separate policy. It must not appear as an
 undocumented platform default.
 
-## 3. The App must classify the observed state before writing
+## 3. Keep the first conflict policy small
 
-The following table is a candidate policy for mapped position labels. It is not a universal rule for all
-repositories.
+The first version does not automatically repair combinations of mapped positions. It follows four rules.
 
-| Observation | Candidate meaning | Safe default |
-|---|---|---|
-| Exactly one mapped position is present. | The item has a clear managed position. | Capabilities may evaluate it normally. |
-| More than one mapped position is present and their order is reliable. | A person or an interrupted effect created a conflict. | Keep the newest human choice and remove an older App-owned choice only if configuration allows that repair. |
-| More than one mapped position is present and their order is unclear. | The App cannot prove which position is intended. | Pause position-changing automation and ask a maintainer to choose. |
-| A mapped position conflicts with another required fact. | The item may be incomplete or may reflect a deliberate exception. | Preserve the position and let each capability fail its own precondition. Do not invent the missing fact. |
-| An unknown label is present. | The label belongs to the repository or another tool. | Ignore it and never remove it. |
-| No mapped position is present. | The repository may be managing this item manually. | Do not add a position unless an enabled capability has a separate, configured reason to do so. |
+1. It leaves unknown and unrelated labels alone.
+2. It does not guess which position a person intended.
+3. It does not replace a newer human choice with an older automation decision.
+4. It changes a mapped position only when an enabled capability has a current, configured reason and every
+   write precondition still holds.
+
+When these rules cannot prove that a write is safe, the App returns a conflict and leaves the item unchanged.
+Detailed conflict categories and automatic repairs can be added later if a selected capability demonstrates
+a need for them.
 
 The App owns only the exact labels listed in the selected mapping. It does not own a prefix such as
 `status:`. It must never search for a prefix and remove every matching label because that could destroy
@@ -82,9 +82,12 @@ reason the storage decision remains open.
 
 ## 5. A blocked item requires an explicit policy
 
-A repository may map a `blocked` label or another blocking signal. The profile must state whether blocking
-pauses every enabled capability or only named capabilities. The platform must not silently assume that one
-meaning fits every repository.
+The Hiero contribution profile includes the internal `blocked` meaning and uses `status: blocked` as its
+expected label. A repository may explicitly map that same meaning to an existing label, but normal event
+processing does not invent or create a new blocking label.
+
+The profile must state whether blocking pauses every enabled capability or only named capabilities. The
+platform must not silently assume that one behavior fits every repository.
 
 If the profile chooses a complete pause, the App performs no item-level writes while the block is present,
 including conflict repairs and managed-comment updates. Operator alerts and security controls may still
@@ -115,8 +118,8 @@ The conformance suite for a position-writing capability must cover at least thes
 
 1. A newer human position survives an older scheduled or webhook-driven intent.
 2. An unknown repository label is never read as a position and is never removed.
-3. Two mapped positions with reliable ordering follow the configured conflict policy.
-4. Two mapped positions without reliable ordering cause no destructive repair.
+3. More than one mapped position causes no automatic repair in the first version.
+4. A conflict produces at most one actionable managed explanation and no repeated comments.
 5. A missing assignee, pull request, review, or other precondition is not invented automatically.
 6. A disabled capability performs no reads or writes beyond shared event routing and configuration checks.
 7. A redelivered event produces the same final state without duplicate comments or repeated side effects.
@@ -131,9 +134,15 @@ the older writer. Actor detection can reduce accidental conflicts, but it cannot
 migration. The rollout plan must name the old writer, the new writer, the handover step, and the rollback
 step for every managed output.
 
+If a maintainer renames a mapped label, the affected capability stops label-changing work and reports the
+broken mapping. The App does not recreate the old label, guess the new name, or change existing items. Work
+resumes only after maintainers update the mapping and complete any required migration. Intents created under
+the old configuration revision are no longer valid.
+
 ## 10. Open decisions
 
-The project still needs maintainer decisions about the default conflict policy, the meaning of a blocked
-signal, the cost of timeline reads, the evidence used to order edits, and the operational state required
-for multi-call recovery. These decisions should be tested in a Hiero Hackers sandbox before they become a
-promise to another Hiero repository.
+The project still needs maintainer decisions about whether the Hiero profile pauses all or named
+capabilities while blocked, the cost of timeline reads, the evidence used to order edits, and the
+operational state required for multi-call recovery. Automatic conflict repair remains deferred until a
+selected capability demonstrates a need for it. These decisions should be tested in a Hiero Hackers sandbox
+before they become a promise to another Hiero repository.

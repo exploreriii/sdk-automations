@@ -32,7 +32,8 @@ These names are internal identifiers. They are not required GitHub label strings
 ## 3. Example Hiero mappings
 
 The following mappings preserve the current C++ spelling and are useful defaults for repositories that want
-the full profile.
+the full profile. The profile includes `blocked` as an expected meaning with `status: blocked` as its default
+label.
 
 | Meaning | Example label |
 |---|---|
@@ -46,6 +47,10 @@ the full profile.
 
 The configuration validator must confirm mappings before activation. The App removes only the exact mapped
 label that an approved operation owns. It never removes every label whose name begins with `status:`.
+
+A repository may explicitly map the internal `blocked` meaning to an existing label, but it cannot replace
+that meaning with a different policy concept or ask normal event processing to create an arbitrary new
+label.
 
 ## 4. Candidate issue flow
 
@@ -139,4 +144,5 @@ an enabled profile requires and validates that namespace.
 - Assignment maintainers must decide the multiple-assignee behavior.
 - Review maintainers must decide whether `readyToMerge` is stored or derived.
 - Repositories that want a skill ladder must decide its scope and completion policy.
-- The project must decide whether setup creates labels or requires repositories to provision them.
+- The first version requires repositories to provision mapped labels. A later explicit setup operation may
+  be considered separately.

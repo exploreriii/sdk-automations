@@ -21,7 +21,7 @@ The register uses the following status values.
 | Identifier | Principle | Evidence |
 |---|---|---|
 | P1 | The product is one hosted GitHub App with repository-selected capabilities. | The accepted proposal and `planning/goals.md` support this direction. |
-| P2 | A repository must explicitly enable every workflow-changing capability. | Maintainer consent and the different C++, Python, and JavaScript workflows require explicit opt-in. |
+| P2 | A repository must explicitly enable every workflow-changing capability, and every user-facing capability defaults to off. | Maintainer consent and the different C++, Python, and JavaScript workflows require explicit opt-in. |
 | P3 | A capability does not call or import another capability. | The coupling audit shows that direct and hidden sibling contracts are difficult to test and change. |
 | P4 | A capability receives only its own configuration and a narrow platform interface. | The C++ shared-config coupling and GitHub API mock drift support a smaller boundary. |
 | P5 | GitHub remains authoritative for visible repository facts. | Labels, assignees, reviews, comments, and open or closed state must continue to reflect human edits. |
@@ -82,7 +82,7 @@ that older text cannot be mistaken for approval.
 | Q11 | Is the App installed only on selected repositories or more broadly with repository configuration as a second gate? | Organization governance must decide. | Installation guidance is blocked. |
 | Q12 | Which implementation documents should be written alongside working code? | The first implementation work packet must decide. | This question does not block feasibility work. |
 | Q13 | Who owns architecture review, the development App, the platform components, testing, and rollout? | Sophie and the project maintainers must name owners. | Committed dates and production work are blocked. |
-| Q14 | What configuration path, format, inheritance rule, and schema migration policy should the App use? | The configuration design and sandbox test must decide. | The configuration implementation is blocked. |
+| Q14 | What path, strict YAML schema, and schema migration policy should the App use? | The configuration design and sandbox test must decide. Inheritance is deferred from the first version. | The configuration implementation is blocked. |
 | Q15 | What minimum owned operational storage is required, and which technology should provide it? | The webhook and effect recovery experiments must decide. | Production recovery and hosting design are blocked. |
 | Q16 | What exact narrow operations and typed results belong in the first adapter? | The first capability and endpoint matrix must decide. | The adapter implementation is blocked. |
 

@@ -1,8 +1,8 @@
 # Repository Configuration Proposal
 
-> This document describes the first configuration requirements. The exact file name, JSON or YAML format,
-> inheritance syntax, and final schema are open decisions. The implementation must validate the chosen format
-> against real repository examples before it becomes stable.
+> This document describes the first configuration requirements. The first version uses YAML with strict
+> schema validation. The exact file name and final schema still need validation against real repository
+> examples before they become stable.
 
 ## 1. Purpose
 
@@ -19,41 +19,39 @@ The configuration system must follow these rules.
 1. The App reads active configuration from the repository's default branch.
 2. No configuration causes no workflow-changing writes.
 3. A capability runs only when the repository explicitly enables it.
-4. Organization defaults may provide values, but they do not enable a capability for a repository.
+4. Every user-facing capability is optional and defaults to disabled.
 5. A capability receives only its own validated configuration block and the shared values that its contract
    declares.
 6. Invalid or outdated configuration fails closed and reports a clear error.
 7. Unknown keys are rejected so that misspellings do not silently change behavior.
-8. The App can report the effective value and source of every inherited setting.
+8. The App can report the active configuration revision and effective value of every setting.
 9. Configuration changes in a pull request do not become active until they reach the default branch.
 10. A repository can disable all writes without uninstalling the App.
 
 ## 3. Candidate shape
 
-The following YAML example shows the concepts that the first schema needs. It does not decide the final file
-format or every capability key.
+The following YAML example shows the concepts that the first schema needs. It does not decide every
+capability key.
 
 ```yaml
 schemaVersion: 1
 mode: observe
 
-extends:
-  repository: hiero-hackers/automation-defaults
-  revision: 4f3a2c1
-
 capabilities:
   prQuality:
     enabled: true
-    checks:
-      dco: true
-      mergeConflict: true
-      linkedIssue: true
-      gpg: false
+    settings:
+      checks:
+        dco: true
+        mergeConflict: true
+        linkedIssue: true
+        gpg: false
 
   assignment:
     enabled: false
-    maxOpenAssignments: 2
-    policyProfile: hiero-contributor-ladder
+    settings:
+      maxOpenAssignments: 2
+      policyProfile: hiero-contributor-ladder
 
 mappings:
   labels:
@@ -83,16 +81,22 @@ A global or installation-level kill switch always overrides repository mode.
 
 Every capability schema must declare the following information.
 
-- The schema declares whether the capability is enabled.
+- The schema declares whether the capability is enabled. Omitted capabilities and capabilities with
+  `enabled: false` are off.
 - The schema declares every key that the capability may read.
 - The schema provides safe ranges for numbers and time periods.
 - The schema identifies required mappings and principals.
 - The schema rejects incompatible settings before activation.
 - The schema declares the capability version when migration may change behavior.
 
-An empty capability block must not rely on surprising defaults. If a default can cause a workflow-changing
-write, the documentation must state it clearly and the repository must still explicitly enable the
-capability.
+Settings live under the capability's `settings` key so that enablement is easy to distinguish from policy.
+Settings under a disabled capability are dormant: they may remain in the file, but the capability performs
+no capability-specific evaluation, read, or write. The validator still rejects malformed settings so that
+enabling the capability later cannot silently activate an invalid value.
+
+An empty capability block must not rely on surprising defaults. A profile or default may fill in settings,
+but it must never enable a capability. If a default can cause a workflow-changing write after enablement,
+the documentation must state it clearly.
 
 ## 6. Stable meanings and repository mappings
 
@@ -111,42 +115,52 @@ The validator must check the following conditions before a capability becomes ac
 The App removes only the configured value that belongs to the requested meaning. It never removes values by
 matching a namespace prefix.
 
+In the first version, maintainers create required labels before activation. The App validates each mapped
+label and reports a missing or renamed label. It does not create a replacement, guess which label was
+renamed, or continue label-changing work for the affected capability.
+
 ## 7. Workflow profiles
 
-A workflow profile is a reviewed collection of defaults and compatibility rules. A profile may describe the
-current Hiero contribution workflow, including its suggested labels and skill policy.
+A workflow profile is a reviewed collection of settings, mappings, and compatibility rules. A profile may
+describe the current Hiero contribution workflow, including its suggested labels and skill policy.
 
 A profile does not automatically enable its capabilities. A repository still chooses the capabilities that
-it wants. The configuration report must show which values came from the profile and which values the
-repository overrode.
+it wants. Every user-facing capability remains optional.
 
 The skill ladder is an optional policy profile. A repository that does not enable it does not need skill
 labels, contribution history queries, or ladder thresholds.
 
-## 8. Inheritance
+The Hiero contribution profile includes the internal `blocked` meaning and suggests `status: blocked` as its
+expected mapping. A repository may explicitly map the same meaning to an existing label, but it cannot
+replace `blocked` with a different meaning or ask the App to create an arbitrary new label during normal
+event processing.
 
-Inheritance remains an open design question. Any accepted mechanism must satisfy the following safety rules.
+## 8. Effective configuration and later inheritance
 
-- The App resolves inheritance only from an approved organization or repository scope.
-- The active configuration identifies an immutable revision of inherited values.
-- The resolver detects missing sources, cycles, excessive depth, and inaccessible repositories.
-- A failed inheritance lookup does not fall back to a partially active configuration.
-- Organization defaults cannot silently enable a repository capability.
-- The effective-configuration report shows the complete merge result and its sources.
+The first version does not inherit configuration from another repository or organization. Each repository's
+default-branch YAML file is its complete source of configuration truth.
 
-The `_extends` behavior used by the prototype is useful evidence, but it is not automatically the final
-inheritance contract.
+The App validates that file and computes an effective configuration in memory. An evaluation records the
+repository configuration revision and a hash of the validated effective configuration so that an operator
+can tell which configuration produced a decision. A cache may keep the validated result, but the cache is
+not the source of truth.
+
+Inheritance may be considered later if several repositories demonstrate a real need for shared settings.
+Any later design must pin inherited values to an immutable revision, reject missing sources and cycles,
+show the complete merge result, and never enable a capability through inherited defaults.
 
 ## 9. Invalid configuration
 
-Invalid configuration must fail closed and must remain visible.
+Invalid configuration must fail closed and must remain visible to repository maintainers.
 
-The App should report errors while a pull request edits the configuration and again when invalid
-configuration is active on the default branch. The report should name the path, the rejected value, the
-reason, and the last behavior that remains safe.
+While a pull request edits configuration, the App reports validation through one configuration check on
+that pull request. If invalid configuration reaches the default branch, the App publishes or updates one
+repository configuration-health result for maintainers. The report names the path, rejected value, reason,
+and last behavior that remains safe.
 
-The first implementation must decide whether this report uses a managed comment, an issue, a check, or an
-operator channel. That choice depends on the final permission manifest.
+If missing permissions prevent repository reporting, the App sends the failure to its operator diagnostics.
+The sandbox experiment must confirm the exact GitHub check or health-report surface and the permission it
+requires.
 
 ## 10. Permission mismatch
 
@@ -163,18 +177,22 @@ The schema must define how repositories move between versions.
 
 - The system must reject unsupported future versions.
 - The system must explain deprecated keys before removing support for them.
-- A mapping change must account for items that still use the previous label or field.
+- A missing or renamed mapped label disables label-changing work for the affected capability and produces a
+  maintainer-visible configuration error.
+- The App does not recreate the old label, guess the replacement, or migrate existing items during ordinary
+  event processing.
+- A mapping change must account for items that still use the previous label or field through an explicit
+  migration and rollback plan.
 - A repository must be able to return to `observe` or `disabled` mode before a risky migration.
 - Configuration rollback must not cause the App to reverse newer human changes.
+- An intent evaluated under an older configuration revision becomes invalid when the mapping changes.
 
 ## 12. Questions that remain open
 
 The following questions require maintainer review and sandbox evidence.
 
-- The project must choose JSON or YAML and the final path under `.github/`.
-- The project must decide whether inheritance is needed in the first version.
-- The project must decide how inherited configuration is pinned and reviewed.
+- The project must choose the final YAML path under `.github/`.
 - The project must choose the first workflow profile and its ownership rules.
-- The project must decide whether labels are provisioned manually or by a separate setup command.
-- The project must define the effective-configuration report and the permission it requires.
+- The sandbox experiment must confirm the configuration check, repository health-report surface, and
+  permissions they require.
 - The project must define schema retention, migration, and rollback support.

@@ -21,7 +21,7 @@ of GitHub.
 | Capability conformance | The capability cannot use undeclared configuration, resolvers, intents, permissions, or sibling capabilities. | The layer uses the registry and type boundary. |
 | Adapter contract | Normalized reads and narrow writes match GitHub's documented and recorded behavior. | The layer uses recorded GitHub fixtures and selected sandbox calls. |
 | Effect recovery | Duplicate delivery, unclear responses, partial multi-call effects, restarts, and concurrent human edits converge safely. | The layer uses the real executor with controlled adapter failures. |
-| Configuration integration | Default-branch loading, inheritance, schema errors, effective values, permission mismatch, and rollback behave safely. | The layer uses repository fixtures and sandbox configuration changes. |
+| Configuration integration | Default-branch loading, strict YAML validation, dormant settings, schema errors, effective values, permission mismatch, and rollback behave safely. | The layer uses repository fixtures and sandbox configuration changes. |
 | Composition | Supported capability combinations preserve declared compatibility and ownership rules. | The layer uses the real platform and a fake adapter. |
 | End-to-end sandbox | The GitHub App installation, webhook, token, API, configuration, storage, and recovery path work together. | The layer uses a development App and personal sandbox. |
 | Replay and shadow | A new version evaluates recorded or live read-only observations without unexplained differences. | The layer uses sanitized audit records or approved shadow traffic. |
@@ -80,17 +80,19 @@ test fails when the executor guesses success from an API response without verify
 ## 6. Configuration matrix
 
 The configuration suite covers absent, empty, valid, invalid, unknown-key, outdated, and future-version
-files. It covers default-branch changes, pull-request-only changes, inheritance failure, mapping conflicts,
-missing fields, missing permissions, mode changes, and rollback.
+files. It covers default-branch changes, pull-request-only changes, disabled capabilities with dormant
+settings, mapping conflicts, missing or renamed labels, missing fields, missing permissions, mode changes,
+and rollback.
 
 The suite proves that no configuration and invalid configuration cause no workflow-changing writes. It also
-proves that organization defaults cannot silently enable a repository capability.
+proves that every capability remains off when omitted or explicitly disabled, including when a workflow
+profile provides settings.
 
 ## 7. Security tests
 
 The security suite covers invalid webhook signatures, replayed deliveries, command spam, forged markers,
-untrusted mentions and markup, oversized configuration, inheritance loops, permission reduction, queue
-saturation, and secret redaction.
+untrusted mentions and markup, oversized configuration, permission reduction, queue saturation, and secret
+redaction.
 
 The App never runs pull request code with its write credentials. Fork and private-repository behavior is
 tested with the development App before the corresponding capability is offered.

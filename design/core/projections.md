@@ -13,17 +13,18 @@ use normalized observations or declared resolvers instead of comment wording.
 
 ## 2. Managed comment identity
 
-A managed comment has a stable logical identity that includes the repository, item, capability, and comment
-kind. The platform may render that identity as an HTML comment marker, but it counts a marker only when the
-GitHub App authored the comment.
+A managed comment needs one short marker for its purpose on the current issue or pull request. For example:
 
-The managed-comment operation follows these steps.
+```html
+<!-- hiero-automation:v1:pr-quality:summary -->
+```
 
-1. The adapter searches the required comment pages and verifies App authorship.
-2. The adapter creates the comment when no managed comment exists.
-3. The adapter updates the existing comment when its normalized content changed.
-4. The adapter performs no write when the normalized content is identical.
-5. The adapter reports duplicate, edited, deleted, or unreadable managed comments as explicit outcomes.
+The marker contains a schema version, capability, and comment kind. The repository and item are already
+known from the comment's location. A marker counts only when the GitHub App authored the comment.
+
+The adapter finds the App-authored marker, creates the comment when it is missing, updates it when the
+content changed, and does nothing when the content is already current. Duplicate, edited, deleted, or
+unreadable comments remain explicit results for recovery.
 
 The personal-sandbox test must cover pagination, two simultaneous create attempts, a lost create response,
 an edited marker, a deleted comment, and a restart.

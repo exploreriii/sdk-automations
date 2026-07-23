@@ -36,8 +36,9 @@ There is a use case for maintainers to have a reliable, low cost way of automati
 1. **Each capability is separated by function.** A capability does not call or import another capability. Each one can be
    enabled or disabled on its own. Any compatibility rule must be declared and checked.
 2. **Every repository makes a configuration-driven choice.** A repository declares its choices in a reviewed file on its default
-   branch. No configuration means no workflow-changing writes. Organization defaults may provide values,
-   but they do not silently enable a capability.
+   branch. No configuration means no workflow-changing writes. Every user-facing capability defaults to off,
+   and profiles may provide settings without silently enabling one. The first version does not inherit
+   configuration from another repository or organization.
 3. **The project uses phased adoption.** The team starts with the shared App foundation, then adds capabilities that maintainers have
    asked for. Move from observation to reversible writes before any destructive action.
 4. **The App uses minimal and clearly explained permissions.** Each released product slice uses the smallest

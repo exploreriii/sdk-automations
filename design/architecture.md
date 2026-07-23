@@ -81,7 +81,8 @@ inactivity rule, or a review queue. Those are optional workflow policies.
 Configuration is reviewed repository intent. It is not a substitute for runtime state, delivery records, or
 telemetry.
 
-The first schema must support the following concepts, although the exact file format remains open.
+The first schema uses strictly validated YAML and supports the following concepts. The exact path and final
+schema still require sandbox validation.
 
 - The configuration declares a schema version.
 - The repository selects `disabled`, `observe`, `dry-run`, or `active` mode.
@@ -89,14 +90,15 @@ The first schema must support the following concepts, although the exact file fo
 - Each capability receives only its own configuration block.
 - Stable internal meanings may be mapped to repository labels, native fields, teams, users, or notification
   destinations.
-- Organization defaults may provide values, but they do not enable a capability for a repository that did
-  not opt in.
-- The system reports the source and effective value of inherited settings.
+- Every user-facing capability defaults to disabled and must be explicitly enabled.
+- Profiles may provide mappings and settings, but they do not enable a capability.
+- The first version does not inherit configuration from another repository or organization.
+- The system reports the active configuration revision and effective value of each setting.
 
 No configuration means that the App performs no workflow-changing writes. Invalid configuration fails
-closed and produces a clear report for the repository maintainers. The design must still decide the config
-path, JSON or YAML format, inheritance rules, default-branch revision, schema migration, and rollback
-behavior.
+closed and produces a clear report for the repository maintainers. The design must still decide the YAML
+path, default-branch revision handling, schema migration, and rollback behavior. Inheritance may be
+considered later if repeated repository configuration demonstrates a need.
 
 ## 5. Capabilities and workflow profiles
 
@@ -238,7 +240,8 @@ The following principles are strong enough to guide the next work.
 
 The following questions remain open.
 
-- The exact configuration format, path, inheritance model, and migration rules remain open.
+- The exact YAML path, schema migration rules, and rollback behavior remain open. Configuration inheritance
+  is deferred from the first version.
 - The exact capability list and first user-facing capability remain open.
 - The workflow profiles that Hiero repositories want remain open.
 - Durable production webhook intake is required, while the additional operational records and storage

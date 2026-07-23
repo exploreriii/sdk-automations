@@ -98,8 +98,8 @@ manual redelivery, bounded queues, and reconciliation after a missed event.
 ### 6.3 Configuration experiment
 
 The experiment will cover absent, valid, invalid, unknown, and outdated configuration. It will test a config
-change that exists only in a pull request, a default-branch update, inheritance failure, effective-config
-reporting, and a capability whose required permission is missing.
+change that exists only in a pull request, a default-branch update, strict YAML parsing, a disabled capability
+with dormant settings, effective-config reporting, and a capability whose required permission is missing.
 
 ### 6.4 Adapter experiment
 
@@ -129,8 +129,8 @@ decision, and an adapter contract that is small enough for the first capability.
 **Working window:** 22 August through 5 September 2026.
 
 Maintainers will review only the decisions needed for the first technical slice. The review will decide the
-configuration format, minimum storage, deployment model, first adapter operations, permission ceiling,
-repository mapping model, and first capability.
+YAML path and schema details, minimum storage, deployment model, first adapter operations, permission
+ceiling, repository mapping model, and first capability.
 
 The review will not attempt to settle every candidate capability or every Hiero workflow policy.
 

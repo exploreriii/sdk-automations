@@ -2,8 +2,8 @@
  * The vertical slice, closed: one delivery GitHub actually sent travels
  * webhook-payload → normalize → capability → screen → safety → report,
  * entirely in pure logic, through `decide()` (D92). Zero network, zero
- * mocks of GitHub — the payload is `fixtures/issues.opened.json` from the
- * 2026-08-07 capture session.
+ * mocks of GitHub — the payload is the testkit's `issues.opened.json` from
+ * the 2026-08-07 capture session.
  *
  * `scenario.test.ts` walks the same modules from a synthetic observation;
  * this file's whole point is that NOTHING here is synthetic until the
@@ -18,8 +18,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { capture } from "@hiero-hackers/automation-testkit";
 import {
     declareCapability,
     decide,
@@ -36,12 +35,7 @@ import {
 } from "../src/index.js";
 import { assertedWorld } from "../src/safety/world.js";
 
-const payload = JSON.parse(
-    readFileSync(
-        fileURLToPath(new URL("github/fixtures/issues.opened.json", import.meta.url)),
-        "utf8",
-    ),
-);
+const payload = capture("issues.opened.json").json();
 
 const declaration = declareCapability({
     name: "triage",

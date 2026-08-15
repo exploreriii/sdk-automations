@@ -8,7 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -23,17 +23,13 @@ import {
 } from "@hiero-hackers/automation-core";
 import { Store } from "@hiero-hackers/automation-store";
 import { intake, prQuality } from "@hiero-hackers/automation-probes";
+import { capture } from "@hiero-hackers/automation-testkit";
 import { createShell, fileConfigSource, stubbedExternals, type Shell } from "../src/index.js";
 
 const SECRET = "shell-slice-secret";
 const GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a69";
 const SECOND_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6a";
-const FIXTURE = readFileSync(
-    new URL(
-        "../test/github/fixtures/issues.opened.json",
-        import.meta.resolve("@hiero-hackers/automation-core"),
-    ),
-);
+const FIXTURE = capture("issues.opened.json").bytes();
 
 const CONFIG = `schemaVersion: 1
 mode: dry-run

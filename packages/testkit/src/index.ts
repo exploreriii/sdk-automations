@@ -1,0 +1,110 @@
+/**
+ * Test-only support shared by more than one package: the captured webhook
+ * payloads, and the temp-dir helper every package that touches disk rewrote.
+ *
+ * Fixtures are MODULE-MEDIATED, never path-read from outside this package.
+ * That is the `documents.ts` lesson (D82) stated as an interface: Stryker's
+ * sandbox is the mutated package's own directory, so a fixture read by path
+ * from somewhere above it is simply absent when the mutants run — the tests
+ * pass, kill nothing, and report 0.00%. A fixture reached through a package
+ * export travels with the dependency into the sandbox; a fixture reached
+ * through `../../other-package/test/…` does not. Hence `bytes()`/`json()`
+ * rather than an exported directory path: there is no path to leak.
+ *
+ * Deliberately absent: config and declaration builders. Core's tests are the
+ * ones that want them, and core cannot depend on a package that depends on
+ * core — the cycle the architecture check would reject on sight. A helper
+ * graduates here only when a SECOND package needs it.
+ */
+
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+/**
+ * One captured delivery, with the provenance that makes it evidence rather
+ * than a payload someone wrote. `synthetic: false` is a type-level claim: a
+ * hand-written payload could never be admitted to this array without the
+ * field going false-by-widening, which the compiler rejects.
+ */
+export interface WebhookCapture {
+    /** The fixture's filename, and the key `capture()` takes. */
+    readonly name: string;
+    /** The `X-GitHub-Event` header this delivery arrived under. */
+    readonly event: string;
+    /** The capture session's date (protocol 7.1). */
+    readonly capturedAt: string;
+    /** The capture protocol that scrubbed and reviewed it. */
+    readonly protocol: string;
+    /** Every capture here is a real delivery GitHub sent. */
+    readonly synthetic: false;
+    /**
+     * The raw bytes, as the shell's socket would have received them.
+     *
+     * `Buffer<ArrayBuffer>` rather than a bare `Buffer`: that is what
+     * `readFileSync` returns, and the narrower type is what lets a caller
+     * hand these bytes straight to `fetch` as a request body — a bare
+     * `Buffer` admits `SharedArrayBuffer` and `BodyInit` does not.
+     */
+    bytes(): Buffer<ArrayBuffer>;
+    /** The parsed payload, as the normalizer would be handed it. */
+    json(): unknown;
+}
+
+/** The 2026-08-07 session; every fixture in this package came from it. */
+const CAPTURED_AT = "2026-08-07";
+const PROTOCOL = "7.1";
+
+function makeCapture(name: string): WebhookCapture {
+    // The naming scheme IS the header: `<event>.<action>.json`. Recovering
+    // the event from the filename keeps one fact in one place.
+    const event = name.split(".")[0]!;
+    const bytes = (): Buffer<ArrayBuffer> =>
+        readFileSync(new URL(`../fixtures/${name}`, import.meta.url));
+    return {
+        name,
+        event,
+        capturedAt: CAPTURED_AT,
+        protocol: PROTOCOL,
+        synthetic: false,
+        bytes,
+        json: () => JSON.parse(bytes().toString("utf8")) as unknown,
+    };
+}
+
+/**
+ * Every capture the 7.1 session produced, listed rather than discovered: the
+ * list is an assertion about what evidence exists, and a directory read would
+ * quietly go empty — the vacuous-check shape `checks/` keeps finding.
+ */
+export const WEBHOOK_CAPTURES: readonly WebhookCapture[] = [
+    "issues.opened.json",
+    "issues.labeled.json",
+    "issues.closed.json",
+    "pull_request.opened.json",
+    "pull_request.closed.json",
+].map(makeCapture);
+
+/** One capture by filename. A typo names the alternatives rather than throwing ENOENT. */
+export function capture(name: string): WebhookCapture {
+    const found = WEBHOOK_CAPTURES.find((candidate) => candidate.name === name);
+    if (found === undefined) {
+        const available = WEBHOOK_CAPTURES.map((candidate) => candidate.name).join(", ");
+        throw new Error(`no captured fixture named ${name}; available: ${available}`);
+    }
+    return found;
+}
+
+/**
+ * Run `fn` against a fresh temporary directory and remove it afterwards,
+ * including when `fn` throws — the `finally` is the whole point, since the
+ * hand-rolled version in each suite leaked a directory on every failure.
+ */
+export function withTempDir<T>(prefix: string, fn: (dir: string) => T): T {
+    const dir = mkdtempSync(join(tmpdir(), prefix));
+    try {
+        return fn(dir);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}

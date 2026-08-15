@@ -17,7 +17,7 @@ Three eras (D87, D88):
 
 Tracked: `protocols/`, `src/`, `test/`. Never tracked: `harness/` (the era-1 code and private
 evidence archive), `evidence/` (capture staging), `.env` — enforced by `packages/checks/test/never-tracked.test.ts`,
-not just `.gitignore`. The lab tracks no evidence: reviewed captures go straight into core as
+not just `.gitignore`. The lab tracks no evidence: reviewed captures go straight into the testkit as
 fixtures, conclusions go to the register, and everything else stays local.
 
 ## The road ahead
@@ -28,7 +28,7 @@ flowchart LR
         capture["src/capture.ts — scrub, then write"] --> pending["evidence/pending/ (untracked)"]
         probes["era-3 probes (adapter era)"] --> results["probe-results.json"]
     end
-    pending -->|"a human reads every file"| fixtures["packages/core/test/github/fixtures/ — for events.ts"]
+    pending -->|"a human reads every file"| fixtures["packages/testkit/fixtures/ — for events.ts"]
     results -.->|"lock reads"| checks["checks/: probedAt matches latest run"]
     conclusions["every era's conclusions"] --> register["design/decisions.md"]
 ```
@@ -37,8 +37,9 @@ Next, in order, each on its trigger:
 
 - [ ] **7.1 first capture run** — when `events.ts` work starts. One payload per observation kind;
       the catalogue is the shopping list.
-- [ ] **Reviewed captures land directly in `packages/core/test/github/fixtures/`** — no waypoint: the
-      capture trigger IS the normalizer trigger, and fixtures live where they kill mutants.
+- [ ] **Reviewed captures land directly in `packages/testkit/fixtures/`** — no waypoint: the
+      capture trigger IS the normalizer trigger, and fixtures reach the packages that need them
+      through the testkit's export, so they travel into every mutation sandbox that consumes them.
 - [ ] **Era-3 conformance probes + schedule** — when the adapter ships. Re-verify `BODY_PATTERNS`
       and rate-limit semantics; stamp `probe-results.json`; add the `checks/` lock that reads it.
 

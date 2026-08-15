@@ -6,24 +6,20 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { asDeliveryGuid, toEngine, type EngineCapability } from "@hiero-hackers/automation-core";
 import { Store } from "@hiero-hackers/automation-store";
 import { intake, intakeDeclaration } from "@hiero-hackers/automation-probes";
+import { capture } from "@hiero-hackers/automation-testkit";
 import { Processor } from "../src/processor.js";
 import { stubbedExternals } from "../src/externals.js";
 import type { ConfigSource } from "../src/config.js";
 
 const GUID = asDeliveryGuid("94f5384a-ee9a-33a5-a3cd-6eb589fe2b7a")!;
 const SECOND_GUID = asDeliveryGuid("94f5384a-ee9a-33a5-a3cd-6eb589fe2b7b")!;
-const FIXTURE = readFileSync(
-    new URL(
-        "../test/github/fixtures/issues.opened.json",
-        import.meta.resolve("@hiero-hackers/automation-core"),
-    ),
-);
+const FIXTURE = capture("issues.opened.json").bytes();
 
 const CONFIG_TEXT = `schemaVersion: 1
 mode: dry-run

@@ -7,8 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { capture } from "@hiero-hackers/automation-testkit";
 import {
     decide,
     describeChange,
@@ -24,10 +23,7 @@ import {
     type RepositoryConfig,
 } from "../../src/index.js";
 
-const payload = (name: string): unknown =>
-    JSON.parse(
-        readFileSync(fileURLToPath(new URL(`../github/fixtures/${name}`, import.meta.url)), "utf8"),
-    );
+const payload = (name: string): unknown => capture(name).json();
 
 const declaration = declareCapability({
     name: "triage",

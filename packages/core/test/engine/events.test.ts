@@ -1,26 +1,23 @@
 /**
  * The normalizer, tested against what GitHub actually sent.
  *
- * The fixtures stay under `test/github/`, where the observed-GitHub facts
- * live; what a delivery BECOMES is this file's subject.
+ * The payloads live in the testkit now — two packages needed them, which is
+ * this repository's admission rule for shared test support — and they reach
+ * this file through its export rather than a path, so they travel into
+ * Stryker's sandbox with the dependency. What a delivery BECOMES is this
+ * file's subject.
  *
- * Every fixture there is a real delivery from the 2026-08-07
- * capture session (protocol 7.1), scrubbed and human-reviewed. No payload
- * here was written by hand, and that is the point: the assumptions worth
- * testing are the ones GitHub gets to falsify.
+ * Every capture is a real delivery from the 2026-08-07 capture session
+ * (protocol 7.1), scrubbed and human-reviewed. No payload here was written
+ * by hand, and that is the point: the assumptions worth testing are the ones
+ * GitHub gets to falsify.
  */
 
 import { describe, expect, it } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { WEBHOOK_CAPTURES, capture } from "@hiero-hackers/automation-testkit";
 import { normalizeDelivery, parseConfig, type RepositoryConfig } from "../../src/index.js";
 
-const fixturesDir = fileURLToPath(new URL("../github/fixtures/", import.meta.url));
-const fixture = (name: string): unknown =>
-    JSON.parse(readFileSync(join(fixturesDir, name), "utf8"));
-/** The event header, recoverable from the fixture naming scheme. */
-const eventOf = (name: string): string => name.split(".")[0]!;
+const fixture = (name: string): unknown => capture(name).json();
 
 function configWith(labels: Record<string, string>): RepositoryConfig {
     const result = parseConfig(
@@ -40,22 +37,27 @@ const config = configWith({
 });
 
 const observed = (name: string, cfg: RepositoryConfig = config) => {
-    const result = normalizeDelivery(eventOf(name), fixture(name), cfg);
+    const subject = capture(name);
+    const result = normalizeDelivery(subject.event, subject.json(), cfg);
     expect(result.kind, `${name} should normalize`).toBe("observation");
     if (result.kind !== "observation") throw new Error("unreachable");
     return result.observation;
 };
 
 describe("every captured fixture normalizes", () => {
-    it("the fixture directory is present and non-empty", () => {
-        const files = readdirSync(fixturesDir).filter((f) => f.endsWith(".json"));
-        expect(files.length).toBeGreaterThanOrEqual(5);
+    it("the capture set is present and non-empty", () => {
+        // Vacuity guard: an empty set would pass the `it.each` below in
+        // silence, which is the whole reason this assertion exists.
+        expect(WEBHOOK_CAPTURES.length).toBeGreaterThanOrEqual(5);
     });
 
-    it.each(readdirSync(fixturesDir).filter((f) => f.endsWith(".json")))("%s", (name) => {
-        const result = normalizeDelivery(eventOf(name), fixture(name), config);
-        expect(result.kind).toBe("observation");
-    });
+    it.each(WEBHOOK_CAPTURES.map((subject) => [subject.name, subject] as const))(
+        "%s",
+        (_name, subject) => {
+            const result = normalizeDelivery(subject.event, subject.json(), config);
+            expect(result.kind).toBe("observation");
+        },
+    );
 });
 
 describe("issues, through the real payloads", () => {

@@ -8,3 +8,4 @@ packages:
     - packages/probes
     - packages/lab
     - packages/shell
+    - packages/testkit

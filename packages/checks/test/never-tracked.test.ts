@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { lines, repoRoot } from "./helpers.js";
@@ -53,7 +53,7 @@ const tracked = (path: string): string[] =>
 /** `git check-ignore` exits 1 when the path is NOT ignored, so a throw is a false. */
 function ignored(path: string): boolean {
     try {
-        execSync(`git check-ignore -q -- ${JSON.stringify(path)}`, {
+        execFileSync("git", ["check-ignore", "-q", "--", path], {
             cwd: repoRoot,
             stdio: "ignore",
         });

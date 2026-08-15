@@ -7,14 +7,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { normalizeRepoPath, repoRoot, trackedFiles, workspacePackages } from "./helpers.js";
+import { markdownDocuments, repoRoot, sourceFiles, workspacePackages } from "./helpers.js";
 
 describe("documents cite files that exist", () => {
-    const docs = trackedFiles()
-        .filter((rel) => rel.endsWith(".md"))
-        .map((rel) => ({ doc: rel, text: readFileSync(join(repoRoot, rel), "utf8") }));
+    const docs = markdownDocuments();
 
     // Package alternation from the workspace file: a hardcoded list leaves a
     // new package's citations silently unchecked (D89's mutate glob again).
@@ -82,27 +80,9 @@ describe("documents cite files that exist", () => {
  * siting it, and the failure worth catching is a name referring to nothing.
  */
 describe("documents name files that exist", () => {
-    const sourceNames = new Set<string>();
-    // Package list from the workspace file; a hardcoded one leaves a newly
-    // arrived package's filenames unresolved and unchecked.
-    for (const pkg of workspacePackages()) {
-        for (const dir of ["src", "test"]) {
-            try {
-                for (const rel of readdirSync(join(repoRoot, pkg, dir), {
-                    recursive: true,
-                }) as string[]) {
-                    const normalized = normalizeRepoPath(rel);
-                    if (normalized.endsWith(".ts")) {
-                        sourceNames.add(normalized.split("/").pop()!);
-                    }
-                }
-            } catch {
-                // a package need not have both directories
-            }
-        }
-    }
+    const sourceNames = new Set(sourceFiles().map((path) => path.split("/").pop()!));
 
-    const docs = trackedFiles().filter((rel) => rel.endsWith(".md"));
+    const docs = markdownDocuments();
 
     const NAME = /(?<![\w/.-])([a-z][a-z0-9-]*\.ts)(?![\w-])/g;
 
@@ -126,8 +106,7 @@ describe("documents name files that exist", () => {
 
     it("every bare source filename in a document resolves to a real file", () => {
         const unknown: string[] = [];
-        for (const doc of docs) {
-            const text = readFileSync(join(repoRoot, doc), "utf8");
+        for (const { doc, text } of docs) {
             // D108 records a split whose extracted file was later deleted, and
             // the register is immutable; active documentation stays checked.
             const activeText =
@@ -160,27 +139,10 @@ describe("code cites decisions that exist", () => {
     const register = readFileSync(join(repoRoot, "design", "decisions.md"), "utf8");
     const recorded = new Set([...register.matchAll(/^\| (D\d+) \|/gm)].map((m) => m[1]!));
 
-    const sources: { file: string; text: string }[] = [];
-    // Package list from the workspace file, same reason as the check above.
-    for (const pkg of workspacePackages()) {
-        let rels: string[];
-        try {
-            rels = readdirSync(join(repoRoot, pkg, "src"), {
-                recursive: true,
-            }) as string[];
-        } catch {
-            continue; // a package need not have src/
-        }
-        for (const rawRel of rels) {
-            const rel = normalizeRepoPath(rawRel);
-            if (rel.endsWith(".ts")) {
-                sources.push({
-                    file: `${pkg}/src/${rel}`,
-                    text: readFileSync(join(repoRoot, pkg, "src", rel), "utf8"),
-                });
-            }
-        }
-    }
+    const sources = sourceFiles(["src"]).map((file) => ({
+        file,
+        text: readFileSync(join(repoRoot, file), "utf8"),
+    }));
 
     it("knows the register's rows and finds citations to check", () => {
         expect(recorded.size).toBeGreaterThan(50);

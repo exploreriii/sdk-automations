@@ -7,18 +7,13 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { BODY_PATTERNS } from "@hiero-hackers/automation-core";
-import { lines, normalizeNewlines } from "./helpers.js";
-
-const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
-const tracked = (path: string): string[] =>
-    lines(execSync(`git ls-files -- ${path}`, { cwd: repoRoot, encoding: "utf8" })).filter(Boolean);
+import { normalizeNewlines, repoRoot, trackedFiles } from "./helpers.js";
 
 describe("the perishable-facts provenance table matches the code", () => {
+    const tracked = new Set(trackedFiles());
     const readme = normalizeNewlines(
         readFileSync(join(repoRoot, "packages/core/src/github/README.md"), "utf8"),
     );
@@ -50,9 +45,9 @@ describe("the perishable-facts provenance table matches the code", () => {
         expect(named.length).toBeGreaterThan(2);
         for (const name of named) {
             expect(
-                tracked(`packages/core/src/github/${name}`),
+                tracked.has(`packages/core/src/github/${name}`),
                 `${name} exists and is tracked`,
-            ).toHaveLength(1);
+            ).toBe(true);
         }
     });
 });

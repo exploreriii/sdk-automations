@@ -7,9 +7,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { lines, normalizeRepoPath, repoRoot, trackedFiles } from "./helpers.js";
+import { lines, markdownDocuments, normalizeRepoPath, repoRoot } from "./helpers.js";
 
 /** `[text](target)` — the target only, before any `#anchor` or title. */
 const LINK = /\]\(([^)\s]+)/g;
@@ -38,12 +38,7 @@ export function danglingLinks(doc: string, text: string): string[] {
 }
 
 describe("markdown links resolve from the document that carries them", () => {
-    const docs = trackedFiles()
-        .filter((rel) => rel.endsWith(".md"))
-        .map((rel) => ({
-            doc: rel,
-            text: readFileSync(join(repoRoot, rel), "utf8"),
-        }));
+    const docs = markdownDocuments();
 
     it("finds documents and links to check", () => {
         expect(docs.length).toBeGreaterThan(5);

@@ -2,10 +2,9 @@
  * The one timestamp the store accepts, and the ordering property that
  * rests on it.
  *
- * Every `<=` in `deliveries.ts`, `effects.ts` and `schedules.ts` is a
- * SQLite string comparison over values validated here, which is why this
- * file imports nothing: all three concerns depend on it and it depends on
- * none of them.
+ * Every `<=` in `store.ts`'s SQL is a SQLite string comparison over
+ * timestamps validated here, which is why this file imports nothing: the
+ * transitions depend on it and it depends on none of them.
  */
 
 /**
@@ -13,7 +12,7 @@
  * `Date.toISOString()` shape — millisecond precision, `Z` suffix.
  *
  * Constant width is what makes lexicographic order chronological order,
- * and every `<=` comparison in this package relies on that. Mixed precision
+ * and every `<=` comparison in `store.ts` relies on that. Mixed precision
  * breaks it: `"…00Z" > "…00.500Z"` as strings, but earlier in time,
  * because `'Z'` sorts above `'.'`. An offset format sorts wrongly
  * outright. Both are caller bugs, so both throw rather than misorder.

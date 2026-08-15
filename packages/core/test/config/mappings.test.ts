@@ -7,27 +7,15 @@
 
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
-import {
-    MAPPABLE_MEANINGS,
-    meaningOfLabel,
-    meaningsOfLabels,
-    parseConfig,
-    type RepositoryConfig,
-} from "../../src/config/index.js";
-
-function configWith(labels: Record<string, string>): RepositoryConfig {
-    const result = parseConfig(
-        { schemaVersion: 1, mode: "active", capabilities: {}, mappings: { labels } },
-        { revision: "rev-test", knownCapabilities: [] },
-    );
-    if (!result.ok) throw new Error(result.errors.map((e) => e.code).join(","));
-    return result.config;
-}
+import { MAPPABLE_MEANINGS, meaningOfLabel, meaningsOfLabels } from "../../src/config/index.js";
+import { configWith } from "./builders.js";
 
 const config = configWith({
-    awaitingTriage: "status: triage",
-    ready: "Status: Ready for Dev",
-    blocked: "status: blocked",
+    labels: {
+        awaitingTriage: "status: triage",
+        ready: "Status: Ready for Dev",
+        blocked: "status: blocked",
+    },
 });
 
 describe("meaningOfLabel", () => {
@@ -52,13 +40,13 @@ describe("meaningOfLabel", () => {
         // match these, a lower-folding one must not. This is also the pin
         // that keeps the shared fold in step with the validator's collision
         // judgment — the two must never diverge.
-        const de = configWith({ ready: "straße" });
+        const de = configWith({ labels: { ready: "straße" } });
         expect(meaningOfLabel(de, "STRASSE")).toBeNull();
         expect(meaningOfLabel(de, "STRAßE")).toBe("ready");
     });
 
     it("an empty mapping finds nothing at all", () => {
-        const bare = configWith({});
+        const bare = configWith();
         expect(meaningOfLabel(bare, "status: triage")).toBeNull();
     });
 });
@@ -87,9 +75,9 @@ describe("meaningsOfLabels", () => {
     });
 
     it("round-trips every mapped meaning through its own label", () => {
-        const everything = configWith(
-            Object.fromEntries(MAPPABLE_MEANINGS.map((m) => [m, `lbl ${m}`])),
-        );
+        const everything = configWith({
+            labels: Object.fromEntries(MAPPABLE_MEANINGS.map((m) => [m, `lbl ${m}`])),
+        });
         const labels = MAPPABLE_MEANINGS.map((m) => `lbl ${m}`);
         expect(meaningsOfLabels(everything, labels)).toEqual([...MAPPABLE_MEANINGS]);
     });

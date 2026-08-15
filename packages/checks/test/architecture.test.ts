@@ -414,14 +414,11 @@ describe("source imports follow the layer policy, checked by dependency-cruiser"
 const RESOLVE_REACH = /import\.meta\.resolve\(\s*["'`]@hiero-hackers\//;
 
 /**
- * The two exemptions: both transpile core's `github/ids.ts` into a scratch
+ * The one exemption: it transpiles core's `github/ids.ts` into a scratch
  * directory so a `node:worker_threads` contender can import it. An exact set
- * rather than an empty one, so the array empties itself when they stop.
+ * rather than an empty one, so the array empties itself when it stops.
  */
-const RESOLVE_REACH_ALLOWED: readonly string[] = [
-    "packages/store/test/delivery-finalization.test.ts",
-    "packages/store/test/delivery-intake.test.ts",
-];
+const RESOLVE_REACH_ALLOWED: readonly string[] = ["packages/store/test/worker-build.ts"];
 
 function resolveReaches(sources: readonly { path: string; text: string }[]): string[] {
     return sources

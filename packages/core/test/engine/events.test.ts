@@ -15,25 +15,19 @@
 
 import { describe, expect, it } from "vitest";
 import { WEBHOOK_CAPTURES, capture } from "@hiero-hackers/automation-testkit";
-import { normalizeDelivery, parseConfig, type RepositoryConfig } from "../../src/index.js";
+import { normalizeDelivery, type RepositoryConfig } from "../../src/index.js";
+import { configWith } from "../config/builders.js";
 
 const fixture = (name: string): unknown => capture(name).json();
 
-function configWith(labels: Record<string, string>): RepositoryConfig {
-    const result = parseConfig(
-        { schemaVersion: 1, mode: "active", capabilities: {}, mappings: { labels } },
-        { revision: "rev-test", knownCapabilities: [] },
-    );
-    if (!result.ok) throw new Error(result.errors.map((e) => e.code).join(","));
-    return result.config;
-}
-
 /** The capture-session sandbox's mapping — matches the labels provoked. */
 const config = configWith({
-    awaitingTriage: "status: triage",
-    ready: "status: ready",
-    needsReview: "status: needs review",
-    blocked: "status: blocked",
+    labels: {
+        awaitingTriage: "status: triage",
+        ready: "status: ready",
+        needsReview: "status: needs review",
+        blocked: "status: blocked",
+    },
 });
 
 const observed = (name: string, cfg: RepositoryConfig = config) => {
@@ -110,7 +104,7 @@ describe("issues, through the real payloads", () => {
     });
 
     it("an unmapped repository sees the same delivery as meaningless", () => {
-        const bare = configWith({});
+        const bare = configWith();
         const o = observed("issues.labeled.json", bare);
         expect(o.position).toMatchObject({
             kind: "position",

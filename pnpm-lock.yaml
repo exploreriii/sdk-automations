@@ -32,6 +32,9 @@ importers:
       '@hiero-hackers/automation-core':
         specifier: workspace:*
         version: link:../core
+      '@hiero-hackers/automation-testkit':
+        specifier: workspace:*
+        version: link:../testkit
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
@@ -151,6 +154,9 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@hiero-hackers/automation-testkit':
+        specifier: workspace:*
+        version: link:../testkit
       '@stryker-mutator/core':
         specifier: ^9.6.1
         version: 9.6.1(@types/node@24.13.3)

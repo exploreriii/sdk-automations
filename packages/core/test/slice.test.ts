@@ -26,7 +26,6 @@ import {
     explanationFinding,
     intentFactoryFor,
     normalizeDelivery,
-    parseConfig,
     problems,
     screenIntent,
     verdictFinding,
@@ -34,6 +33,7 @@ import {
     type EngineCapability,
 } from "../src/index.js";
 import { assertedWorld } from "../src/safety/world.js";
+import { configWith } from "./config/builders.js";
 
 const payload = capture("issues.opened.json").json();
 
@@ -52,19 +52,14 @@ const declaration = declareCapability({
     },
 });
 
-function configIn(mode: "active" | "dry-run") {
-    const result = parseConfig(
-        {
-            schemaVersion: 1,
-            mode,
-            capabilities: { triage: { enabled: true } },
-            mappings: { labels: { awaitingTriage: "status: triage" } },
-        },
-        { revision: "rev-slice-1", knownCapabilities: ["triage"] },
-    );
-    if (!result.ok) throw new Error("config must parse");
-    return result.config;
-}
+/** One repository, adopting triage and mapping the one label it needs. */
+const configIn = (mode: "active" | "dry-run") =>
+    configWith({
+        mode,
+        capabilities: ["triage"],
+        labels: { awaitingTriage: "status: triage" },
+        revision: "rev-slice-1",
+    });
 
 const externals: DecideExternals = {
     killSwitchActive: false,

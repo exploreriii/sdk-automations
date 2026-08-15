@@ -14,7 +14,6 @@ import {
     declareCapability,
     intentFactory,
     deriveIdempotencyKey,
-    parseConfig,
     problems,
     toEngine,
     type AnyIntent,
@@ -24,6 +23,7 @@ import {
     type Intent,
     type RepositoryConfig,
 } from "../../src/index.js";
+import { configWith } from "../config/builders.js";
 
 const payload = (name: string): unknown => capture(name).json();
 
@@ -71,19 +71,12 @@ const triage: EngineCapability = {
     },
 };
 
-function configIn(mode: "active" | "dry-run", enabled = true): RepositoryConfig {
-    const result = parseConfig(
-        {
-            schemaVersion: 1,
-            mode,
-            capabilities: { triage: { enabled } },
-            mappings: { labels: { awaitingTriage: "status: triage" } },
-        },
-        { revision: "rev-engine-1", knownCapabilities: ["triage"] },
-    );
-    if (!result.ok) throw new Error("config must parse");
-    return result.config;
-}
+const REV = "rev-engine-1";
+const TRIAGE_LABELS = { awaitingTriage: "status: triage" };
+
+/** One repository, adopting triage and mapping the one label it needs. */
+const configIn = (mode: "active" | "dry-run", enabled = true): RepositoryConfig =>
+    configWith({ mode, enabled, capabilities: ["triage"], labels: TRIAGE_LABELS, revision: REV });
 
 const externals: DecideExternals = {
     killSwitchActive: false,
@@ -168,19 +161,10 @@ describe("the gates, each visible in the report", () => {
      * instead of a skip.
      */
     it("a capability the file never mentions is never consulted either", async () => {
-        const unmentioned = parseConfig(
-            {
-                schemaVersion: 1,
-                mode: "active",
-                capabilities: {},
-                mappings: { labels: { awaitingTriage: "status: triage" } },
-            },
-            { revision: "rev-engine-1", knownCapabilities: [] },
-        );
-        if (!unmentioned.ok) throw new Error("config must parse");
+        const unmentioned = configWith({ labels: TRIAGE_LABELS, revision: REV });
         const decision = await decide(
             delivery("issues.opened.json"),
-            unmentioned.config,
+            unmentioned,
             [triage],
             externals,
         );

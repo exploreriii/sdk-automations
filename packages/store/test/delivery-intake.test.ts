@@ -1,14 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import { asDeliveryGuid, type DeliveryGuid } from "@hiero-hackers/automation-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import * as ts from "typescript";
 import { Store } from "../src/store.js";
 import type { ClaimedDelivery } from "../src/deliveries.js";
+import { buildWorkerStoreModule } from "./worker-build.js";
 
 let dir: string;
 let path: string;
@@ -89,39 +88,8 @@ const { parentPort, workerData } = require("node:worker_threads");
 });
 `;
 
-function buildWorkerStoreModule(): string {
-    const buildDir = join(dir, "worker-build");
-    mkdirSync(buildDir, { recursive: true });
-    const compilerOptions = {
-        target: ts.ScriptTarget.ES2022,
-        module: ts.ModuleKind.ESNext,
-    };
-    const idsSource = readFileSync(
-        new URL("github/ids.ts", import.meta.resolve("@hiero-hackers/automation-core")),
-        "utf8",
-    );
-    const storeSource = readFileSync(new URL("../src/store.ts", import.meta.url), "utf8");
-    const schemaSource = readFileSync(new URL("../src/schema.ts", import.meta.url), "utf8");
-    writeFileSync(
-        join(buildDir, "ids.js"),
-        ts.transpileModule(idsSource, { compilerOptions }).outputText,
-    );
-    const storeModule = join(buildDir, "store.js");
-    writeFileSync(
-        storeModule,
-        ts
-            .transpileModule(storeSource, { compilerOptions })
-            .outputText.replace("@hiero-hackers/automation-core", "./ids.js"),
-    );
-    writeFileSync(
-        join(buildDir, "schema.js"),
-        ts.transpileModule(schemaSource, { compilerOptions }).outputText,
-    );
-    return pathToFileURL(storeModule).href;
-}
-
 async function runConcurrent(operation: ConcurrentOperation): Promise<unknown[]> {
-    const storeModule = buildWorkerStoreModule();
+    const storeModule = buildWorkerStoreModule(dir);
     const gate = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
     const gateView = new Int32Array(gate);
     let ready = 0;

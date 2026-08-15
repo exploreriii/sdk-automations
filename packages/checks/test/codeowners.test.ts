@@ -9,9 +9,9 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { withTempDir } from "@hiero-hackers/automation-testkit";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { lines, repoRoot } from "./helpers.js";
 
@@ -26,8 +26,7 @@ function patterns(): string[] {
 
 /** Tracked files a gitignore-style pattern matches, per git's own rule rather than ours. */
 function matches(pattern: string): string[] {
-    const dir = mkdtempSync(join(tmpdir(), "codeowners-check-"));
-    try {
+    return withTempDir("codeowners-check-", (dir) => {
         const excludeFile = join(dir, "pattern");
         writeFileSync(excludeFile, `${pattern}\n`);
         return lines(
@@ -36,9 +35,7 @@ function matches(pattern: string): string[] {
                 encoding: "utf8",
             }),
         ).filter(Boolean);
-    } finally {
-        rmSync(dir, { recursive: true, force: true });
-    }
+    });
 }
 
 describe("every CODEOWNERS pattern matches something", () => {

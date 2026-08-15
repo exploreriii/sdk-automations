@@ -111,8 +111,12 @@ jobs:
       - run: pnpm format:check
 
   coverage:
-    name: line coverage (core)
+    name: line coverage (${{ matrix.package }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [core, shell, store]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -123,11 +127,19 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Aggregate v8 floor (80 on lines/branches/functions/statements) in
-      # packages/core/vitest.config.ts. Mutation (below) stays the per-module quality
-      # gate; this is the coarser "did we delete the tests" tripwire that the
-      # dead-import cleanup in #76 could have defeated silently.
-      - run: pnpm --filter @hiero-hackers/automation-core test:coverage
+      # Enforces each runtime package's aggregate v8 floors. The numbers live
+      # in that package's own `vitest.config.ts` and are deliberately not
+      # repeated here: they are tuned per package against measured values, and
+      # a threshold restated in a comment is one that silently disagrees with
+      # the gate later — the drift class the checks package exists to kill
+      # (D50, D100). Fanning out over the same package set as mutation is the
+      # point of the matrix: a single `--filter core` run left shell's and
+      # store's configured floors gating nothing at all, which is the shape of
+      # a check that looks green because it never ran. Mutation (below) stays
+      # the per-module quality gate; this is the coarser "did we delete the
+      # tests" tripwire that the dead-import cleanup in #76 could have
+      # defeated silently.
+      - run: pnpm --filter @hiero-hackers/automation-${{ matrix.package }} test:coverage
 
   audit:
     name: dependency audit

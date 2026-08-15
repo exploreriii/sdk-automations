@@ -64,6 +64,15 @@ describe("issues, through the real payloads", () => {
     it("opened: no position, open, unpaused", () => {
         const o = observed("issues.opened.json");
         expect(o.kind).toBe("issueUpdated");
+        /**
+         * The repository, read literally off the capture rather than
+         * compared against another reading of it. Everything downstream —
+         * the report's subject, the idempotency key's first two fields —
+         * takes this pair on trust, and every existing assertion about it
+         * derived both sides from this same function (§9's standing rule:
+         * a constant compared against itself proves nothing).
+         */
+        expect(o.repository).toEqual({ owner: "scrubbed-1", repo: "scrubbed-2" });
         expect(o.item).toEqual({ kind: "issue", number: 164 });
         expect(o.position).toEqual({
             kind: "position",
@@ -126,6 +135,28 @@ describe("pull requests, through the real payloads", () => {
         expect(o.position).toMatchObject({
             kind: "position",
             state: { closedBy: "merged" },
+        });
+    });
+
+    /**
+     * The other closed pull request. Both captures are decided by `merged`
+     * alone — one true, one absent-and-open — so the branch that reads
+     * `state` on a pull request had never run, and D47's whole point is that
+     * the two closures stay distinguishable: progression credits a merge and
+     * must not credit an abandonment.
+     */
+    it("closed WITHOUT merging reads as closedByHuman, not merged (D47)", () => {
+        const abandoned = fixture("pull_request.closed.json") as {
+            pull_request: { merged: boolean; state: string };
+        };
+        abandoned.pull_request.merged = false;
+        abandoned.pull_request.state = "closed";
+        const result = normalizeDelivery("pull_request", abandoned, config);
+        expect(result.kind).toBe("observation");
+        if (result.kind !== "observation") return;
+        expect(result.observation.position).toMatchObject({
+            kind: "position",
+            state: { closedBy: "closedByHuman" },
         });
     });
 });
@@ -220,6 +251,17 @@ describe("what the normalizer refuses, and how", () => {
             {
                 repository: { owner: { login: "o" }, name: "r" },
                 issue: { number: 1, labels: "nope", updated_at: "2026-08-07T00:00:00Z" },
+            },
+        ],
+        // No `labels` key at all. The array guard is what turns this into a
+        // verdict; without it the walk is over `undefined` and the shell
+        // gets an exception where the contract promises a result.
+        [
+            "labelsUnreadable",
+            "issues",
+            {
+                repository: { owner: { login: "o" }, name: "r" },
+                issue: { number: 1, updated_at: "2026-08-07T00:00:00Z" },
             },
         ],
         [

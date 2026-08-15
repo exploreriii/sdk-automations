@@ -129,6 +129,11 @@ describe("configuration findings", () => {
         const [f] = configFindings(result);
         expect(f).toMatchObject({ severity: "info", code: "configValid" });
         expect(f!.summary).toContain("dry-run");
+        // The acceptance is ABOUT the configuration, with no path: a check
+        // run filters on this subject to find it, and a whole-file verdict
+        // has no line to annotate. The rejection arm's subject is asserted
+        // below; this is the arm nothing was looking at.
+        expect(f!.subject).toEqual({ kind: "configuration", path: null });
     });
 
     /**
@@ -178,9 +183,17 @@ describe("configuration findings", () => {
 });
 
 describe("a report is read by filtering, not by structure", () => {
+    /**
+     * Two notices, deliberately: a report where every finding lands in a
+     * bucket of its own cannot tell a grouping apart from a listing, and
+     * that is the shape this list had. `itemBlocked` beside
+     * `capabilityDisabled` is also the ordinary case — one delivery, two
+     * reasons nothing happened.
+     */
     const findings: Finding[] = [
         verdictFinding(refuse("capabilityDisabled"), item),
         verdictFinding(refuse("permissionMissing"), item),
+        verdictFinding(refuse("itemBlocked"), item),
         verdictFinding({ outcome: "apply" }, item),
     ];
     const report: Report = {
@@ -202,7 +215,12 @@ describe("a report is read by filtering, not by structure", () => {
     it("grouping collects every finding into exactly one bucket", () => {
         const grouped = groupBy(report, (f) => f.severity);
         expect(grouped.flatMap(([, fs]) => fs)).toHaveLength(findings.length);
-        expect(grouped.find(([k]) => k === "notice")![1]).toHaveLength(1);
+        // Both notices, in the order they were decided — a bucket that
+        // KEEPS one finding per key is a lookup, not a grouping.
+        expect(grouped.find(([k]) => k === "notice")![1].map((f) => f.code)).toEqual([
+            "capabilityDisabled",
+            "itemBlocked",
+        ]);
     });
 
     it("groups by subject too — the config report and operator surface differ only here", () => {

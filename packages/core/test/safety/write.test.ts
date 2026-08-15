@@ -270,6 +270,36 @@ describe("evaluateWrite (safety.md §2)", () => {
         });
     });
 
+    /**
+     * Silence is not enablement. A capability the file never mentions reads
+     * `undefined` out of a null-prototype record, and the derivation has to
+     * treat that as "off" rather than reaching into it — otherwise the
+     * commonest configuration of all (a capability nobody has adopted yet)
+     * is a crash instead of a refusal.
+     */
+    it("a capability the reviewed file never mentions is disabled, not a crash", () => {
+        expect(evalWrite(request({ capability: "neverConfigured" }), context())).toMatchObject({
+            outcome: "refuse",
+            code: "capabilityDisabled",
+        });
+    });
+
+    /**
+     * D77: "an operator message that names the absent permission is the
+     * difference between a fix and an investigation" — plural, so the list
+     * has to read as a list.
+     */
+    it("names every absent grant, not just the first (rule 2)", () => {
+        const verdict = evalWrite(
+            request({ requiredPermissions: ["issues:write", "contents:write"] }),
+            context({ installationGrants: [] }),
+        );
+        expect(verdict).toMatchObject({ outcome: "refuse", code: "permissionMissing" });
+        if (verdict.outcome === "refuse") {
+            expect(verdict.reason).toContain("issues:write, contents:write");
+        }
+    });
+
     it("the check precedence is contract: the earliest failing rule names the code", () => {
         // Everything fails at once; the kill switch is reported.
         const verdict = evalWrite(
@@ -775,6 +805,38 @@ describe("the check order is contract, and now assertable directly", () => {
         const names = GENERAL_RULES.map(([name]) => name);
         expect(new Set(names).size).toBe(names.length);
     });
+
+    /**
+     * The cost of making order DATA: the list is editable, so a rule that
+     * only survives its input because an earlier rule intercepted the hard
+     * case is a landmine waiting for the next reordering. Two rules read
+     * `latestHumanChangeAt` after `humanOrderingUnknown` has removed the one
+     * value that has no `getTime()`, and their guards against it are
+     * unreachable through `evaluateGeneralRulesAfterPreflight` — invisible
+     * to every test that goes through the front door, and the reason those
+     * guards could be deleted without a single failure.
+     *
+     * So every rule is handed that value directly and must ANSWER: a verdict
+     * or `null`, never a throw. The property is per-rule independence, which
+     * is what the list shape claims and what a reordering relies on.
+     */
+    it.each(GENERAL_RULES.map(([name, rule]) => [name, rule] as const))(
+        "%s answers unestablished ordering on its own, without the rule above it",
+        (_name, rule) => {
+            const facts = {
+                request: request(),
+                config: config(),
+                context: context({ latestHumanChangeAt: "unknown" }),
+                capabilityEnabled: true,
+                missing: [] as readonly string[],
+            };
+            expect(() => rule(facts)).not.toThrow();
+            const verdict = rule(facts);
+            if (verdict !== null && verdict.outcome !== "apply") {
+                expect(verdict.reason.length).toBeGreaterThan(0);
+            }
+        },
+    );
 
     /**
      * The behavioural half: the order in the list is the order that fires.

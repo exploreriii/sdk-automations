@@ -425,6 +425,26 @@ describe("the profile tables are exported for the drift check", () => {
         expect(PROFILE_EDGES.issue).toHaveLength(7);
         expect(PROFILE_EDGES.pullRequest).toHaveLength(10);
     });
+
+    /**
+     * And carries the from/to PAIR — the only thing `doc-drift.test.ts`
+     * reads out of it, from another package this suite never runs. Counting
+     * entries says nothing about their contents: a projection that dropped
+     * every field, or produced nothing at all, is exactly seven and ten
+     * entries long.
+     *
+     * Stated as literals rather than as `ISSUE_EDGES.map(...)`, because a
+     * projection compared against its own construction proves nothing (§9).
+     */
+    it("PROFILE_EDGES carries the pair itself, and only the pair", () => {
+        expect(PROFILE_EDGES.issue[0]).toEqual({ from: null, to: "awaitingTriage" });
+        expect(PROFILE_EDGES.issue.at(-1)).toEqual({ from: "inProgress", to: null });
+        expect(PROFILE_EDGES.pullRequest[0]).toEqual({ from: null, to: "needsReview" });
+        expect(PROFILE_EDGES.pullRequest.at(-1)).toEqual({ from: "readyToMerge", to: null });
+        for (const edges of [PROFILE_EDGES.issue, PROFILE_EDGES.pullRequest]) {
+            for (const edge of edges) expect(Object.keys(edge).sort()).toEqual(["from", "to"]);
+        }
+    });
 });
 
 describe("the flow predicates — D90's replacement for the casts", () => {

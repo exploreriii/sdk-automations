@@ -16,7 +16,9 @@ import {
     deriveIdempotencyKey,
     parseConfig,
     problems,
+    toEngine,
     type AnyIntent,
+    type Capability,
     type DecideExternals,
     type EngineCapability,
     type Intent,
@@ -151,6 +153,34 @@ describe("the gates, each visible in the report", () => {
         const decision = await decide(
             delivery("issues.opened.json"),
             configIn("active", false),
+            [triage],
+            externals,
+        );
+        expect(decision.report.findings).toEqual([]);
+        expect(decision.approved).toEqual([]);
+    });
+
+    /**
+     * The commonest configuration of all: a capability the repository has
+     * never heard of. `capabilities` is a null-prototype record, so the
+     * block reads `undefined` — the admission test has to survive that
+     * rather than reach into it, or every unadopted capability is a crash
+     * instead of a skip.
+     */
+    it("a capability the file never mentions is never consulted either", async () => {
+        const unmentioned = parseConfig(
+            {
+                schemaVersion: 1,
+                mode: "active",
+                capabilities: {},
+                mappings: { labels: { awaitingTriage: "status: triage" } },
+            },
+            { revision: "rev-engine-1", knownCapabilities: [] },
+        );
+        if (!unmentioned.ok) throw new Error("config must parse");
+        const decision = await decide(
+            delivery("issues.opened.json"),
+            unmentioned.config,
             [triage],
             externals,
         );
@@ -386,9 +416,42 @@ describe("paths the delivery tests never walk", () => {
             [watcher],
             externals,
         );
+        // Subject included: an explanation volunteered through the handle
+        // belongs to the CAPABILITY, not to an item — that is what separates
+        // it from the per-intent explanations, and the operator surface
+        // groups by exactly this field.
         expect(decision.report.findings).toEqual([
-            expect.objectContaining({ code: "capabilityExplained", severity: "info" }),
+            expect.objectContaining({
+                code: "capabilityExplained",
+                severity: "info",
+                subject: { kind: "capability", capability: "triage" },
+            }),
         ]);
+    });
+
+    /**
+     * The erasure `decide` depends on, exercised as itself. Every capability
+     * in these tests is written as an `EngineCapability` already, so the one
+     * conversion a real shell performs — a typed `Capability<D>` into the
+     * heterogeneous list — was never run here at all.
+     */
+    it("toEngine erases the declaration type without substituting anything", async () => {
+        const typed: Capability<typeof declaration> = {
+            declaration,
+            async evaluate() {
+                return [];
+            },
+        };
+        const erased = toEngine(typed);
+        expect(erased).toBe(typed);
+
+        const decision = await decide(
+            delivery("issues.opened.json"),
+            configIn("active"),
+            [erased],
+            externals,
+        );
+        expect(decision.report.findings).toEqual([]);
     });
 
     it("a declared resolver reaches the supplied source, and its answer returns", async () => {

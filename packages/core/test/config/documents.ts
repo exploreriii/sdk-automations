@@ -443,6 +443,20 @@ export const VALUE_REJECTIONS: readonly ValueRejection[] = [
         raw: { schemaVersion: 1, capabilities: { assignment: null } },
         messageIncludes: ['capability "assignment" must be a mapping'],
     },
+    /**
+     * `undefined`, not `null`: the two reach `isPlainObject` down different
+     * arms, and only this one makes `Object.getPrototypeOf` throw. The guard
+     * that stops it is the first clause of that function, so this row is what
+     * makes the clause load-bearing rather than decorative.
+     */
+    {
+        code: "notAMapping",
+        why: "a capability key with no body at all",
+        raw: { schemaVersion: 1, capabilities: { assignment: undefined } },
+        path: "capabilities.assignment",
+        errorCount: 1,
+        messageIncludes: ['capability "assignment" must be a mapping'],
+    },
     {
         code: "notAMapping",
         why: "settings is opaque, but it is still a mapping",
@@ -612,6 +626,14 @@ export const VALUE_REJECTIONS: readonly ValueRejection[] = [
     },
     // FINDING(config-label-injectivity) D34 — label→meaning must be readable
     // backwards, so no two meanings may share a label.
+    /**
+     * The third fragment is the ABSENCE of the case-folding clause, stated as
+     * presence: when two meanings share a spelling exactly, the meaning pair
+     * runs straight into the rule citation with nothing interposed. Every
+     * shorter fragment survives a message that has grown an explanation
+     * nobody asked for — which is what "these labels differ only in case"
+     * would be here, since they do not differ at all.
+     */
     {
         code: "labelNotInjective",
         why: "two meanings share a label exactly",
@@ -619,7 +641,11 @@ export const VALUE_REJECTIONS: readonly ValueRejection[] = [
             schemaVersion: 1,
             mappings: { labels: { ready: "status: wip", inProgress: "status: wip" } },
         },
-        messageIncludes: ['"status: wip"', "injective"],
+        messageIncludes: [
+            '"status: wip"',
+            "injective",
+            '"ready" and "inProgress" — label mappings must be injective (schema.md §3)',
+        ],
     },
     {
         code: "labelNotInjective",

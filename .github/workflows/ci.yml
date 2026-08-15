@@ -179,6 +179,27 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # main is authoritative. A push writes the entry under its own commit
+      # SHA; a pull request finds no exact key and restores the newest entry
+      # sharing the prefix, which is main's. The lockfile hash sits in the key
+      # deliberately: an incremental file built by a different toolchain must
+      # never be reused, so a dependency-bump PR misses the cache and gets a
+      # full run instead of trusting results from other dependencies.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: packages/${{ matrix.package }}/reports/stryker-incremental.json
+          key: mutation-${{ matrix.package }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            mutation-${{ matrix.package }}-${{ hashFiles('pnpm-lock.yaml') }}-
       # Each package owns its mutation scope and threshold; the checks package
       # locks this static matrix to the set of tracked Stryker configs.
-      - run: pnpm --filter @hiero-hackers/automation-${{ matrix.package }} exec stryker run
+      #
+      # A pull request re-runs only the mutants whose covering code changed,
+      # seeded from main's cache; a push to main rebuilds the file from a full
+      # authoritative run (`--force`), so the seed every PR inherits is never
+      # itself incremental. A missing cache degrades to a full run, which is
+      # the safe direction to fail. The flag lives here and NOT in the
+      # `stryker.config.json` files on purpose: a local run stays full by
+      # default, which is what the parity measurement (4m05s full on core
+      # against 9s incremental with nothing changed) compares against.
+      - run: pnpm --filter @hiero-hackers/automation-${{ matrix.package }} exec stryker run --incremental${{ github.event_name == 'push' && ' --force' || '' }}

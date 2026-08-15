@@ -54,6 +54,14 @@ function runCommands(job: Job): string[] {
     return (job.steps ?? []).map(({ run }) => run ?? "");
 }
 
+/** The invocation CI fans out, before the flags that tune how it runs. */
+const STRYKER_RUN =
+    "pnpm --filter @hiero-hackers/automation-${{ matrix.package }} exec stryker run";
+
+function strykerCommand(job: Job): string | undefined {
+    return runCommands(job).find((run) => run.startsWith(STRYKER_RUN));
+}
+
 function matrixDrift(
     configured: readonly string[],
     matrix: readonly string[],
@@ -114,9 +122,11 @@ describe("mutation policy stays complete across packages and CI", () => {
 
     it("runs every configured package independently in the mutation matrix", () => {
         expect(mutation.name).toBe("mutation testing (${{ matrix.package }})");
-        expect(runCommands(mutation)).toContain(
-            "pnpm --filter @hiero-hackers/automation-${{ matrix.package }} exec stryker run",
-        );
+        expect(strykerCommand(mutation), "no stryker run step in the mutation job").toBeDefined();
+        // Only that the run is incremental, not how the `--force` on main is
+        // spelled: pinning the GitHub expression would make a rewording of the
+        // conditional read as a policy change.
+        expect(strykerCommand(mutation)).toContain("--incremental");
         expect(
             matrixDrift(
                 configuredPackages.map(({ name }) => name),
@@ -148,13 +158,12 @@ describe("mutation policy stays complete across packages and CI", () => {
                 "      - run: >-",
                 "          pnpm --filter",
                 "          @hiero-hackers/automation-${{ matrix.package }} exec stryker run",
+                "          --incremental",
                 "",
             ].join("\n"),
         );
         expect(matrixPackages(reformatted)).toEqual(matrixPackages(mutation));
         expect(reformatted.name).toBe(mutation.name);
-        expect(runCommands(reformatted)).toContain(
-            "pnpm --filter @hiero-hackers/automation-${{ matrix.package }} exec stryker run",
-        );
+        expect(strykerCommand(reformatted)).toContain("--incremental");
     });
 });

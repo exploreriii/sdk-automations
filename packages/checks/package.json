@@ -11,10 +11,8 @@
         "test": "tsc --noEmit && vitest run",
         "test:watch": "vitest"
     },
-    "dependencies": {
-        "@hiero-hackers/automation-core": "workspace:*"
-    },
     "devDependencies": {
+        "@hiero-hackers/automation-core": "workspace:*",
         "@types/node": "^24.0.0",
         "dependency-cruiser": "^17.0.0",
         "typescript": "^5.6.0",

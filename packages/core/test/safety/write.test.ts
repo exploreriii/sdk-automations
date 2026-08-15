@@ -5,6 +5,8 @@ import {
     evaluateDestructive,
     createDestructiveWarning,
     MIN_GRACE_DAYS,
+    type ActionClass,
+    type HumanChangeOrdering,
     type WriteRequest,
     type WriteContext,
     type DestructivePlan,
@@ -83,10 +85,155 @@ const warningFor = (
         ...over,
     });
 
-describe("evaluateWrite (safety.md §2)", () => {
-    it("applies only when every rule passes in active mode", () => {
-        expect(evalWrite(request(), context())).toEqual({ outcome: "apply" });
+/**
+ * The exhaustive sweep, where everything below it checks examples: it
+ * enumerates the full input space and asserts the PROPERTY — `apply`
+ * happens exactly when every safety rule passes, swept over EVERY action
+ * class as well as every remaining configuration and context dimension.
+ * The capability-link dimension is gone with D53, whose state D73 made
+ * unrepresentable.
+ */
+const CAUSE_AT = new Date("2026-07-01T00:00:00Z");
+const CAPABILITY = "assignment";
+const requestFor = (actionClass: ActionClass) => ({
+    actionClass,
+    capability: CAPABILITY,
+    requiredPermissions: ["issues:write"] as const,
+    causeObservedAt: CAUSE_AT,
+    cause: "sweep",
+    target: { item: "issue #1", change: "label" },
+});
+const ACTION_CLASSES: ActionClass[] = [
+    "observation",
+    "humanFacingOutput",
+    "reversibleStateChange",
+    "clockTriggeredDestructive",
+    "immediatePreventive",
+];
+
+describe("evaluateWrite: apply ⇔ every rule passes (full sweep)", () => {
+    const bools = [false, true];
+    const humanChanges: HumanChangeOrdering[] = [
+        null,
+        "unknown", // ordering could not be established — D51
+        new Date("2026-06-30T00:00:00Z"), // older than the cause
+        new Date("2026-07-02T00:00:00Z"), // newer than the cause
+    ];
+
+    /**
+     * The action class is now a swept DIMENSION, not a fixed value.
+     * D52 exists because it was fixed at `reversibleStateChange`: the
+     * sweep was exhaustive in seven of eight input dimensions, and the
+     * missing one was exactly where `clockTriggeredDestructive` slipped
+     * through `evaluateWrite` and answered `apply`.
+     */
+    it("2,560 (class × context) combinations: apply exactly when nothing refuses and mode is active", () => {
+        let applies = 0;
+        let checked = 0;
+        for (const actionClass of ACTION_CLASSES)
+            for (const killSwitchActive of bools)
+                for (const capabilityEnabled of bools)
+                    for (const installationHasPermission of bools)
+                        for (const itemBlocked of bools)
+                            for (const preconditionHolds of bools)
+                                for (const latestHumanChangeAt of humanChanges)
+                                    for (const mode of REPOSITORY_MODES) {
+                                        const config: RepositoryConfig = {
+                                            revision: "rev-test",
+                                            schemaVersion: 1,
+                                            mode,
+                                            capabilities: {
+                                                [CAPABILITY]: {
+                                                    enabled: capabilityEnabled,
+                                                    settings: {},
+                                                },
+                                            },
+                                            mappings: { labels: {} },
+                                            principals: {},
+                                        };
+                                        const context: WriteContext = {
+                                            installationGrants: installationHasPermission
+                                                ? (["issues:write"] as const)
+                                                : [],
+                                            killSwitchActive,
+                                            world: assertedWorld(
+                                                itemBlocked ? (["blocked"] as const) : [],
+                                                preconditionHolds,
+                                            ),
+                                            latestHumanChangeAt,
+                                        };
+                                        const verdict = evaluateWrite(
+                                            requestFor(actionClass),
+                                            config,
+                                            context,
+                                        );
+                                        checked += 1;
+                                        // Every non-apply carries prose for humans.
+                                        if (verdict.outcome !== "apply") {
+                                            expect(verdict.reason.length).toBeGreaterThan(0);
+                                        }
+                                        if (verdict.outcome === "apply") applies += 1;
+
+                                        const actionMayApply =
+                                            actionClass !== "observation" &&
+                                            actionClass !== "clockTriggeredDestructive" &&
+                                            actionClass !== "immediatePreventive";
+                                        const humanOrderingAllowsWrite =
+                                            latestHumanChangeAt === null ||
+                                            (latestHumanChangeAt !== "unknown" &&
+                                                latestHumanChangeAt.getTime() < CAUSE_AT.getTime());
+                                        const everyRulePasses =
+                                            actionMayApply &&
+                                            !killSwitchActive &&
+                                            capabilityEnabled &&
+                                            installationHasPermission &&
+                                            !itemBlocked &&
+                                            preconditionHolds &&
+                                            humanOrderingAllowsWrite &&
+                                            mode === "active";
+                                        expect(verdict.outcome === "apply").toBe(everyRulePasses);
+
+                                        // A destructive request can NEVER apply here,
+                                        // whatever the context (D52).
+                                        if (
+                                            actionClass === "clockTriggeredDestructive" &&
+                                            !killSwitchActive &&
+                                            preconditionHolds
+                                        ) {
+                                            expect(verdict).toMatchObject({
+                                                outcome: "refuse",
+                                                code: "wrongEntryPoint",
+                                            });
+                                        }
+                                        // Unestablished ordering can never apply (D51).
+                                        if (
+                                            latestHumanChangeAt === "unknown" &&
+                                            actionClass !== "observation"
+                                        ) {
+                                            expect(verdict.outcome).not.toBe("apply");
+                                        }
+                                    }
+        expect(checked).toBe(2_560); // 5 classes × 2^5 flags × 4 orderings × 4 modes
+        // 2 currently authorized write classes × active mode ×
+        // {null, older} ordering = 4. Immediate preventive actions stay
+        // fail-closed until their explanation/reversal gate exists.
+        expect(applies).toBe(4);
     });
+
+    /**
+     * D53's mismatched-capability test is deliberately gone, and the sweep
+     * above lost that dimension with it: `evaluateWrite` derives the
+     * capability from `request.capability` (D73), so a context describing a
+     * different one cannot be constructed. Both enumerated a state the types
+     * no longer permit.
+     */
+});
+
+describe("evaluateWrite (safety.md §2)", () => {
+    // The plain apply/not-apply examples that stood here are demoted: the
+    // sweep above enumerates those outcomes, and §9 deletes a lower tier
+    // once a higher one subsumes it. What survives asserts a specific code,
+    // reason, or ordering the sweep never checks, or pins a named finding.
 
     it.each([
         ["kill switch", { killSwitchActive: true }, "killSwitch"],
@@ -178,14 +325,6 @@ describe("evaluateWrite (safety.md §2)", () => {
             context({ latestHumanChangeAt: new Date("2026-07-01T00:00:00Z") }),
         );
         expect(verdict.outcome).toBe("refuse");
-    });
-
-    it("a human change older than the cause does not conflict", () => {
-        const verdict = evalWrite(
-            request(),
-            context({ latestHumanChangeAt: new Date("2026-06-30T23:59:59Z") }),
-        );
-        expect(verdict).toEqual({ outcome: "apply" });
     });
 
     it.each([

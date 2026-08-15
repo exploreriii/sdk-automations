@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import { parseConfigDocument, type ConfigErrorCode } from "../../src/config/index.js";
-import { REJECTIONS } from "./documents.js";
+import { DOCUMENT_REJECTIONS, expectRejection } from "./documents.js";
 
 const OPTIONS = { revision: "rev-test", knownCapabilities: ["intake", "prQuality"] };
 const parse = (yaml: string) => parseConfigDocument(yaml, OPTIONS);
@@ -47,30 +47,18 @@ describe("every rejection the catalogue names is reachable", () => {
     };
 
     it("has at least one document for every code", () => {
-        const covered = new Set(REJECTIONS.map((r) => r.code));
+        const covered = new Set(DOCUMENT_REJECTIONS.map((r) => r.code));
         expect(
             [...Object.keys(REQUIRED)].filter((c) => !covered.has(c as ConfigErrorCode)),
         ).toEqual([]);
     });
 
-    it.each(REJECTIONS.map((r) => [`${r.code}: ${r.why}`, r] as const))(
+    it.each(DOCUMENT_REJECTIONS.map((r) => [`${r.code}: ${r.why}`, r] as const))(
         "%s",
         (_name, rejection) => {
-            expect(codesOf(rejection.yaml)).toEqual([rejection.code]);
+            expectRejection(parse(rejection.yaml), rejection);
         },
     );
-
-    it("every rejection explains itself", () => {
-        for (const { yaml } of REJECTIONS) {
-            const result = parse(yaml);
-            expect(result.ok).toBe(false);
-            if (result.ok) continue;
-            // The wording is never asserted, only that there is some — the
-            // convention `safety.test.ts` set and the reason messages can be
-            // rewritten without touching a test.
-            for (const error of result.errors) expect(error.message.length).toBeGreaterThan(0);
-        }
-    });
 });
 
 describe("a document-level problem reports where it is", () => {
@@ -81,7 +69,7 @@ describe("a document-level problem reports where it is", () => {
      * paragraph, which is what D75 existed to stop.
      */
     it.each(
-        REJECTIONS.filter(
+        DOCUMENT_REJECTIONS.filter(
             (r) =>
                 !r.synthesised && (r.code === "documentUnparseable" || r.code === "duplicateKey"),
         ).map((r) => [r.why, r.yaml] as const),
@@ -95,12 +83,8 @@ describe("a document-level problem reports where it is", () => {
         }
     });
 
-    it("names the line a duplicate key was found on", () => {
-        const result = parse(`schemaVersion: 1\nmode: observe\nmode: active\ncapabilities: {}\n`);
-        expect(result.ok).toBe(false);
-        if (result.ok) return;
-        expect(result.errors[0]?.message).toContain("line 3");
-    });
+    // Which line, not just that there is one, is pinned by the duplicate-key
+    // row's `messageIncludes` in the corpus.
 
     /**
      * The budget is a decision, so it is pinned. Without this the number could

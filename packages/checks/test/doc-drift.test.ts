@@ -40,7 +40,7 @@ function codePairs(
     return new Set(edges.map((e) => `${String(e.from)}->${String(e.to)}`));
 }
 
-describe("src/taxonomy.ts tables ≡ design/core/taxonomy.md diagrams", () => {
+describe("src/workflow/transitions.ts tables ≡ design/core/taxonomy.md diagrams", () => {
     const markdown = readFileSync(DOC, "utf8");
     const diagrams = mermaidBlocks(markdown).filter((b) => b.includes("stateDiagram"));
 

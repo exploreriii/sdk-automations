@@ -9,5 +9,7 @@
         "noEmit": true,
         "skipLibCheck": true
     },
-    "include": ["test"]
+    "include": ["test"],
+    "// exclude": "test/fixtures/architecture/ is a tree of deliberately broken imports — a named subpath that resolves to nothing is the point of one of them, so typechecking it would report exactly the fault it exists to demonstrate. dependency-cruiser reads those files; the compiler must not.",
+    "exclude": ["test/fixtures"]
 }

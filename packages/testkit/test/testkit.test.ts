@@ -84,4 +84,39 @@ describe("a temporary directory does not outlive its block", () => {
         expect(seen).not.toBe("");
         expect(existsSync(seen)).toBe(false);
     });
+
+    /**
+     * The trap this helper would otherwise set: a `finally` fires when an
+     * async callback RETURNS, not when it finishes, so the directory would
+     * vanish mid-test. Asserting existence from INSIDE the awaited body is
+     * what makes this fail against that version — a check that the block
+     * merely cleans up eventually passes either way.
+     */
+    it("keeps the directory alive until an async callback settles", async () => {
+        let seen = "";
+        let survivedTheAwait = false;
+        const returned = await withTempDir("testkit-check-", async (dir) => {
+            seen = dir;
+            writeFileSync(join(dir, "file"), "content");
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            survivedTheAwait = existsSync(dir);
+            return 42;
+        });
+        expect(returned).toBe(42);
+        expect(survivedTheAwait).toBe(true);
+        expect(existsSync(seen)).toBe(false);
+    });
+
+    it("removes the directory when an async callback rejects", async () => {
+        let seen = "";
+        await expect(
+            withTempDir("testkit-check-", async (dir) => {
+                seen = dir;
+                await new Promise((resolve) => setTimeout(resolve, 10));
+                throw new Error("async boom");
+            }),
+        ).rejects.toThrow("async boom");
+        expect(seen).not.toBe("");
+        expect(existsSync(seen)).toBe(false);
+    });
 });

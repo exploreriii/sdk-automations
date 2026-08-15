@@ -97,14 +97,46 @@ export function capture(name: string): WebhookCapture {
 
 /**
  * Run `fn` against a fresh temporary directory and remove it afterwards,
- * including when `fn` throws — the `finally` is the whole point, since the
+ * including when `fn` throws — the cleanup is the whole point, since the
  * hand-rolled version in each suite leaked a directory on every failure.
+ *
+ * An async `fn` RETURNS before its work finishes, so the obvious `finally`
+ * deletes the directory out from under a test still using it, and `T`
+ * inferring as a promise means the compiler never says so. The removal is
+ * chained onto the result instead, which is why the wrong call is not
+ * merely documented here — it cannot be written.
  */
 export function withTempDir<T>(prefix: string, fn: (dir: string) => T): T {
     const dir = mkdtempSync(join(tmpdir(), prefix));
-    try {
-        return fn(dir);
-    } finally {
+    const remove = (): void => {
         rmSync(dir, { recursive: true, force: true });
+    };
+
+    let result: T;
+    try {
+        result = fn(dir);
+    } catch (error) {
+        remove();
+        throw error;
     }
+
+    // `.then` rather than `.finally`, so any thenable is handled and not
+    // just a real Promise. The cast restores the caller's own type: the
+    // chained promise settles to exactly what `fn` settled to.
+    const thenable = result as PromiseLike<unknown> | undefined;
+    if (typeof thenable?.then === "function") {
+        return thenable.then(
+            (value) => {
+                remove();
+                return value;
+            },
+            (error: unknown) => {
+                remove();
+                throw error;
+            },
+        ) as T;
+    }
+
+    remove();
+    return result;
 }

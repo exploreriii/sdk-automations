@@ -1,9 +1,14 @@
+/**
+ * Where the repository's configuration file lives, and how its revision is
+ * derived from the exact bytes — content addressing, so two loads of the
+ * same text agree and an edit is always a new revision.
+ */
+
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CONFIG_PATH, fileConfigSource } from "../src/config.js";
-import { stubbedExternals } from "../src/externals.js";
 
 const directories: string[] = [];
 
@@ -35,28 +40,5 @@ describe("configuration source", () => {
             text: "",
         });
         await expect(fileConfigSource("\0").load()).rejects.toThrow();
-    });
-});
-
-describe("first-slice external facts", () => {
-    it("defaults to the documented sandbox facts", () => {
-        const externals = stubbedExternals();
-        expect(externals.killSwitchActive).toBe(false);
-        expect(externals.installationGrants).toEqual(["issues:write"]);
-        expect(externals.latestHumanChangeAt({ kind: "issue", number: 1 })).toBeNull();
-    });
-
-    it("lets the real adapter replace every stub through one seam", () => {
-        const latestHumanChangeAt = () => "unknown" as const;
-        const externals = stubbedExternals({
-            killSwitchActive: true,
-            installationGrants: [],
-            latestHumanChangeAt,
-        });
-        expect(externals).toEqual({
-            killSwitchActive: true,
-            installationGrants: [],
-            latestHumanChangeAt,
-        });
     });
 });

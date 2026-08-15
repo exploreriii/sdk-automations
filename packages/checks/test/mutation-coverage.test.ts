@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parse } from "yaml";
-import { normalizeRepoPath, repoRoot, trackedFiles, workspacePackages } from "./helpers.js";
+import { normalizeRepoPath, repoRoot, trackedFiles, workspacePackages } from "./repository.js";
 
 interface StrykerConfig {
     readonly mutate: readonly string[];

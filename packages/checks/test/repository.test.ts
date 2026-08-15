@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lines, normalizeNewlines, normalizeRepoPath } from "./helpers.js";
+import { lines, normalizeNewlines, normalizeRepoPath } from "./repository.js";
 
 describe("portable repository parsing", () => {
     it.each([

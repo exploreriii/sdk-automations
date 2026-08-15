@@ -13,7 +13,7 @@ import { join, posix, resolve } from "node:path";
 import { cruise } from "dependency-cruiser";
 import type { ICruiseOptions, ICruiseResult, IConfiguration } from "dependency-cruiser";
 import { describe, expect, it } from "vitest";
-import { normalizeRepoPath, repoRoot, trackedFiles, workspacePackages } from "./helpers.js";
+import { normalizeRepoPath, repoRoot, trackedFiles, workspacePackages } from "./repository.js";
 
 /** Part of the edge: `testkit` is legal from `devDependencies` and nowhere else. */
 type Section = "dependencies" | "devDependencies" | "optionalDependencies" | "peerDependencies";

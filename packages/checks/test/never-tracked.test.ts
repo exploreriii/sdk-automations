@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { lines, repoRoot } from "./helpers.js";
+import { lines, repoRoot } from "./repository.js";
 
 interface Layer {
     /** The exact `.gitignore` line, and the prefix git is asked about. */

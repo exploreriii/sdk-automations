@@ -26,7 +26,7 @@ import { intake, prQuality } from "@hiero-hackers/automation-probes";
 import { capture } from "@hiero-hackers/automation-testkit";
 import { createShell, fileConfigSource, stubbedExternals, type Shell } from "../src/index.js";
 
-const SECRET = "shell-slice-secret";
+const SECRET = "shell-test-secret";
 const GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a69";
 const SECOND_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6a";
 const FIXTURE = capture("issues.opened.json").bytes();
@@ -50,7 +50,7 @@ let store: Store;
 let configFile: string;
 
 beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "shell-slice-"));
+    dir = mkdtempSync(join(tmpdir(), "shell-test-"));
     configFile = join(dir, "automations.yml");
     writeFileSync(configFile, CONFIG);
     store = new Store(join(dir, "store.sqlite"));

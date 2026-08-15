@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { markdownDocuments, repoRoot, sourceFiles, workspacePackages } from "./helpers.js";
+import { markdownDocuments, repoRoot, sourceFiles, workspacePackages } from "./repository.js";
 
 describe("documents cite files that exist", () => {
     const docs = markdownDocuments();

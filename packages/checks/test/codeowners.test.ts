@@ -13,7 +13,7 @@ import { withTempDir } from "@hiero-hackers/automation-testkit";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { lines, repoRoot } from "./helpers.js";
+import { lines, repoRoot } from "./repository.js";
 
 /** Each non-comment CODEOWNERS line's pattern — the first whitespace-separated token. */
 function patterns(): string[] {

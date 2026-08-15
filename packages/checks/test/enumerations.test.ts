@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { normalizeRepoPath, repoRoot } from "./helpers.js";
+import { normalizeRepoPath, repoRoot } from "./repository.js";
 
 describe("enumerations are declared once", () => {
     const sources = (

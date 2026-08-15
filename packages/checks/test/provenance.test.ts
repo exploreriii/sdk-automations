@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { BODY_PATTERNS } from "@hiero-hackers/automation-core";
-import { normalizeNewlines, repoRoot, trackedFiles } from "./helpers.js";
+import { normalizeNewlines, repoRoot, trackedFiles } from "./repository.js";
 
 describe("the perishable-facts provenance table matches the code", () => {
     const tracked = new Set(trackedFiles());

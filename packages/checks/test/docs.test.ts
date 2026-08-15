@@ -17,7 +17,7 @@ import {
 } from "@hiero-hackers/automation-core";
 import type { RecordOnlyCode, SafetyRefusalCode } from "@hiero-hackers/automation-core";
 import { verdictFinding, type Severity } from "@hiero-hackers/automation-core";
-import { normalizeNewlines } from "./helpers.js";
+import { normalizeNewlines } from "./repository.js";
 
 const page = (name: string): string =>
     normalizeNewlines(

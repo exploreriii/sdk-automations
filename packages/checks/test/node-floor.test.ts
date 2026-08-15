@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { repoRoot, workspacePackages } from "./helpers.js";
+import { repoRoot, workspacePackages } from "./repository.js";
 
 /** The `engines.node` value a package.json declares, or undefined if absent. */
 function engineNode(packageJsonText: string): string | undefined {

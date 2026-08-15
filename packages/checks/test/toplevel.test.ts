@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { trackedFiles, workspacePackages } from "./helpers.js";
+import { trackedFiles, workspacePackages } from "./repository.js";
 
 /** The first segment of every workspace entry — today, just `packages`. */
 export function packageRoots(entries: readonly string[]): Set<string> {

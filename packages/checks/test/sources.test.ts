@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { repoRoot, sourceFiles } from "./helpers.js";
+import { repoRoot, sourceFiles } from "./repository.js";
 
 describe("source files stay readable to text tools", () => {
     const files = sourceFiles();

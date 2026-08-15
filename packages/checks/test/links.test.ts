@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { lines, markdownDocuments, normalizeRepoPath, repoRoot } from "./helpers.js";
+import { lines, markdownDocuments, normalizeRepoPath, repoRoot } from "./repository.js";
 
 /** `[text](target)` — the target only, before any `#anchor` or title. */
 const LINK = /\]\(([^)\s]+)/g;
@@ -56,7 +56,7 @@ describe("markdown links resolve from the document that carries them", () => {
             "[gone](../nowhere/absent.md)",
             "[web](https://example.com/x.md)",
             "[anchor](#section)",
-            "[real](helpers.ts)",
+            "[real](repository.ts)",
         ].join(" ");
         // Resolution is from this file's own directory, so the sibling
         // resolves and the invented parent does not.

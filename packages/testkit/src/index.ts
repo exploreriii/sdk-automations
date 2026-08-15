@@ -15,6 +15,12 @@
  * ones that want them, and core cannot depend on a package that depends on
  * core — the cycle the architecture check would reject on sight. A helper
  * graduates here only when a SECOND package needs it.
+ *
+ * Also deliberately absent: a hook-shaped `withTempDir`. Suites that make
+ * their directory in `beforeEach` call `mkdtempSync` directly, and stay that
+ * way on purpose — `afterEach` runs when a test fails, so the leak
+ * `withTempDir` exists to close never opens there, and a wrapper would
+ * rename two lines without removing either.
  */
 
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";

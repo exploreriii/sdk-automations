@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { repoRoot } from "./helpers.js";
+import { repoRoot } from "./repository.js";
 
 const HOOK = ".githooks/pre-commit";
 

@@ -1,16 +1,7 @@
 /**
- * The eighth invariant, and the blind spot that made the packages/ move
- * (D95) unverifiable by eye.
- *
- * `citations.test.ts` checks paths written from the REPOSITORY ROOT —
- * `packages/core/src/….ts`, `design/….md`. It has never checked a
- * RELATIVE markdown link, and relative links are exactly what breaks when
- * a directory moves: the text still reads correctly, the target no longer
- * exists, and no test notices. Three documents proved it — `probes/`
- * pointed at `../experiments/README.md` (renamed to `lab/` two
- * reorganisations ago) and two lab protocols pointed at design documents
- * that were never lab's neighbours. All three predate D95 and none had
- * ever failed a check.
+ * Every relative markdown link resolves (D96). `citations.test.ts` checks only
+ * repo-rooted paths, and a relative link is what a directory move breaks
+ * silently: the text still reads correctly and the target is gone.
  *
  * Resolution is per-file, the way a reader's click resolves it.
  */
@@ -72,8 +63,8 @@ describe("markdown links resolve from the document that carries them", () => {
             "[anchor](#section)",
             "[real](helpers.ts)",
         ].join(" ");
-        // Resolution is relative to this file's own directory, so the
-        // sibling resolves and the invented parent does not.
+        // Resolution is from this file's own directory, so the sibling
+        // resolves and the invented parent does not.
         const bad = danglingLinks("packages/checks/test/links.test.ts", fake);
         expect(bad).toEqual(["packages/checks/test/links.test.ts -> ../nowhere/absent.md"]);
     });

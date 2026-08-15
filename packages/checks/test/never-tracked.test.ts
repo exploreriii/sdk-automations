@@ -1,24 +1,13 @@
 /**
- * The local-only layers stay out of the repository — generalised from the
- * lab's own check after the shell arrived without one (D99).
+ * Git tracks nothing under any local-only layer — an invariant over LAYERS,
+ * not a fact about the lab (D99). Each layer holds material that must never
+ * reach a commit behind one `.gitignore` line, which a `git add -f` or a
+ * directory move bypasses in silence.
  *
- * Every layer below holds material that must never reach a commit, and each
- * is protected by a single `.gitignore` line that a `git add -f`, or a
- * directory move that leaves the rule stale, bypasses in silence. The
- * asymmetry that prompted this file: the lab's layer had this check and the
- * shell's did not, although the shell's is arguably worse — its SQLite store
- * holds the RAW webhook payload bytes until a delivery completes, and its
- * decision journal names real repositories and issues, neither of them
- * scrubbed, because scrubbing is the lab's job and the shell has none.
- *
- * Three assertions per layer, deliberately overlapping:
- *
- * 1. the rule is still WRITTEN — fails the moment someone deletes it, which
- *    is before anything leaks rather than after;
- * 2. the rule still WORKS — `git check-ignore` tests the effect, catching a
- *    later negation or a pattern that stopped matching after a move;
- * 3. nothing under it is TRACKED — the invariant itself, and the only one of
- *    the three that a forced add cannot slip past.
+ * Three assertions per layer, deliberately overlapping: the rule is still
+ * WRITTEN (fails before a leak, not after), it still WORKS (`git check-ignore`
+ * catches a negation or a stale pattern), and nothing under it is TRACKED
+ * (the invariant proper, and the only one a forced add cannot slip past).
  */
 
 import { describe, expect, it } from "vitest";
@@ -78,8 +67,7 @@ describe("the local-only layers stay out of the repository", () => {
     const ignoreLines = lines(readFileSync(join(repoRoot, ".gitignore"), "utf8"));
 
     it("covers every layer that exists", () => {
-        // Guards against the table silently emptying, which would pass every
-        // assertion below in silence — the vacuous-glob failure shape again.
+        // A silently emptied table would pass every assertion below.
         expect(LAYERS.length).toBeGreaterThanOrEqual(4);
         expect(LAYERS.map((l) => l.rule)).toContain("packages/shell/data/");
     });
@@ -89,9 +77,8 @@ describe("the local-only layers stay out of the repository", () => {
     });
 
     it.each(LAYERS)("$rule is still ignored in effect", ({ rule }) => {
-        // A written rule that no longer matches is the failure the packages/
-        // move nearly shipped: the text said `lab/harness/` while the
-        // directory had become `packages/lab/harness/` (D95).
+        // A written rule can stop matching: `lab/harness/` after the directory
+        // became `packages/lab/harness/` (D95).
         expect(ignored(rule)).toBe(true);
     });
 
@@ -100,9 +87,8 @@ describe("the local-only layers stay out of the repository", () => {
     });
 
     it("proves the instruments can fail", () => {
-        // The same commands on a tracked, non-ignored path answer the other
-        // way, so an empty result above means "nothing tracked", not
-        // "command broken".
+        // The same commands answer the other way on a tracked, non-ignored
+        // path, so an empty result above means "nothing tracked".
         expect(tracked("packages/core/package.json")).toEqual(["packages/core/package.json"]);
         expect(ignored("packages/core/package.json")).toBe(false);
     });

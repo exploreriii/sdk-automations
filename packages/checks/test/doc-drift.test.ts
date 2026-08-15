@@ -1,22 +1,11 @@
 /**
- * The drift detector `core/README.md` promised and did not have.
+ * The transition tables (`PROFILE_EDGES`) and the state diagrams in
+ * `design/core/taxonomy.md` are hand copies of each other, so nothing failed
+ * when they diverged (D48, D50). Every edge in one appears in the other.
  *
- * The transition tables in `src/taxonomy.ts` are hand copies of the state
- * diagrams in `design/core/taxonomy.md`; nothing generated one from the
- * other, so nothing failed when they diverged. They HAVE diverged before
- * — D48's missing `readyToMerge → needsRevision` edge was absent from
- * both, and the register's D8 row cited five conflict classes the design
- * document no longer contained (caught 2026-07-25).
- *
- * This test closes the structural half of that gap: every edge in the code
- * appears in the diagram and every diagram edge appears in the code. It
- * deliberately compares only (from, to) PAIRS, not the prose on each
- * arrow — the diagram is written for humans and the causes are checked
- * exhaustively in `taxonomy.test.ts`. A cause added to a table without a
- * doc edit still slips through; a whole edge no longer can.
- *
- * This is the only test in the package that reads a file. `src/` stays
- * pure — the I/O is the build-time consistency check, not the module.
+ * (from, to) PAIRS only: arrow prose is written for humans and causes are
+ * checked by core's exhaustive matrix, so a cause added without a doc edit
+ * still slips through while a whole edge no longer can (D50).
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -56,8 +45,8 @@ describe("src/taxonomy.ts tables ≡ design/core/taxonomy.md diagrams", () => {
     const diagrams = mermaidBlocks(markdown).filter((b) => b.includes("stateDiagram"));
 
     it("the document still contains both flow diagrams", () => {
-        // If a diagram is renamed away or deleted, fail loudly here
-        // rather than silently comparing against an empty set.
+        // A renamed or deleted diagram must fail here rather than leave the
+        // comparison below running against an empty set.
         expect(diagrams).toHaveLength(2);
     });
 
@@ -71,8 +60,8 @@ describe("src/taxonomy.ts tables ≡ design/core/taxonomy.md diagrams", () => {
 
         const fromDoc = [...edgePairs(diagram)].sort();
         const fromCode = [...codePairs(edges)].sort();
-        // One assertion, both directions: a missing edge and an extra
-        // edge are the same defect seen from either side.
+        // One assertion, both directions: a missing and an extra edge are the
+        // same defect seen from either side.
         expect(fromCode).toEqual(fromDoc);
     });
 });

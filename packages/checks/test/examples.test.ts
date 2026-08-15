@@ -1,16 +1,10 @@
 /**
- * `docs/examples/` is documentation that runs.
+ * The shipped `docs/examples/` files still parse, through the entry point the
+ * shell uses (D82). A documented example that stopped parsing would surface
+ * only as a maintainer's confusion.
  *
- * The examples in `design/config/schema.md` §3 were correct when checked — and
- * correct by nobody's doing. No code had ever read YAML, so a documented file
- * could stop parsing and the only signal would be a maintainer's confusion.
- *
- * An ARTIFACT test, the same genre as `citations.test.ts`: it reads the
- * repository, and it is deliberately not where `document.ts` earns its
- * coverage. Stryker's sandbox is `core/` and nothing above it, so nothing here
- * can kill a mutant — the rejection corpus lives in `documents.ts` for exactly
- * that reason. What this file checks is that the SHIPPED examples still mean
- * what they say.
+ * A repository check, not coverage: Stryker's sandbox is `core/`, so nothing
+ * here can kill a mutant and the rejection corpus lives in core (D82, D85).
  */
 
 import { describe, expect, it } from "vitest";
@@ -35,10 +29,7 @@ const files = readdirSync(examplesDir, { withFileTypes: true })
     .map((e) => e.name);
 
 describe("the shipped examples", () => {
-    /**
-     * A glob matching nothing passes every loop below in silence — the same
-     * asymmetry that let `stryker.config.json` stop mutating three modules.
-     */
+    /** A directory read that finds nothing passes every loop below in silence. */
     it("finds the examples at all", () => {
         expect(files.sort()).toEqual([
             "active.yml",
@@ -78,10 +69,7 @@ describe("the shipped examples", () => {
         expect(active.config.capabilities.assignment).toMatchObject({ enabled: false });
     });
 
-    /**
-     * The README describes each example. A file added without a row is a file
-     * nobody will read, and a row without a file is a promise.
-     */
+    /** A file with no README row is one nobody will read; a row with no file is a promise. */
     it("every example is described in the README", () => {
         const readme = readFileSync(join(examplesDir, "README.md"), "utf8");
         for (const file of files) expect(readme).toContain(`\`${file}\``);

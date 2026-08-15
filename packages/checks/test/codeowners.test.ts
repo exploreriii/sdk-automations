@@ -1,14 +1,11 @@
 /**
  * Every non-comment pattern in `.github/CODEOWNERS` matches at least one
- * tracked file — the same silent-when-wrong shape as the mutate glob (D89)
- * and the citation regex (D95): a stale pattern does not error, it just
- * silently owns nothing, and the `*` default keeps the gap invisible.
+ * tracked file. A stale pattern does not error, it silently owns nothing, and
+ * the `*` default hides the gap — silent when wrong, like the mutate glob (D89).
  *
- * Matching is asked of `git` rather than reimplemented: CODEOWNERS patterns
- * are gitignore syntax, not globs, and `git ls-files --exclude-from` applies
- * the real rule — leading `/` anchoring, trailing `/` for a directory —
- * instead of a hand-rolled approximation that would need its own tests to
- * be trustworthy.
+ * Matching is asked of `git ls-files --exclude-from` rather than reimplemented:
+ * the patterns are gitignore syntax, not globs, and a hand-rolled
+ * approximation would need its own tests to be trustworthy.
  */
 
 import { describe, expect, it } from "vitest";
@@ -46,8 +43,8 @@ function matches(pattern: string): string[] {
 
 describe("every CODEOWNERS pattern matches something", () => {
     it("has patterns to check", () => {
-        // An empty list would pass every assertion below in silence — the
-        // same vacuous shape the patterns themselves are being guarded against.
+        // An empty list would pass every assertion below in silence — the same
+        // vacuous shape the patterns are being guarded against.
         expect(patterns().length).toBeGreaterThan(0);
     });
 

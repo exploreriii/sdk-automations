@@ -1,12 +1,12 @@
 /**
- * Every package that owns a Stryker config owns a real recursive source
- * scope and a numeric gate, and CI runs that exact package set. This is the
- * repository-level lock against a config or matrix entry drifting alone.
+ * Every package that owns a Stryker config owns a real recursive source scope
+ * and a numeric gate, and CI's matrix runs that exact package set. A scope or
+ * matrix entry that drifts alone mutates less and still passes (D89's mutate
+ * glob).
  *
- * The workflow is read with a YAML parser rather than sliced with regular
- * expressions. A check whose grip on `ci.yml` depends on where the line
- * breaks fall is the exact fragility this package exists to remove — and it
- * was reading a file format it already had a parser for.
+ * `ci.yml` is read with a YAML parser, not sliced with regexes: a check whose
+ * grip depends on where the line breaks fall is the fragility this file exists
+ * to remove.
  */
 
 import { describe, expect, it } from "vitest";
@@ -96,11 +96,8 @@ describe("mutation policy stays complete across packages and CI", () => {
     });
 
     /**
-     * Two facts, and together they are the whole of what the deleted
-     * glob-to-RegExp compiler proved: the scope is EXACTLY the recursive one,
-     * and the package has sources for it to reach. A hand-written matcher
-     * asking whether `src/**` covers `src/a/b.ts` was answering a question
-     * about globbing, not about this repository.
+     * Two facts: the scope is EXACTLY the recursive glob, and the package has
+     * sources for it to reach. Glob semantics are not reimplemented here.
      */
     it("mutates every tracked TypeScript source recursively", () => {
         for (const subject of configuredPackages) {
@@ -133,11 +130,9 @@ describe("mutation policy stays complete across packages and CI", () => {
             missing: ["store"],
             extra: ["stroe"],
         });
-        // The improvement over the regex, stated as a test: the same matrix
-        // written as a block sequence instead of a flow sequence, with the
-        // job's keys reordered and the run command folded across lines. The
-        // old `package:\s*\[([^\]]+)\]` slice read nothing at all from this,
-        // and reported an empty matrix as a drift-free one.
+        // The same matrix as a block sequence, keys reordered, run command
+        // folded: the old `package:\s*\[([^\]]+)\]` slice read nothing here
+        // and reported the empty result as drift-free.
         const reformatted = mutationJob(
             [
                 "jobs:",

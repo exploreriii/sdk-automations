@@ -1,7 +1,7 @@
 /**
- * Source files stay readable to text tools — the invariant born from the NUL
- * byte that turned a source file binary to grep (D74's neighbourhood).
- * Split from repo-artifacts.test.ts (D89).
+ * Source files stay readable to text tools — born from a NUL byte that made a
+ * source file read as binary to grep, which nothing else reports.
+ * One invariant per file (D89).
  */
 
 import { describe, expect, it } from "vitest";
@@ -32,8 +32,7 @@ describe("source files stay readable to text tools", () => {
     const files = typescriptFiles();
 
     it("finds the workspace's TypeScript sources", () => {
-        // Guards against the walk silently returning nothing, which would
-        // make every assertion below vacuously true.
+        // A walk that silently returned nothing makes the check below vacuous.
         expect(files.length).toBeGreaterThan(20);
     });
 

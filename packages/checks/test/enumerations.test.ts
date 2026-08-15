@@ -1,7 +1,7 @@
 /**
- * Every exported const array derives its union — D76's invariant, the answer
- * to the fifth sighting of one fact stored twice.
- * Split from repo-artifacts.test.ts (D89).
+ * Every exported const array in core derives its union (D76). A hand-written
+ * union beside its array compiles, so the drift is invisible until a value
+ * the type never heard of gets through. One invariant per file (D89).
  */
 
 import { describe, expect, it } from "vitest";
@@ -9,12 +9,6 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeRepoPath, repoRoot } from "./helpers.js";
 
-/**
- * The fifth sighting of "one fact, two places" (D76) was `REPOSITORY_MODES`
- * as a const array beside a hand-written `RepositoryMode` union in another
- * file — four strings duplicated, with a cast covering the seam. It was found
- * by reading, which is not a method that scales. This finds the next one.
- */
 describe("enumerations are declared once", () => {
     const sources = (
         readdirSync(join(repoRoot, "packages", "core", "src"), {
@@ -46,8 +40,8 @@ describe("enumerations are declared once", () => {
     });
 
     it("proves the check can fail", () => {
-        // Negative control: the detector must reject a const array with no
-        // derived union, or the assertion above means nothing.
+        // Negative control: without this, the assertion above could pass on a
+        // detector that never matches anything.
         const fake = 'export const COLOURS = ["red", "blue"] as const;';
         const found = [...fake.matchAll(/export const ([A-Z][A-Z0-9_]*) = \[/g)];
         expect(found).toHaveLength(1);

@@ -1,15 +1,9 @@
 /**
- * The perishable-facts provenance table matches the code it describes.
- *
- * `packages/core/src/github/README.md` carries a table — file, probing
- * experiment, date — and the code carries the same facts on each pattern.
- * One fact, two homes, kept honest the way the docs tables are. Writing this
- * lock found the table already wrong: the README credited experiment 6.4 for
- * facts the code stamps 6.1.
- *
- * Named for its target rather than its origin (D89): it arrived alongside the
- * lab's never-tracked check and shared a file with it until D99 generalised
- * that check across every local-only layer, leaving this one alone here.
+ * `packages/core/src/github/README.md`'s provenance table — file, probing
+ * experiment, date — matches the facts the code stamps on each pattern. One
+ * fact in two homes: the table was already wrong when this lock was written,
+ * crediting experiment 6.4 for facts the code stamps 6.1.
+ * Named for its target rather than its origin (D89, D99).
  */
 
 import { describe, expect, it } from "vitest";

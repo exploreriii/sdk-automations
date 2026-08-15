@@ -1,11 +1,9 @@
 /**
- * Locks the four security claims the workflow comments make: actions stay
- * SHA-pinned with version comments, fork code never runs through
- * `pull_request_target`, permissions stay read-only except for the explicit
- * reviewed write allowlist, and every checkout refuses to persist the token.
- * Future workflows are covered automatically because the test reads the whole
- * directory — which is the point, since the way this class of hardening
- * regresses is a NEW job that quietly omits it (D100).
+ * The four security claims the workflow comments make, as checks: actions
+ * SHA-pinned with version comments, no `pull_request_target`, permissions
+ * read-only outside an explicit allowlist, and no checkout persisting the
+ * token. The whole directory is read, because this class regresses through a
+ * NEW job that quietly omits the hardening rather than through a removal (D100).
  */
 
 import { describe, expect, it } from "vitest";
@@ -18,15 +16,14 @@ const workflows = trackedFiles().filter(
 );
 
 /**
- * `security-events` and `id-token` are the Scorecard SARIF upload's declared
- * needs. A future workflow that needs a write must add its file and key here
- * visibly, not by weakening the check.
+ * The SARIF uploads' declared needs. A workflow that needs a write must add
+ * its file and key here visibly, rather than weaken the check.
  */
 const WRITE_ALLOWLIST = new Set([
     ".github/workflows/scorecard.yml:security-events",
     ".github/workflows/scorecard.yml:id-token",
-    // CodeQL's SARIF upload. Declared on the analyze job only, never at the
-    // workflow level, so no other step can inherit it (#42).
+    // CodeQL's SARIF upload, declared on the analyze job only so no other
+    // step can inherit it (D101, #42).
     ".github/workflows/codeql.yml:security-events",
 ]);
 
@@ -86,10 +83,9 @@ describe("workflow hygiene stays a checked invariant", () => {
     });
 
     /**
-     * The other half of `permissions: contents: read`. Without this flag the
-     * token is written into `.git/config` and stays readable to every later
-     * step; `ci.yml` claims in a comment that every checkout sets it, and a
-     * claim in this repository becomes an invariant.
+     * Without the flag the token is written into `.git/config` and stays
+     * readable to every later step. `ci.yml` claims every checkout sets it,
+     * and a claim in this repository becomes an invariant (D100).
      */
     it("never persists the token past checkout", () => {
         const missing: string[] = [];

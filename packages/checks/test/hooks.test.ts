@@ -1,10 +1,9 @@
 /**
- * The pre-commit hook is opt-in convenience CI never executes — exactly the
- * "local script without a CI gate rots" shape ci.yml's lint job warns about.
- * Two facts keep it honest: the hook's staged-file pathspec confines Prettier
- * to the same tree as package.json's `format:check` glob, so the hook and CI
- * cannot disagree about which files the formatter owns; and the file keeps
- * its executable bit, because git skips a non-executable hook silently
+ * The pre-commit hook is opt-in convenience CI never executes, so nothing else
+ * would notice it rotting. Two facts keep it honest: its staged-file pathspec
+ * confines Prettier to the same tree as package.json's `format:check` glob, so
+ * hook and CI cannot disagree about which files the formatter owns; and it
+ * keeps its executable bit, because git skips a non-executable hook silently
  * rather than erroring.
  */
 
@@ -17,10 +16,9 @@ import { repoRoot } from "./helpers.js";
 const HOOK = ".githooks/pre-commit";
 
 /**
- * The scope a pattern confines a tool to: root directory and extension.
- * The hook's `packages/*.ts` is a git pathspec and format:check's
- * `packages/**\/*.ts` is a prettier glob — different syntaxes, same scope —
- * so the comparison is on what they cover, not on the spelling.
+ * The scope a pattern confines a tool to: root directory and extension. A git
+ * pathspec and a prettier glob are different syntaxes for the same scope, so
+ * the comparison is on what they cover rather than on the spelling.
  */
 export function scopeOf(pattern: string): { root: string; extension: string } {
     return {
@@ -68,8 +66,8 @@ describe("the pre-commit hook stays locked to the tools it fronts", () => {
     });
 
     it("proves the scope comparison can fail", () => {
-        // A hook staging outside packages/, or a format glob that moved,
-        // must register as a mismatch rather than a vacuous pass.
+        // A hook staging outside packages/, or a format glob that moved, must
+        // register as a mismatch rather than a vacuous pass.
         expect(scopeOf("*.ts")).not.toEqual(scopeOf("packages/**/*.ts"));
         expect(scopeOf("packages/*.js")).not.toEqual(scopeOf("packages/**/*.ts"));
     });

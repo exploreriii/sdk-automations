@@ -1,8 +1,9 @@
 /**
- * References resolve: cited paths exist, named files exist, cited decision
- * rows exist. Three describes, one theme — a reference that points at
- * nothing breaks nothing, so only a test can see it.
- * Split from repo-artifacts.test.ts (D89).
+ * References resolve: cited paths, bare filenames in prose, and cited decision
+ * rows all point at something that exists. A reference that points at nothing
+ * breaks nothing and warns nobody, while the register's method is that a row
+ * cites the code proving it — so only a test can see the rot.
+ * One invariant per file (D89).
  */
 
 import { describe, expect, it } from "vitest";
@@ -10,43 +11,21 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeRepoPath, repoRoot, trackedFiles, workspacePackages } from "./helpers.js";
 
-/**
- * A citation that points at a file which no longer exists breaks nothing.
- * No test fails, no build breaks, no reader is warned — the reference simply
- * becomes a lie, and the register's whole method is that a row cites the code
- * proving it. Fifty-one such citations exist today, and the directory
- * reorganisation is about to move most of the files they name.
- *
- * Same class as the mutate glob: silent when wrong, so it needs a test rather
- * than care.
- */
 describe("documents cite files that exist", () => {
     const docs = trackedFiles()
         .filter((rel) => rel.endsWith(".md"))
         .map((rel) => ({ doc: rel, text: readFileSync(join(repoRoot, rel), "utf8") }));
 
-    // Package alternation from the workspace file, not a literal: the day
-    // shell/ arrived, a hardcoded list left every `shell/src/…` and
-    // `lab/src/…` citation silently unchecked — the mutate-glob failure in
-    // yet another coat, caught in the same file that documents the last one.
+    // Package alternation from the workspace file: a hardcoded list leaves a
+    // new package's citations silently unchecked (D89's mutate glob again).
     const PATH = new RegExp(
         String.raw`\b((?:${workspacePackages().join("|")})\/(?:src|test)\/[A-Za-z0-9._/-]+\.ts)\b`,
         "g",
     );
 
-    /**
-     * The blind spot the audit/planning consolidation exposed: sixteen
-     * documents cited `audit/…` and `planning/…` paths, the directories
-     * moved, and this suite stayed green — the regex above knows only
-     * TypeScript. Now that the top level is closed (every knowledge file
-     * lives under design/, docs/ or examples/), repo-rooted document paths
-     * are checkable with the same rigour as source paths.
-     */
-    // Exactly the top-level knowledge roots. `examples` left this list when
-    // it moved under docs/ (D97): a bare `examples/x.yml` is no longer a
-    // repo-rooted path, it is a docs-RELATIVE link, and claiming otherwise
-    // made this check report four links that resolve perfectly. Relative
-    // targets are `links.test.ts`'s job; `docs/examples/…` still matches here.
+    // Exactly the two knowledge roots. A bare `examples/x.yml` is a
+    // docs-RELATIVE link (D97) and `links.test.ts`'s job, not a repo-rooted
+    // path; `docs/examples/…` still matches here.
     const DOC_PATH = /\b((?:design|docs)\/[A-Za-z0-9._/-]+\.(?:md|yml))\b/g;
 
     it("finds documents and citations to check", () => {
@@ -82,7 +61,7 @@ describe("documents cite files that exist", () => {
     });
 
     it("proves the check can fail", () => {
-        // Negative control, both directions: the matcher must find a path and
+        // Negative control, both directions: the matcher must find a path, and
         // the existence check must reject one that is not there.
         const fake = "see `packages/core/src/nonexistent.ts` and `design/audit/nope.md`";
         expect([...fake.matchAll(PATH)].map((m) => m[1])).toEqual([
@@ -97,23 +76,15 @@ describe("documents cite files that exist", () => {
 });
 
 /**
- * The blind spot in the check above, found the hard way: it validates
- * `packages/core/src/….ts` PATHS, and the architecture diagram in `packages/core/README.md`
- * named six files as bare mermaid labels — `taxonomy.ts`, `config.ts` and
- * the rest. The directory reorganisation deleted every one of them and the
- * diagram sailed through, still describing a package that no longer existed.
- *
- * Diagrams are where a visual reader looks first, so a stale one misleads
- * more than a stale sentence. This matches on the FILENAME rather than the
- * path — deliberately lenient, because a document may reasonably mention a
- * file without siting it, and the failure worth catching is a name that
- * refers to nothing at all.
+ * The blind spot in the check above, which validates PATHS: a mermaid diagram
+ * can name a deleted file as a bare label and sail through. Matching is on the
+ * FILENAME and deliberately lenient — a document may mention a file without
+ * siting it, and the failure worth catching is a name referring to nothing.
  */
 describe("documents name files that exist", () => {
     const sourceNames = new Set<string>();
-    // Every workspace package, from the workspace file — a hardcoded list
-    // here silently un-resolved every filename in checks/ and lab/ the day
-    // those packages arrived, the mutate-glob failure in a new coat.
+    // Package list from the workspace file; a hardcoded one leaves a newly
+    // arrived package's filenames unresolved and unchecked.
     for (const pkg of workspacePackages()) {
         for (const dir of ["src", "test"]) {
             try {
@@ -136,15 +107,11 @@ describe("documents name files that exist", () => {
     const NAME = /(?<![\w/.-])([a-z][a-z0-9-]*\.ts)(?![\w-])/g;
 
     /**
-     * Files a document names DELIBERATELY before they exist — `github/`'s
-     * README lists what the adapter will bring. The list cleans itself up:
-     * the test below fails if an entry starts existing, so a planned file
-     * arriving forces the exemption to be deleted rather than lingering as
-     * a permanent hole in the check.
+     * Files a document names DELIBERATELY before they exist, such as what
+     * `github/`'s README says the adapter will bring. Self-cleaning: the test
+     * below fails once an entry exists, so the exemption must be deleted
+     * rather than linger as a permanent hole in the check.
      */
-    // events.ts arrived 2026-08-07 (the slice) and left this list, as designed;
-    // the planned subscription list took the name subscriptions.ts when the
-    // normalizer moved to engine/ and freed then re-shadowed the old name.
     const PLANNED = new Set(["endpoints.ts", "subscriptions.ts"]);
 
     it("no planned filename has quietly started existing", () => {
@@ -161,9 +128,8 @@ describe("documents name files that exist", () => {
         const unknown: string[] = [];
         for (const doc of docs) {
             const text = readFileSync(join(repoRoot, doc), "utf8");
-            // D108 is an immutable historical record of a source split whose
-            // extracted file has since been deleted. Keep that row verbatim;
-            // active documentation remains subject to the filename check.
+            // D108 records a split whose extracted file was later deleted, and
+            // the register is immutable; active documentation stays checked.
             const activeText =
                 doc === "design/decisions.md" ? text.replace(/^\| D108 \|.*$/m, "") : text;
             for (const match of activeText.matchAll(NAME)) {
@@ -187,22 +153,15 @@ describe("documents name files that exist", () => {
 });
 
 /**
- * The sixth invariant, added because the fifth did not catch its own author.
- *
- * `D77` was cited three times in `core/src` before the register row existed.
- * The citation checks above validate file PATHS and FILENAMES; a decision id
- * is neither, so code could point at a row nobody had written. That is the
- * register's method inverted — a decision cites the code proving it, and here
- * the code cited a decision proving nothing.
+ * A decision id is neither a path nor a filename, so the checks above cannot
+ * see it: `D77` was cited three times in `core/src` before its row existed.
  */
 describe("code cites decisions that exist", () => {
     const register = readFileSync(join(repoRoot, "design", "decisions.md"), "utf8");
     const recorded = new Set([...register.matchAll(/^\| (D\d+) \|/gm)].map((m) => m[1]!));
 
     const sources: { file: string; text: string }[] = [];
-    // Every workspace package, same reason as the filename check above: a
-    // hardcoded trio left probes', lab's and then shell's D-citations
-    // pointing at rows nobody had verified exist.
+    // Package list from the workspace file, same reason as the check above.
     for (const pkg of workspacePackages()) {
         let rels: string[];
         try {

@@ -1,11 +1,10 @@
 /**
- * The top level holds `packages/` and two knowledge roots — D86's
- * sentence, tightened by D95 and D97. Split from repo-artifacts.test.ts (D89).
+ * A top-level directory holds workspace packages, or it is one of the two
+ * knowledge roots — design/ (internal why) and docs/ (users). Clutter regrows
+ * quietly, one uncontested directory at a time (D86, D95, D97).
  *
- * The allowed package root is DERIVED from the workspace file rather than
- * spelled `packages`: the rule is "a directory is where workspace packages
- * live, or it is a named knowledge root", which stays true whether the
- * packages sit under one prefix or at the top level.
+ * The package root is DERIVED from the workspace file rather than spelled
+ * `packages`, so the rule holds wherever the packages sit (D95).
  */
 
 import { describe, expect, it } from "vitest";
@@ -29,13 +28,6 @@ function topLevelOffenders(
     );
 }
 
-/**
- * The consolidation's real product is a sentence: a top-level directory
- * holds workspace packages, or it is one of two knowledge roots —
- * design/ (internal why) and docs/ (users, including the executable
- * examples). audit/ and planning/ existed because no such rule did; this
- * keeps the next five packages from re-growing the clutter.
- */
 describe("the top level holds packages and two knowledge roots", () => {
     const KNOWLEDGE = new Set(["design", "docs"]);
 
@@ -45,16 +37,15 @@ describe("the top level holds packages and two knowledge roots", () => {
     });
 
     it("the package root is read from the workspace file, not assumed", () => {
-        // Guards the derivation: if the workspace file stopped listing
-        // paths, this set would go empty and the check above would start
-        // flagging the packages themselves rather than going vacuous.
+        // Guards the derivation: a workspace file that stopped listing paths
+        // would empty this set and make the check above flag the packages.
         expect(packageRoots(workspacePackages())).toEqual(new Set(["packages"]));
         expect(packageRoots(["core", "store"])).toEqual(new Set(["core", "store"]));
     });
 
     it("proves the rule can fail", () => {
-        // audit/ was a real offender until 2026-08-06; assert the predicate
-        // would still flag it rather than having gone vacuous.
+        // Negative control: the predicate must still flag a real offender
+        // rather than have gone vacuous.
         const packages = packageRoots(workspacePackages());
         expect(
             topLevelOffenders(

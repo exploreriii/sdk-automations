@@ -1,13 +1,10 @@
 /**
- * The workspace dependency graph is architecture, not package-manager trivia.
- * Membership comes from pnpm; dependency-cruiser supplies the import edges.
- *
- * Two halves, because the graph is written down in two places. Manifests are
- * read here — a `package.json` is not a module and no import scanner will
- * ever open one. Source imports are read by dependency-cruiser against
- * `.dependency-cruiser.cjs`, which this file is the enforcement gate for: it
- * cruises the real tree and fails on any violation, then cruises a fixture
- * tree of deliberate violations to prove the rules can still fire.
+ * The workspace dependency graph follows the layer policy. The graph is
+ * written down twice: manifests are read here, source imports by
+ * dependency-cruiser against `.dependency-cruiser.cjs`, for which this file is
+ * the enforcement gate. A forbidden edge breaks no build and a rule that
+ * stopped firing looks identical to a clean tree, so the real tree and a
+ * fixture tree of deliberate violations are both cruised.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -18,12 +15,7 @@ import type { ICruiseOptions, ICruiseResult, IConfiguration } from "dependency-c
 import { describe, expect, it } from "vitest";
 import { normalizeRepoPath, repoRoot, trackedFiles, workspacePackages } from "./helpers.js";
 
-/**
- * The manifest SECTION a dependency was declared in is part of the edge, not
- * bookkeeping: `testkit` is legal from `devDependencies` and illegal from
- * every other section, and a tuple that had forgotten where it came from
- * could not tell the two apart.
- */
+/** Part of the edge: `testkit` is legal from `devDependencies` and nowhere else. */
 type Section = "dependencies" | "devDependencies" | "optionalDependencies" | "peerDependencies";
 
 type Dependency = readonly [specifier: string, reference: string, section: Section];
@@ -61,19 +53,16 @@ const ALLOWED: Readonly<Record<string, ReadonlySet<string>>> = {
     core: new Set(),
     store: new Set(["core"]),
     shell: new Set(["core", "store", "probes"]),
-    // The testkit is a leaf on purpose. A config or declaration builder here
-    // would need core, and core's tests need the testkit — the cycle this
-    // empty set refuses in advance.
+    // A leaf on purpose: a builder here would need core, and core's tests need
+    // the testkit — the cycle this empty set refuses in advance.
     testkit: new Set(),
 };
 const NON_PRODUCTION = new Set(["checks", "lab", "probes", "testkit"]);
 
 /**
- * The testkit is test-only in two directions, and each half is checked where
- * it is written down. A manifest may name it from `devDependencies` and
- * nowhere else — that is this file's business. A source file may import it
- * from a `test/` path and nowhere else, which is the cruiser's
- * `testkit-is-test-only` rule.
+ * Test-only in two directions, each half checked where it is written down: a
+ * manifest may name it only from `devDependencies` (here), and a source file
+ * may import it only from a `test/` path (the cruiser's `testkit-is-test-only`).
  */
 const TESTKIT = "testkit";
 
@@ -153,10 +142,8 @@ function violation(edge: Edge, rule: string): Violation {
 }
 
 /**
- * Edges INTO the testkit answer to their own rule and skip the layer table
- * entirely: every package's tests may reach it, so asking ALLOWED would mean
- * naming every package there — the copied-workspace-list shape this file's
- * header rejects.
+ * Edges INTO the testkit skip the layer table: every package's tests may reach
+ * it, so asking ALLOWED would mean naming every package there.
  */
 function testkitViolation(edge: Edge): Violation | undefined {
     return edge.section === "devDependencies"
@@ -183,9 +170,8 @@ function directionViolation(edge: Edge): Violation | undefined {
 }
 
 /**
- * A `package.json` is not a module, so no import scanner will ever open one —
- * and a declared-but-unimported edge is exactly the kind that survives a
- * refactor unnoticed. Hence this half stays hand-written.
+ * Hand-written because no import scanner opens a `package.json`, and a
+ * declared-but-unimported edge is the kind that survives a refactor unnoticed.
  */
 function manifestViolations(packages: readonly WorkspacePackage[]): Violation[] {
     if (new Set(packages.map(({ name }) => name)).size !== packages.length) {
@@ -341,9 +327,8 @@ describe("workspace manifests declare the allowed dependency directions", () => 
 });
 
 /**
- * The rule set lives at the repository root so a reader looking for "what may
- * import what" finds one file, and so a future `depcruise` invocation and
- * this gate cannot disagree about the answer.
+ * The rule set lives at the repository root so a direct `depcruise` run and
+ * this gate cannot disagree about what may import what.
  */
 const configuration = createRequire(import.meta.url)(
     join(repoRoot, ".dependency-cruiser.cjs"),
@@ -365,16 +350,12 @@ async function cruiseViolations(roots: readonly string[], baseDir: string): Prom
 }
 
 /**
- * The roots come from the workspace file for the same reason the package list
- * does: a hard-coded array is a test that needs editing to stay correct.
- *
- * `packages/lab/harness/` is deliberately absent. It is the era-1 harness —
- * local-only, gitignored, not a workspace member, with its own lockfile and
- * `node_modules` — so CI never sees it and cruising it could only ever
- * produce failures on the machines that do the work, which is the same
- * disagreement D95 removed from `pnpm lint`. It reaches into core by relative
- * path BECAUSE it is not a workspace member; the layer policy has nothing to
- * say to it.
+ * Roots from the workspace file, because a hard-coded array is a test that
+ * needs editing to stay correct. `packages/lab/harness/` is deliberately
+ * absent: local-only, gitignored, not a workspace member, so CI never sees it
+ * and cruising it could only fail on the machines doing the work — the
+ * disagreement D95 removed from `pnpm lint`. Its relative reach into core is
+ * a consequence of not being a member, and the layer policy does not govern it.
  */
 const cruiseRoots = workspacePackages()
     .flatMap((directory) => [`${directory}/src`, `${directory}/test`])
@@ -389,10 +370,9 @@ describe("source imports follow the layer policy, checked by dependency-cruiser"
     });
 
     /**
-     * The negative control the hand-written scanner used to carry inline. The
-     * fixture tree mirrors `packages/<role>/src/` so the very same path
-     * regexes apply to it; only the base directory differs, which is also the
-     * proof that the rules are about layers rather than about this checkout.
+     * Negative control. The fixture tree mirrors `packages/<role>/src/` so the
+     * same path regexes apply with only the base directory differing — which
+     * is also the proof the rules are about layers, not about this checkout.
      */
     it("fires every rule against a tree of deliberate violations", async () => {
         const fixtureRoot = join(repoRoot, "packages/checks", FIXTURES);
@@ -415,10 +395,9 @@ describe("source imports follow the layer policy, checked by dependency-cruiser"
     });
 
     it("keeps the fixture tree out of the real cruise", async () => {
-        // Belt and braces: the fixtures live under `packages/checks/test/`,
-        // which IS a cruise root. If the config's exclude ever stopped
-        // matching them, the test above would start reporting nine
-        // violations against files that are supposed to have them.
+        // The fixtures live under `packages/checks/test/`, which IS a cruise
+        // root: if the config's exclude stopped matching them, the test above
+        // would report violations against files that are meant to have them.
         const scanned = await cruise(cruiseRoots, cruiseOptions(repoRoot));
         const result = scanned.output as ICruiseResult;
         expect(result.modules.length).toBeGreaterThan(50);
@@ -427,22 +406,17 @@ describe("source imports follow the layer policy, checked by dependency-cruiser"
 });
 
 /**
- * The hole every import scanner has, the deleted AST walk and
- * dependency-cruiser alike: `import.meta.resolve` takes the same specifier an
- * import does, but it is a FUNCTION CALL. Nothing that reads import syntax
- * sees it, so a module can turn a package name into a directory and then walk
- * wherever it likes inside it — past the barrel, into a private test tree —
- * and leave no edge for any rule above to forbid.
+ * The hole every import scanner has, dependency-cruiser included:
+ * `import.meta.resolve` takes the same specifier an import does but is a
+ * FUNCTION CALL, so a module can turn a package name into a directory and walk
+ * past its barrel leaving no edge for any rule above to forbid.
  */
 const RESOLVE_REACH = /import\.meta\.resolve\(\s*["'`]@hiero-hackers\//;
 
 /**
- * The two survivors, and why the assertion is an exact set rather than an
- * empty one. Both transpile core's `github/ids.ts` into a scratch directory
- * so a `node:worker_threads` contender can import it, which is a genuine
- * reach past core's barrel that no import rule can see. Naming them here is
- * the smallest honest statement: the pattern is closed to everything else,
- * and the day these two stop needing it this array becomes empty.
+ * The two exemptions: both transpile core's `github/ids.ts` into a scratch
+ * directory so a `node:worker_threads` contender can import it. An exact set
+ * rather than an empty one, so the array empties itself when they stop.
  */
 const RESOLVE_REACH_ALLOWED: readonly string[] = [
     "packages/store/test/delivery-finalization.test.ts",
@@ -466,9 +440,8 @@ describe("no new module reaches into another package by resolving its specifier"
     });
 
     it("proves the check can fail", () => {
-        // The specifier is assembled rather than written out, so that this
-        // file — which `trackedFiles()` above also reads — does not report
-        // itself as the third offender.
+        // The specifier is assembled rather than written out, so this file —
+        // which `trackedFiles()` also reads — does not report itself.
         const scope = "@hiero-hackers";
         expect(
             resolveReaches([

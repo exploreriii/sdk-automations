@@ -1,16 +1,9 @@
 /**
- * `docs/` is written for maintainers who will not read much — three pages,
- * mostly tables. Every one of those tables restates a closed vocabulary the
- * code owns, which is one fact in two places: exactly the defect class D53
- * through D82 spent this repository removing, except this copy lies to a
- * maintainer instead of a compiler.
- *
- * So the tables are locked. Each vocabulary here is a mapped type over the
- * union (D76's rule), meaning this file fails to COMPILE when a code is
- * added, and the assertions fail when the docs table does not follow. Both
- * directions: a docs row naming a code that does not exist fails too.
- *
- * Artifact genre — reads the repository, like the citation invariants in this package.
+ * `docs/`'s tables restate closed vocabularies the code owns — one fact in two
+ * places, aimed at a reader who cannot run the compiler that would catch the
+ * drift (D83). So each table is locked to its vocabulary in both directions:
+ * where no runtime array exists the list here is a mapped type over the union
+ * (D76), so a new code fails to COMPILE until the docs row follows.
  */
 
 import { describe, expect, it } from "vitest";
@@ -63,12 +56,8 @@ describe("documentation parsing", () => {
 
 describe("docs/quickstart.md", () => {
     /**
-     * Both are entry points — one is what GitHub renders when you open
-     * `docs/`, the other is the link you would send someone — so both carry a
-     * blockquote banner, and prose duplicated across two files is prose free
-     * to drift. The wording is deliberately unpinned: what is asserted is that
-     * each page HAS a banner and that the two say the same thing, so a
-     * rewrite has to land in both places or not at all.
+     * The wording is deliberately unpinned: what is locked is that both entry
+     * pages HAVE a banner and that the two agree, so a rewrite lands in both.
      */
     it("carries a banner identical to the index's", () => {
         const banner = (name: string) =>
@@ -88,10 +77,8 @@ describe("docs/quickstart.md", () => {
     });
 
     /**
-     * The examples are the copy-and-paste path, so the quickstart must offer
-     * every one of them: a tested file nobody is pointed at is dead weight,
-     * and a link to a file that was renamed is a 404 in the one page most
-     * people read. Both directions, like every other lock here.
+     * Both directions: a tested example nobody is pointed at is dead weight,
+     * and a link to a renamed file is a 404 in the most-read page.
      */
     it("offers every tested example, and links no phantom ones", () => {
         const quickstart = page("quickstart.md");
@@ -115,15 +102,8 @@ describe("docs/configuration.md", () => {
     const doc = page("configuration.md");
 
     /**
-     * A reference guide's characteristic failure is not being wrong, it is
-     * being INCOMPLETE — a key nobody documented, discovered by a maintainer
-     * when the App rejects their file. So the definition list is held to the
-     * key list the unknown-key rule uses, in both directions.
-     */
-    /**
-     * The at-a-glance tree claims to be "the entire shape". A tree missing a
-     * key would be believed — it is the first thing on the page — so the
-     * claim is held to the key list, and the stated count to its length.
+     * The tree claims to be "the entire shape" and is the first thing on the
+     * page, so both the claim and its stated count are held to the key list.
      */
     it("the at-a-glance tree shows every key, and states the true count", () => {
         const glance = doc.split("## The file at a glance")[1]?.split(/^## /m)[0] ?? "";
@@ -133,6 +113,8 @@ describe("docs/configuration.md", () => {
         expect(glance).toContain(`${TOP_LEVEL_KEYS.length} top-level keys`);
     });
 
+    // A reference guide's characteristic failure is INCOMPLETENESS, so the
+    // definition list is held to the key list the unknown-key rule uses.
     it("defines every top-level key, and invents none", () => {
         const defined = [...doc.matchAll(/^### `([a-zA-Z]+)`$/gm)].map((m) => m[1]!);
         expect(defined).toEqual([...TOP_LEVEL_KEYS]);
@@ -158,11 +140,7 @@ describe("docs/configuration.md", () => {
         expect(tableCodes(doc, "Label mappings")).toEqual([...MAPPABLE_MEANINGS]);
     });
 
-    /**
-     * `ConfigErrorCode` has no runtime array to compare against, so the list
-     * below is a mapped type over the union: adding a code fails compilation
-     * here until the docs row exists, which is the lock working as intended.
-     */
+    /** `ConfigErrorCode` has no runtime array, so the catalogue is a mapped type (D76). */
     it("its error table is the error catalogue, exactly", () => {
         const CATALOGUE: { readonly [K in ConfigErrorCode]: true } = {
             documentUnparseable: true,
@@ -222,10 +200,8 @@ describe("docs/troubleshooting.md", () => {
     });
 
     /**
-     * The page's grouping is a claim about SEVERITY, and the classification
-     * table in `report/convert.ts` is the authority — so ask it. A code
-     * filed under "on purpose" that the platform classifies as a problem is
-     * the docs telling a maintainer to relax about something that needs them.
+     * The page's grouping is a claim about SEVERITY, and `report/convert.ts`
+     * is the authority — so ask it rather than restate its table here.
      */
     const severityOf = (code: string): Severity => {
         const RECORD_ONLY: readonly RecordOnlyCode[] = ["observation", "modeRecordsOnly"];

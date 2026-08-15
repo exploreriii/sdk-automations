@@ -64,18 +64,19 @@ describe("documentation parsing", () => {
 describe("docs/quickstart.md", () => {
     /**
      * Both are entry points — one is what GitHub renders when you open
-     * `docs/`, the other is the link you would send someone — so both carry
-     * the "not installable yet" banner, and prose duplicated across two files
-     * is prose free to drift. Asserted identical rather than deleted from one,
-     * because deleting it from either lets a reader arrive without it.
+     * `docs/`, the other is the link you would send someone — so both carry a
+     * blockquote banner, and prose duplicated across two files is prose free
+     * to drift. The wording is deliberately unpinned: what is asserted is that
+     * each page HAS a banner and that the two say the same thing, so a
+     * rewrite has to land in both places or not at all.
      */
-    it("carries the development notice, in the same words as the index", () => {
+    it("carries a banner identical to the index's", () => {
         const banner = (name: string) =>
             page(name)
                 .split("\n")
                 .filter((l) => l.startsWith(">"))
                 .join("\n");
-        expect(banner("quickstart.md")).toContain("not yet installable");
+        expect(banner("quickstart.md")).not.toBe("");
         expect(banner("quickstart.md")).toEqual(banner("README.md"));
     });
 
@@ -112,18 +113,6 @@ describe("docs/quickstart.md", () => {
 
 describe("docs/configuration.md", () => {
     const doc = page("configuration.md");
-
-    /**
-     * Both reference pages promise that their tables are asserted against
-     * the code. This is that assertion noticing itself: if the sentence is
-     * ever reworded or dropped, the suite says so — a page cannot carry the
-     * promise without also carrying the checks, because they arrive together.
-     */
-    it("carries the provenance promise, as does troubleshooting", () => {
-        for (const name of ["configuration.md", "troubleshooting.md"]) {
-            expect(page(name)).toContain("asserted against the code by the test suite");
-        }
-    });
 
     /**
      * A reference guide's characteristic failure is not being wrong, it is

@@ -15,6 +15,7 @@
     },
     "scripts": {
         "test": "tsc --noEmit && vitest run",
+        "test:coverage": "tsc --noEmit && vitest run --coverage --testTimeout=15000",
         "test:watch": "vitest",
         "start": "tsx src/main.ts"
     },

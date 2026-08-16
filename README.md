@@ -17,7 +17,6 @@
 <p align="center">
   <a href="docs/quickstart.md">Quickstart</a> ·
   <a href="docs/configuration.md">Configuration</a> ·
-  <a href="design/trace.md">System trace</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="SECURITY.md">Security</a>
 </p>
@@ -109,8 +108,9 @@ All tracked tests run offline. No GitHub credentials or GitHub App configuration
   <tr>
     <td width="50%">
       <strong>Understand the system</strong><br><br>
-      Follow one delivery in the <a href="design/trace.md">system trace</a>, then read the
-      <a href="design/architecture.md">architecture</a> and <a href="design/design2/decisions.md">decision register</a>.
+      Read the <a href="design/design2/architecture-v2.md">architecture</a>, then the
+      <a href="design/design2/decisions.md">decision register</a>. The
+      <a href="packages/core/README.md">core README</a> holds the glossary.
     </td>
     <td width="50%">
       <strong>Use the contract</strong><br><br>

@@ -1,7 +1,7 @@
 # System architecture (v2 draft — temporary name)
 
 > Drawings, not prose. One italic line under each names the code or test that falsifies it.
-> Why: [`decisions.md`](decisions.md). The narrated journey: [`trace.md`](../trace.md).
+> Why: [`decisions.md`](decisions.md). Vocabulary: [`packages/core/README.md`](../../packages/core/README.md).
 
 ## Part 1 — The system
 

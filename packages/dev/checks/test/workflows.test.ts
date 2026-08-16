@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parse } from "yaml";
 import { lines, repoRoot, trackedFiles } from "./repository.js";
 
 const workflows = trackedFiles().filter(
@@ -27,28 +28,54 @@ const WRITE_ALLOWLIST = new Set([
     ".github/workflows/codeql.yml:security-events",
 ]);
 
-function workflowLines(path: string): string[] {
-    return lines(readFileSync(join(repoRoot, path), "utf8"));
+function workflowText(path: string): string {
+    return readFileSync(join(repoRoot, path), "utf8");
 }
 
-function permissionWrites(path: string): string[] {
-    const writes: string[] = [];
-    let inPermissions = false;
-    for (const line of workflowLines(path)) {
-        if (/^\s*permissions:\s*$/.test(line)) {
-            inPermissions = true;
-            continue;
-        }
-        if (inPermissions) {
-            const match = /^\s+([A-Za-z_-]+):\s*(read|write|none)\s*(?:#.*)?$/.exec(line);
-            if (match) {
-                if (match[2] === "write") writes.push(`${path}:${match[1]}`);
-                continue;
-            }
-            if (/^\S/.test(line)) inPermissions = false;
-        }
-    }
-    return writes;
+function workflowLines(path: string): string[] {
+    return lines(workflowText(path));
+}
+
+/** A `permissions:` value, in every shape the Actions schema allows. */
+type PermissionBlock = string | Readonly<Record<string, unknown>> | null | undefined;
+
+interface WorkflowDocument {
+    readonly permissions?: PermissionBlock;
+    readonly jobs?: Readonly<Record<string, { readonly permissions?: PermissionBlock } | null>>;
+}
+
+/**
+ * The writes one block grants, as `<path>:<scope>`.
+ *
+ * `write-all` reports under that name rather than expanding to every scope:
+ * it is a different decision from granting one scope, and no allowlist entry
+ * naming a scope should ever match it.
+ */
+function writesIn(path: string, block: PermissionBlock): string[] {
+    if (block === null || block === undefined) return [];
+    if (typeof block === "string") return block === "write-all" ? [`${path}:write-all`] : [];
+    return Object.entries(block)
+        .filter(([, level]) => level === "write")
+        .map(([scope]) => `${path}:${scope}`);
+}
+
+/**
+ * Parsed, never scanned line by line. A regex reading `permissions:` off its
+ * own line is blind to a flow mapping, a quoted `"write"`, and the
+ * `write-all` shorthand — three legal spellings of the grant this check
+ * exists to refuse, each of which passed silently. Same argument, same
+ * parser, as `mutation-coverage.test.ts` reading `ci.yml`.
+ *
+ * Both levels the schema permits: the workflow's own block, and each job's.
+ */
+function permissionWrites(path: string, text: string): string[] {
+    const document = parse(text) as WorkflowDocument | null;
+    if (document === null || typeof document !== "object") return [];
+    const jobs = Object.values(document.jobs ?? {});
+    return [
+        ...writesIn(path, document.permissions),
+        ...jobs.flatMap((job) => writesIn(path, job?.permissions)),
+    ];
 }
 
 describe("workflow hygiene stays a checked invariant", () => {
@@ -78,7 +105,7 @@ describe("workflow hygiene stays a checked invariant", () => {
     });
 
     it("keeps permissions read-only outside the explicit write allowlist", () => {
-        const actual = workflows.flatMap(permissionWrites);
+        const actual = workflows.flatMap((path) => permissionWrites(path, workflowText(path)));
         expect([...actual].sort()).toEqual([...WRITE_ALLOWLIST].sort());
     });
 
@@ -117,5 +144,36 @@ describe("workflow hygiene stays a checked invariant", () => {
         const pin = (ref: string): boolean => /^[0-9a-f]{40}$/.test(ref);
         expect(pin("v4")).toBe(false);
         expect(pin("3d3c42e5aac5ba805825da76410c181273ba90b1")).toBe(true);
+    });
+
+    /**
+     * The allowlist comparison guards the workflows that exist; this guards
+     * the check itself against the way it regresses — a NEW job whose grant
+     * is spelt in a shape the reader never learned. Every row below is valid
+     * YAML that GitHub honours, and the first three were invisible to the
+     * line scanner this replaced.
+     */
+    it.each([
+        [
+            "a block mapping",
+            "jobs:\n  a:\n    permissions:\n      contents: write\n",
+            ["w:contents"],
+        ],
+        ["a flow mapping", "jobs:\n  a:\n    permissions: { contents: write }\n", ["w:contents"]],
+        ["a quoted value", 'permissions:\n  contents: "write"\n', ["w:contents"]],
+        ["the write-all shorthand", "permissions: write-all\n", ["w:write-all"]],
+        ["a workflow-level block", "permissions:\n  contents: write\n", ["w:contents"]],
+    ] as const)("finds the write granted by %s", (_name, yaml, expected) => {
+        expect(permissionWrites("w", yaml)).toEqual(expected);
+    });
+
+    it.each([
+        ["read", "permissions:\n  contents: read\n"],
+        ["none", "permissions:\n  contents: none\n"],
+        ["read-all", "permissions: read-all\n"],
+        ["an empty block", "permissions: {}\n"],
+        ["no permissions key at all", "jobs:\n  a:\n    runs-on: ubuntu-latest\n"],
+    ] as const)("reports no write for %s", (_name, yaml) => {
+        expect(permissionWrites("w", yaml)).toEqual([]);
     });
 });

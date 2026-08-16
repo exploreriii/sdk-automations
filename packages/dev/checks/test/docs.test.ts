@@ -21,7 +21,7 @@ import { normalizeNewlines } from "./repository.js";
 
 const page = (name: string): string =>
     normalizeNewlines(
-        readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), "utf8"),
+        readFileSync(fileURLToPath(new URL(`../../../../docs/${name}`, import.meta.url)), "utf8"),
     );
 
 /** The first backtick-quoted token of each table row in one `## section`. */
@@ -83,7 +83,7 @@ describe("docs/quickstart.md", () => {
     it("offers every tested example, and links no phantom ones", () => {
         const quickstart = page("quickstart.md");
         const shipped = readdirSync(
-            fileURLToPath(new URL("../../../docs/examples/", import.meta.url)),
+            fileURLToPath(new URL("../../../../docs/examples/", import.meta.url)),
         )
             .filter((f) => f.endsWith(".yml"))
             .sort();

@@ -351,7 +351,7 @@ async function cruiseViolations(roots: readonly string[], baseDir: string): Prom
 
 /**
  * Roots from the workspace file, because a hard-coded array is a test that
- * needs editing to stay correct. `packages/lab/harness/` is deliberately
+ * needs editing to stay correct. `packages/dev/lab/harness/` is deliberately
  * absent: local-only, gitignored, not a workspace member, so CI never sees it
  * and cruising it could only fail on the machines doing the work — the
  * disagreement D95 removed from `pnpm lint`. Its relative reach into core is
@@ -375,7 +375,7 @@ describe("source imports follow the layer policy, checked by dependency-cruiser"
      * is also the proof the rules are about layers, not about this checkout.
      */
     it("fires every rule against a tree of deliberate violations", async () => {
-        const fixtureRoot = join(repoRoot, "packages/checks", FIXTURES);
+        const fixtureRoot = join(repoRoot, "packages/dev/checks", FIXTURES);
         const fired = new Set(
             (await cruiseViolations(["packages"], fixtureRoot)).map(
                 (message) => message.split(":")[0]!,
@@ -395,7 +395,7 @@ describe("source imports follow the layer policy, checked by dependency-cruiser"
     });
 
     it("keeps the fixture tree out of the real cruise", async () => {
-        // The fixtures live under `packages/checks/test/`, which IS a cruise
+        // The fixtures live under `packages/dev/checks/test/`, which IS a cruise
         // root: if the config's exclude stopped matching them, the test above
         // would report violations against files that are meant to have them.
         const scanned = await cruise(cruiseRoots, cruiseOptions(repoRoot));

@@ -2,7 +2,7 @@
  * The workspace dependency graph, as rules rather than as a hand-written
  * scanner.
  *
- * `packages/checks/test/architecture.test.ts` is this file's ENFORCEMENT
+ * `packages/dev/checks/test/architecture.test.ts` is this file's ENFORCEMENT
  * GATE: it cruises the real tree with these rules and fails on any
  * violation, and it cruises a deliberately-violating fixture tree with the
  * same rules to prove they can still fire. There is no CLI step and no
@@ -18,6 +18,14 @@
  * discovery the gate does; everything else — which directories exist, which
  * packages are present — stays derived.
  */
+
+/**
+ * Non-production packages live under `packages/dev/`, but the fixture tree
+ * the gate cruises as its negative control mirrors packages FLAT under its
+ * own root. `(?:dev/)?` lets one pattern govern both shapes — which is also
+ * the proof the rules are about roles, not about where a role is filed.
+ */
+const P = "^packages/(?:dev/)?";
 
 /** @type {import("dependency-cruiser").IConfiguration} */
 module.exports = {
@@ -39,15 +47,15 @@ module.exports = {
                 "core is the bottom of the stack: pure logic, no workspace neighbours. Its TESTS " +
                 "may still reach the testkit, which is why testkit is absent from this list and " +
                 "owns its own rule below.",
-            from: { path: "^packages/core/(?:src|test)/" },
-            to: { path: "^packages/(?:store|shell|probes|checks|lab)/" },
+            from: { path: `${P}core/(?:src|test)/` },
+            to: { path: `${P}(?:store|shell|probes|checks|lab)/` },
         },
         {
             name: "store-imports-core-only",
             severity: "error",
             comment: "The owned operational store sits directly on core and on nothing else.",
-            from: { path: "^packages/store/(?:src|test)/" },
-            to: { path: "^packages/(?:shell|probes|checks|lab)/" },
+            from: { path: `${P}store/(?:src|test)/` },
+            to: { path: `${P}(?:shell|probes|checks|lab)/` },
         },
         {
             name: "shell-imports-core-store-probes",
@@ -56,8 +64,8 @@ module.exports = {
                 "The transport shell composes core, store and probes. D93 owns shell -> probes: " +
                 "the shell decides nothing, so the disposable capability stubs are a legitimate " +
                 "runtime edge rather than a leak, and they leave with probes/ at stage four.",
-            from: { path: "^packages/shell/(?:src|test)/" },
-            to: { path: "^packages/(?:checks|lab)/" },
+            from: { path: `${P}shell/(?:src|test)/` },
+            to: { path: `${P}(?:checks|lab)/` },
         },
         {
             name: "testkit-imports-no-internal-package",
@@ -66,8 +74,8 @@ module.exports = {
                 "The testkit is a leaf on purpose. A config or declaration builder here would " +
                 "need core, and core's tests need the testkit — the cycle this rule refuses in " +
                 "advance.",
-            from: { path: "^packages/testkit/(?:src|test)/" },
-            to: { path: "^packages/(?:core|store|shell|probes|checks|lab)/" },
+            from: { path: `${P}testkit/(?:src|test)/` },
+            to: { path: `${P}(?:core|store|shell|probes|checks|lab)/` },
         },
         {
             name: "production-imports-no-checks-or-lab",
@@ -76,8 +84,8 @@ module.exports = {
                 "checks is tests about the repository and lab is an instrument pointed at " +
                 "GitHub. Neither ships, so nothing that ships may reach them — stated separately " +
                 "from the layer directions because it survives any future reordering of them.",
-            from: { path: "^packages/(?:core|store|shell)/" },
-            to: { path: "^packages/(?:checks|lab)/" },
+            from: { path: `${P}(?:core|store|shell)/` },
+            to: { path: `${P}(?:checks|lab)/` },
         },
         {
             name: "testkit-is-test-only",
@@ -86,8 +94,8 @@ module.exports = {
                 "The testkit is importable from a test path and nowhere else. 'Who may depend on " +
                 "it' is not the question — every package's tests may — so this reads the " +
                 "IMPORTER's directory rather than the layer table.",
-            from: { path: "^packages/(?!testkit/)[^/]+/src/" },
-            to: { path: "^packages/testkit/" },
+            from: { path: `${P}(?!testkit/)[^/]+/src/` },
+            to: { path: `${P}testkit/` },
         },
         {
             name: "no-import-past-the-barrel",
@@ -95,12 +103,13 @@ module.exports = {
             comment:
                 "The package's public export is the boundary. Reaching a module THROUGH it is " +
                 "fine; reaching past it — a named subpath, or a relative path that climbs out of " +
-                "one package and down into another — is not. `$1` is the importing package, so " +
-                "a package's own internals stay reachable from itself.",
-            from: { path: "^packages/([^/]+)/" },
+                "one package and down into another — is not. `$1` is the importing package's " +
+                "full directory (including a `dev/` segment when it has one), so a package's " +
+                "own internals stay reachable from itself and `dev/` neighbours stay distinct.",
+            from: { path: "^packages/((?:dev/)?[^/]+)/" },
             to: {
-                path: "^packages/[^/]+/src/",
-                pathNot: ["^packages/$1/", "^packages/[^/]+/src/index\\.ts$"],
+                path: `${P}[^/]+/src/`,
+                pathNot: ["^packages/$1/", `${P}[^/]+/src/index\\.ts$`],
             },
         },
         {
@@ -131,7 +140,7 @@ module.exports = {
                 "\\.stryker-tmp",
                 // The gate's own negative control: a tree of deliberate
                 // violations, cruised separately and on purpose.
-                "^packages/checks/test/fixtures/",
+                "^packages/dev/checks/test/fixtures/",
             ],
         },
         // The old scanner counted `import type` as an edge, and it was right

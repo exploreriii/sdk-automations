@@ -25,15 +25,15 @@ interface Layer {
 
 const LAYERS: readonly Layer[] = [
     {
-        rule: "packages/lab/harness/",
+        rule: "packages/dev/lab/harness/",
         holds: "era-1 harness code and the private, unscrubbed evidence archive",
     },
     {
-        rule: "packages/lab/evidence/",
+        rule: "packages/dev/lab/evidence/",
         holds: "captures staged for human review before promotion (protocol 7.1)",
     },
     {
-        rule: "packages/lab/.env",
+        rule: "packages/dev/lab/.env",
         holds: "the sandbox App's credentials",
     },
     {
@@ -78,7 +78,7 @@ describe("the local-only layers stay out of the repository", () => {
 
     it.each(LAYERS)("$rule is still ignored in effect", ({ rule }) => {
         // A written rule can stop matching: `lab/harness/` after the directory
-        // became `packages/lab/harness/` (D95).
+        // became the lab harness path above (D95), later filed under `packages/dev/`.
         expect(ignored(rule)).toBe(true);
     });
 

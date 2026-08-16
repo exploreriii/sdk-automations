@@ -60,8 +60,8 @@ describe("markdown links resolve from the document that carries them", () => {
         ].join(" ");
         // Resolution is from this file's own directory, so the sibling
         // resolves and the invented parent does not.
-        const bad = danglingLinks("packages/checks/test/links.test.ts", fake);
-        expect(bad).toEqual(["packages/checks/test/links.test.ts -> ../nowhere/absent.md"]);
+        const bad = danglingLinks("packages/dev/checks/test/links.test.ts", fake);
+        expect(bad).toEqual(["packages/dev/checks/test/links.test.ts -> ../nowhere/absent.md"]);
     });
 
     it("normalizes the way the other repository checks do", () => {

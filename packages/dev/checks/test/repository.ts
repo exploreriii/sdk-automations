@@ -9,8 +9,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Three levels: test/ → checks/ → packages/ → the repository root.
-export const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+// Four levels: test/ → checks/ → dev/ → packages/ → the repository root.
+export const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
 /** Use one representation for paths reported by Node and Git on every OS. */
 export function normalizeRepoPath(path: string): string {

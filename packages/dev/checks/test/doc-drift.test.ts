@@ -11,7 +11,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { PROFILE_EDGES } from "@hiero-hackers/automation-core";
 
-const DOC = new URL("../../../design/core/taxonomy.md", import.meta.url);
+const DOC = new URL("../../../../design/core/taxonomy.md", import.meta.url);
 
 /** Every ```mermaid fence in the document, body only. */
 function mermaidBlocks(markdown: string): string[] {

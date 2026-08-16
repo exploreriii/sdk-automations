@@ -67,7 +67,7 @@ const COMPOSITIONS: ReadonlyMap<string, string> = new Map([
     ],
     ["packages/store/test/properties.test.ts", "property invariants across the whole store"],
     [
-        "packages/testkit/test/testkit.test.ts",
+        "packages/dev/testkit/test/testkit.test.ts",
         "the package's single barrel, specced under the package's own name",
     ],
 ]);

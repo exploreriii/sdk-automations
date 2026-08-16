@@ -2,7 +2,7 @@
 
 Three capability stubs that exist to test the boundary they plug into.
 They are **not** product scope, not a ranking, and not a prediction of what
-stage four will choose. Same rule as [`lab/`](../lab/README.md):
+stage four will choose. Same rule as [`lab/`](../dev/lab/README.md):
 the harness is disposable, the evidence is the product.
 
 ## Why this exists

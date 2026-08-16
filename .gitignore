@@ -3,9 +3,9 @@
 # protocols/, src/, test/. Reviewed captures go STRAIGHT to
 # testkit/fixtures/, reaching their packages through the testkit's
 # exports — see lab/README.md and D88.
-packages/lab/harness/
-packages/lab/evidence/
-packages/lab/.env
+packages/dev/lab/harness/
+packages/dev/lab/evidence/
+packages/dev/lab/.env
 node_modules/
 .stryker-tmp/
 coverage/

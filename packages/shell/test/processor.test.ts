@@ -6,13 +6,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { asDeliveryGuid, toEngine, type EngineCapability } from "@hiero-hackers/automation-core";
 import { Store } from "@hiero-hackers/automation-store";
 import { intake, intakeDeclaration } from "@hiero-hackers/automation-probes";
-import { capture } from "@hiero-hackers/automation-testkit";
+import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
 import { Processor } from "../src/processor.js";
 import { stubbedExternals } from "../src/externals.js";
 import type { ConfigSource } from "../src/config.js";
@@ -35,11 +32,10 @@ const configSource: ConfigSource = {
 
 const BASE = new Date("2026-08-07T10:00:00.000Z");
 
-let dir: string;
+const temp = useTempDir("shell-processor-");
 let store: Store;
 beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "shell-processor-"));
-    store = new Store(join(dir, "store.sqlite"));
+    store = new Store(temp.file("store.sqlite"));
     store.acceptDelivery({
         deliveryId: GUID,
         eventName: "issues",
@@ -49,7 +45,6 @@ beforeEach(() => {
 });
 afterEach(() => {
     store.close();
-    rmSync(dir, { recursive: true, force: true });
 });
 
 function processor(capability: EngineCapability, firstTickMs = 1_000) {

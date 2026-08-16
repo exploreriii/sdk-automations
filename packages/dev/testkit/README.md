@@ -2,7 +2,7 @@
 
 The support that more than one package's tests need: the five **captured webhook payloads** from the
 2026-08-07 session (protocol 7.1, scrubbed and human-reviewed), each carrying its own provenance, and
-the temp-dir helper that three suites had separately rewritten.
+the two temp-dir helpers — callback and hook forms — that suites kept separately rewriting.
 
 Nothing here runs in production and nothing here can kill a mutant — the same shape, and the same
 reason, as [`checks/`](../checks/README.md).
@@ -40,6 +40,7 @@ would create exactly the cycle the architecture check exists to reject. That ref
 | `capture(name)` | One capture by filename; a wrong name throws with the available ones, not `ENOENT` |
 | `WebhookCapture` | `name`, `event`, `capturedAt`, `protocol`, `synthetic: false`, and `bytes()` / `json()` |
 | `withTempDir(prefix, fn)` | A temporary directory removed in a `finally`, so a throwing test leaks nothing |
+| `useTempDir(prefix)` | The hook form (D114): registers the `beforeEach`/`afterEach` pair; the returned `TempDirHandle`'s `dir` / `file(name)` reach the current test's directory |
 
 `event` is derived from the filename — `<event>.<action>.json` is the capture protocol's naming
 scheme, so the `X-GitHub-Event` header is recoverable rather than restated.
@@ -51,4 +52,5 @@ pnpm --filter @hiero-hackers/automation-testkit test
 ```
 
 They check what only a test can see: that every capture still parses, that its declared `event`
-still matches its filename, and that `withTempDir` cleans up on the throwing path.
+still matches its filename, that `withTempDir` cleans up on the throwing path, and that `useTempDir`
+hands each test a fresh directory and removes the previous one.

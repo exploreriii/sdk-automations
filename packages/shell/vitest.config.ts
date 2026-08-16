@@ -8,8 +8,10 @@ export default defineConfig({
             provider: "v8",
             reporter: ["text", "html"],
             include: ["src/**/*.ts"],
-            exclude: ["src/index.ts"],
-            // Set just below the measured 98.55/94.91/94.59/96.59 — close
+            // main.ts is exercised as a real process in test/main.test.ts, and
+            // v8 attributes nothing across a spawn — index.ts's reason exactly.
+            exclude: ["src/index.ts", "src/main.ts"],
+            // Set just below the measured 98.34/93.75/94.28/96.15 — close
             // enough to fire on a real regression, loose enough not to flap.
             thresholds: {
                 lines: 96,

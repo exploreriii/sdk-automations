@@ -1,23 +1,27 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+/**
+ * The delivery's entry boundary: bytes are durable BEFORE the acknowledgment,
+ * a duplicate or a conflicting resend never displaces the original work, and
+ * claim, recovery, completion and retention keep exactly one worker on each
+ * item. Real SQLite throughout — the races run in worker threads through
+ * `worker-build.ts`, because two promises taking turns is not contention.
+ */
+
+import { existsSync, rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { Worker } from "node:worker_threads";
 import { asDeliveryGuid, type DeliveryGuid } from "@hiero-hackers/automation-core";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { useTempDir } from "@hiero-hackers/automation-testkit";
+import { beforeEach, describe, expect, it } from "vitest";
 import { Store } from "../src/store.js";
 import type { ClaimedDelivery } from "../src/deliveries.js";
 import { buildWorkerStoreModule } from "./worker-build.js";
 
-let dir: string;
+const temp = useTempDir("delivery-intake-test-");
 let path: string;
 
 beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "delivery-intake-test-"));
-    path = join(dir, "store.sqlite");
+    path = temp.file("store.sqlite");
 });
-
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 function id(raw: string): DeliveryGuid {
     const deliveryId = asDeliveryGuid(raw);
@@ -89,7 +93,7 @@ const { parentPort, workerData } = require("node:worker_threads");
 `;
 
 async function runConcurrent(operation: ConcurrentOperation): Promise<unknown[]> {
-    const storeModule = buildWorkerStoreModule(dir);
+    const storeModule = buildWorkerStoreModule(temp.dir);
     const gate = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
     const gateView = new Int32Array(gate);
     let ready = 0;

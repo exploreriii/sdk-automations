@@ -1,3 +1,19 @@
+/**
+ * The transition tables, held to the diagrams they came from: every
+ * (from, to, cause) triple is enumerated, and each one is either exactly one
+ * of the design doc's edges or rejected. Closure, reopening, the blocked
+ * pause and the flow predicates follow on the same all-inputs footing, so an
+ * edit to a table fails here before any capability misbehaves.
+ *
+ * Note the limit this suite cannot exceed: its oracle is the edge list, so
+ * it proves the tables are COHERENT, never that they are COMPLETE. A
+ * missing edge is consistently missing and passes every assertion below —
+ * which is how D48's `readyToMerge → needsRevision` gap survived the first
+ * implementation. Completeness comes from the audit and from maintainers;
+ * `doc-drift.test.ts` at least stops the tables and the diagrams from
+ * disagreeing about it.
+ */
+
 import { describe, it, expect } from "vitest";
 import {
     ISSUE_CAUSES,
@@ -24,21 +40,6 @@ import {
     isPrMeaning,
 } from "../../src/workflow/index.js";
 import { MAPPABLE_MEANINGS } from "../../src/config/index.js";
-
-/**
- * The exhaustive matrix: every (from, to, cause) triple is either exactly
- * one of the design doc's edges or rejected. The design's diagrams ARE the
- * spec — if an edit to the tables adds or drops an edge, the counts here
- * fail before any capability misbehaves.
- *
- * Note the limit this suite cannot exceed: its oracle is the edge list, so
- * it proves the tables are COHERENT, never that they are COMPLETE. A
- * missing edge is consistently missing and passes every assertion below —
- * which is how D48's `readyToMerge → needsRevision` gap survived the first
- * implementation. Completeness comes from the audit and from maintainers;
- * `doc-drift.test.ts` at least stops the tables and the diagrams from
- * disagreeing about it.
- */
 
 const ALL_ISSUE_CAUSES: readonly IssueCause[] = ISSUE_CAUSES;
 const ALL_PR_CAUSES: readonly PrCause[] = PR_CAUSES;

@@ -8,9 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import {
     asDeliveryGuid,
@@ -23,7 +21,7 @@ import {
 } from "@hiero-hackers/automation-core";
 import { Store } from "@hiero-hackers/automation-store";
 import { intake, prQuality } from "@hiero-hackers/automation-probes";
-import { capture } from "@hiero-hackers/automation-testkit";
+import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
 import { createShell, fileConfigSource, stubbedExternals, type Shell } from "../src/index.js";
 
 const SECRET = "shell-test-secret";
@@ -45,20 +43,18 @@ mappings:
 
 const BASE = new Date("2026-08-07T10:00:00.000Z");
 
-let dir: string;
+const temp = useTempDir("shell-test-");
 let store: Store;
 let configFile: string;
 
 beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "shell-test-"));
-    configFile = join(dir, "automations.yml");
+    configFile = temp.file("automations.yml");
     writeFileSync(configFile, CONFIG);
-    store = new Store(join(dir, "store.sqlite"));
+    store = new Store(temp.file("store.sqlite"));
 });
 afterEach(() => {
     vi.restoreAllMocks();
     store.close();
-    rmSync(dir, { recursive: true, force: true });
 });
 
 function buildShell(capability: EngineCapability = toEngine(intake)): Shell {
@@ -75,7 +71,7 @@ function buildShell(capability: EngineCapability = toEngine(intake)): Shell {
 }
 
 async function deliver(shell: Shell, guid = GUID): Promise<number> {
-    await new Promise<void>((resolve) => shell.server.listen(0, resolve));
+    await new Promise<void>((resolve) => shell.server.listen(0, "127.0.0.1", resolve));
     try {
         const { port } = shell.server.address() as AddressInfo;
         const response = await fetch(`http://127.0.0.1:${String(port)}/`, {
@@ -222,7 +218,7 @@ describe("the first slice, end to end", () => {
         const committed = store.deliveryReports();
 
         store.close();
-        store = new Store(join(dir, "store.sqlite"));
+        store = new Store(temp.file("store.sqlite"));
 
         expect(store.deliveryReports()).toEqual(committed);
         expect(records()).toHaveLength(1);
@@ -238,7 +234,7 @@ describe("the first slice, end to end", () => {
             }),
         ).toMatchObject({ outcome: "accepted", state: "pending" });
         store.close();
-        store = new Store(join(dir, "store.sqlite"));
+        store = new Store(temp.file("store.sqlite"));
 
         const shell = buildShell();
         await shell.drain();

@@ -33,7 +33,7 @@ interface PostOverrides {
 /** One request against a real listening socket; the server lives per call. */
 async function post(handler: RequestHandler, overrides: PostOverrides = {}): Promise<number> {
     const server = createServer(handler);
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     try {
         const { port } = server.address() as AddressInfo;
         const body = Buffer.from(overrides.body ?? BODY);
@@ -144,7 +144,7 @@ async function interruptRealRequest(mode: "client-abort" | "server-error"): Prom
             request.destroy(new Error("injected socket failure"));
         }
     });
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const { port } = server.address() as AddressInfo;
     const socket = netConnect(port, "127.0.0.1");
     socket.on("error", () => undefined);
@@ -266,7 +266,7 @@ describe("acceptance comes before the acknowledgement", () => {
             });
             void receiver(request, response);
         });
-        await new Promise<void>((resolve) => server.listen(0, resolve));
+        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
         try {
             const { port } = server.address() as AddressInfo;
             const body = Buffer.from(BODY);

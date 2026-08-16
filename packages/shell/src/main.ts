@@ -35,6 +35,8 @@ mkdirSync(dataDir, { recursive: true });
 const configFile = env["CONFIG_FILE"] ?? `${dataDir}automations.yml`;
 const storeFile = env["STORE_PATH"] ?? `${dataDir}shell.sqlite`;
 const port = Number(env["PORT"] ?? 8790);
+// Every interface by default; a test or a sandbox names the loopback.
+const host = env["HOST"] ?? "0.0.0.0";
 
 const shell = createShell({
     secret,
@@ -53,7 +55,7 @@ const shell = createShell({
 void shell.drain().catch((error) => {
     console.error("shell: startup drain failed; inspect durable store state", error);
 });
-shell.server.listen(port, () => {
+shell.server.listen(port, host, () => {
     console.log(
         `shell listening on :${port} for ${owner}/${repo} (config copy of ${CONFIG_PATH}: ${configFile}); canonical reports stored in ${storeFile}`,
     );

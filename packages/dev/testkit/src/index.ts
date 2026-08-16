@@ -16,13 +16,15 @@
  * core — the cycle the architecture check would reject on sight. A helper
  * graduates here only when a SECOND package needs it.
  *
- * Also deliberately absent: a hook-shaped `withTempDir`. Suites that make
- * their directory in `beforeEach` call `mkdtempSync` directly, and stay that
- * way on purpose — `afterEach` runs when a test fails, so the leak
- * `withTempDir` exists to close never opens there, and a wrapper would
- * rename two lines without removing either.
+ * The temp directory comes in two shapes, and they are not interchangeable.
+ * `withTempDir` is the callback form: the directory's whole life is inside
+ * one test or one helper function, where there is no `afterEach` to reach
+ * for — the interleaving suite opens and closes its two store handles around
+ * one. `useTempDir` is the hook form, and it is here because six suites had
+ * hand-rolled the identical beforeEach/afterEach pair.
  */
 
+import { afterEach, beforeEach } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -145,4 +147,49 @@ export function withTempDir<T>(prefix: string, fn: (dir: string) => T): T {
 
     remove();
     return result;
+}
+
+/** A per-test temporary directory, and paths inside the CURRENT one. */
+export interface TempDirHandle {
+    readonly dir: string;
+    file(name: string): string;
+}
+
+/**
+ * Register the hooks for a fresh temporary directory per test. Call this at a
+ * suite's top level; read `dir` — or `file("store.sqlite")` — from inside a
+ * test or a hook.
+ *
+ * Hook ORDER is what makes this safe for a suite holding file handles. The
+ * caller registers its own hooks after this call, so vitest creates the
+ * directory before their `beforeEach` opens anything, and — `afterEach` being
+ * LIFO — removes it after their `afterEach` has closed it again.
+ */
+export function useTempDir(prefix: string): TempDirHandle {
+    let current: string | undefined;
+
+    beforeEach(() => {
+        current = mkdtempSync(join(tmpdir(), prefix));
+    });
+
+    afterEach(() => {
+        if (current !== undefined) rmSync(current, { recursive: true, force: true });
+        current = undefined;
+    });
+
+    const currentDir = (): string => {
+        if (current === undefined) {
+            throw new Error(
+                `useTempDir(${prefix}): no directory outside a test — read it from a test or a hook, not at module load`,
+            );
+        }
+        return current;
+    };
+
+    return {
+        get dir() {
+            return currentDir();
+        },
+        file: (name) => join(currentDir(), name),
+    };
 }

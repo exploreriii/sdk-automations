@@ -3,14 +3,15 @@
  * mutated source in this package — so what these tests are for is narrower
  * and worth saying: they stop the FIXTURES from rotting silently. A capture
  * that stopped parsing, a filename whose event prefix drifted from its
- * declared `event`, or a `withTempDir` that leaks on the throwing path would
- * all be invisible from the packages that consume them.
+ * declared `event`, a `withTempDir` that leaks on the throwing path, or a
+ * `useTempDir` that hands two tests the same directory would all be
+ * invisible from the packages that consume them.
  */
 
 import { describe, expect, it } from "vitest";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { WEBHOOK_CAPTURES, capture, withTempDir } from "../src/index.js";
+import { WEBHOOK_CAPTURES, capture, useTempDir, withTempDir } from "../src/index.js";
 
 describe("every captured payload is readable evidence", () => {
     it("holds the whole 7.1 session", () => {
@@ -118,5 +119,35 @@ describe("a temporary directory does not outlive its block", () => {
         ).rejects.toThrow("async boom");
         expect(seen).not.toBe("");
         expect(existsSync(seen)).toBe(false);
+    });
+});
+
+/**
+ * The hooked form's one guarantee that no single test can state: the SECOND
+ * test must see a different, empty directory, and the first one's must be
+ * gone. Tests in a file run in order, so the handshake through `firstDir`
+ * is what turns two tests into that one assertion.
+ */
+describe("a hooked temporary directory is fresh for every test", () => {
+    const temp = useTempDir("testkit-hook-");
+    let firstDir = "";
+
+    it("exists, and holds what the test writes into it", () => {
+        firstDir = temp.dir;
+        expect(existsSync(firstDir)).toBe(true);
+        writeFileSync(temp.file("file"), "content");
+        expect(existsSync(temp.file("file"))).toBe(true);
+    });
+
+    it("is a different directory by the next test, and the old one is gone", () => {
+        expect(firstDir).not.toBe("");
+        expect(existsSync(firstDir)).toBe(false);
+        expect(temp.dir).not.toBe(firstDir);
+        expect(existsSync(temp.dir)).toBe(true);
+        expect(existsSync(temp.file("file"))).toBe(false);
+    });
+
+    it("joins names onto the directory of the running test", () => {
+        expect(temp.file("nested.sqlite")).toBe(join(temp.dir, "nested.sqlite"));
     });
 });

@@ -4,26 +4,22 @@
  * connections rather than sequential promises posing as contention.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { Worker } from "node:worker_threads";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { asDeliveryGuid } from "@hiero-hackers/automation-core";
+import { useTempDir } from "@hiero-hackers/automation-testkit";
 import { Store } from "../src/store.js";
 import type { ClaimedDelivery, CompleteDeliveryWithReportInput } from "../src/deliveries.js";
 import { buildWorkerStoreModule } from "./worker-build.js";
 
-let directory: string;
+const temp = useTempDir("delivery-finalization-");
 let databasePath: string;
 
 beforeEach(() => {
-    directory = mkdtempSync(join(tmpdir(), "delivery-finalization-"));
-    databasePath = join(directory, "store.sqlite");
+    databasePath = temp.file("store.sqlite");
 });
-
-afterEach(() => rmSync(directory, { recursive: true, force: true }));
 
 const DELIVERY_ID = asDeliveryGuid("00000000-0000-0000-0000-000000000001")!;
 const SECOND_DELIVERY_ID = asDeliveryGuid("00000000-0000-0000-0000-000000000002")!;
@@ -124,7 +120,7 @@ async function runFinalizers(
         readonly faultPoint?: string;
     }>,
 ): Promise<WorkerOutcome[]> {
-    const storeModule = buildWorkerStoreModule(directory);
+    const storeModule = buildWorkerStoreModule(temp.dir);
     const gate = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
     const gateView = new Int32Array(gate);
     let ready = 0;

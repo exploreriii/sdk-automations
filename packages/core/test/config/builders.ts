@@ -34,6 +34,13 @@ export interface ConfigOptions {
     /** The consent every declared capability carries. Boolean, never truthy (§2.4). */
     readonly enabled?: boolean;
     /**
+     * Per-capability settings, keyed by capability name. A name with no
+     * entry declares an empty settings map, which is what the parser reads
+     * for an absent one — so the tests whose subject is projection state
+     * only the settings they are about.
+     */
+    readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+    /**
      * The application's admitted names. Defaults to `capabilities`, so a
      * declared capability is an admitted one; pass `[]` for the tests whose
      * subject is a repository naming something the App does not ship.
@@ -56,6 +63,7 @@ export function configWith({
     labels = {},
     capabilities = [],
     enabled = true,
+    settings = {},
     known = capabilities,
     revision = "rev-test",
 }: ConfigOptions = {}): RepositoryConfig {
@@ -63,11 +71,35 @@ export function configWith({
         {
             schemaVersion: 1,
             mode,
-            capabilities: Object.fromEntries(capabilities.map((name) => [name, { enabled }])),
+            capabilities: Object.fromEntries(
+                capabilities.map((name) => [name, { enabled, settings: settings[name] ?? {} }]),
+            ),
             mappings: { labels },
         },
         { revision, knownCapabilities: known },
     );
     if (!result.ok) throw new Error(result.errors.map((e) => e.code).join(","));
     return result.config;
+}
+
+/**
+ * One repository, adopting triage and mapping the one label it needs.
+ *
+ * The engine and the vertical slice want this exact document and differ only
+ * where they must: the revision their reports carry, and — for the paths
+ * where adoption is declared without consent — `enabled`. A test that needs
+ * anything else from a configuration builds it with `configWith`.
+ */
+export function triageConfig(
+    mode: RepositoryMode,
+    revision: string,
+    enabled = true,
+): RepositoryConfig {
+    return configWith({
+        mode,
+        enabled,
+        revision,
+        capabilities: ["triage"],
+        labels: { awaitingTriage: "status: triage" },
+    });
 }

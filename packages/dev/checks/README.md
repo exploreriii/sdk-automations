@@ -50,7 +50,7 @@ One row per file; the summary is that file's own header, not a paraphrase.
 | [`codeowners.test.ts`](test/codeowners.test.ts) | Every non-comment pattern in `.github/CODEOWNERS` matches at least one tracked file, checked with `git` itself rather than a hand-rolled matcher |
 | [`node-floor.test.ts`](test/node-floor.test.ts) | The Node floor agrees everywhere it is stated: every workspace package's `engines.node`, the README badge, the CI matrix, CONTRIBUTING's prose, and dependabot's `@types/node` policy comment |
 | [`placement.test.ts`](test/placement.test.ts) | Every file in a package's test tree answers to a name a maintainer can find: a spec mirrors the module it holds to account or is registered with the question it answers, and nothing under `test/` is named by kind |
-| [`repository.test.ts`](test/repository.test.ts) | Portable repository parsing: the path and line-ending normalization every check above shares ([`repository.ts`](test/repository.ts)) |
+| [`repository.test.ts`](test/repository.test.ts) | Portable repository parsing: the path, line-ending, and directory derivations every check above shares ([`repository.ts`](test/repository.ts)) — one home, so a layout move edits one file |
 
 Every one carries a negative control — a case asserting the check would still fail if the thing it
 guards regressed. A check that cannot fail is not a check, and several of these were written only

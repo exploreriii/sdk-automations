@@ -23,7 +23,7 @@ import {
     type Intent,
     type RepositoryConfig,
 } from "../../src/index.js";
-import { configWith } from "../config/builders.js";
+import { configWith, triageConfig } from "../config/builders.js";
 
 const payload = (name: string): unknown => capture(name).json();
 
@@ -74,9 +74,9 @@ const triage: EngineCapability = {
 const REV = "rev-engine-1";
 const TRIAGE_LABELS = { awaitingTriage: "status: triage" };
 
-/** One repository, adopting triage and mapping the one label it needs. */
+/** The shared triage repository, stamped with this file's revision. */
 const configIn = (mode: "active" | "dry-run", enabled = true): RepositoryConfig =>
-    configWith({ mode, enabled, capabilities: ["triage"], labels: TRIAGE_LABELS, revision: REV });
+    triageConfig(mode, REV, enabled);
 
 const externals: DecideExternals = {
     killSwitchActive: false,

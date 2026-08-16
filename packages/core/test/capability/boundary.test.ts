@@ -20,11 +20,11 @@ import {
     deriveIdempotencyKey,
     idempotencyOf,
     INTENT_OPERATIONS,
-    parseConfig,
     projectCapabilityView,
     screenIntent,
     type AnyIntent,
 } from "../../src/index.js";
+import { configWith } from "../config/builders.js";
 
 const declaration = declareCapability({
     name: "fixture",
@@ -243,26 +243,14 @@ describe("deriveIdempotencyKey", () => {
 });
 
 describe("projectCapabilityView (contract.md §6)", () => {
-    const config = (() => {
-        const result = parseConfig(
-            {
-                schemaVersion: 1,
-                mode: "active",
-                capabilities: {
-                    fixture: {
-                        enabled: true,
-                        settings: { announce: true, undeclared: "leak" },
-                    },
-                    other: { enabled: true, settings: { secret: "theirs" } },
-                },
-                mappings: { labels: { awaitingTriage: "status: triage", blocked: "blocked" } },
-                principals: {},
-            },
-            { revision: "rev-test", knownCapabilities: ["fixture", "other"] },
-        );
-        if (!result.ok) throw new Error(result.errors.map((e) => e.message).join("; "));
-        return result.config;
-    })();
+    const config = configWith({
+        capabilities: ["fixture", "other"],
+        settings: {
+            fixture: { announce: true, undeclared: "leak" },
+            other: { secret: "theirs" },
+        },
+        labels: { awaitingTriage: "status: triage", blocked: "blocked" },
+    });
 
     it("passes through only the capability's declared config keys", () => {
         const view = projectCapabilityView(declaration, config);
@@ -281,18 +269,8 @@ describe("projectCapabilityView (contract.md §6)", () => {
     });
 
     it("reports no mapped meanings when the repository mapped none", () => {
-        const bare = parseConfig(
-            {
-                schemaVersion: 1,
-                mode: "observe",
-                capabilities: {},
-                mappings: { labels: {} },
-                principals: {},
-            },
-            { revision: "rev-test", knownCapabilities: ["fixture"] },
-        );
-        if (!bare.ok) throw new Error("fixture config invalid");
-        const view = projectCapabilityView(declaration, bare.config);
+        const bare = configWith({ mode: "observe", known: ["fixture"] });
+        const view = projectCapabilityView(declaration, bare);
         expect(view.mappedMeanings).toEqual([]);
         expect(view.settings).toEqual({});
     });

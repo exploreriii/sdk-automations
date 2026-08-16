@@ -17,11 +17,6 @@ import { DOCUMENT_REJECTIONS, expectRejection } from "./documents.js";
 const OPTIONS = { revision: "rev-test", knownCapabilities: ["intake", "prQuality"] };
 const parse = (yaml: string) => parseConfigDocument(yaml, OPTIONS);
 
-const codesOf = (yaml: string): ConfigErrorCode[] => {
-    const result = parse(yaml);
-    return result.ok ? [] : [...new Set(result.errors.map((e) => e.code))];
-};
-
 describe("every rejection the catalogue names is reachable", () => {
     /**
      * A mapped type over the union rather than a list — D76's rule applied to
@@ -85,15 +80,6 @@ describe("a document-level problem reports where it is", () => {
 
     // Which line, not just that there is one, is pinned by the duplicate-key
     // row's `messageIncludes` in the corpus.
-
-    /**
-     * The budget is a decision, so it is pinned. Without this the number could
-     * be deleted and only the extreme document would still be caught.
-     */
-    it("refuses at our budget, not the library's much larger default", () => {
-        const twenty = `a: &a observe\nb: [${Array.from({ length: 20 }, () => "*a").join(",")}]\n`;
-        expect(codesOf(twenty)).toEqual(["documentUnparseable"]);
-    });
 });
 
 describe("no document, however hostile, escapes as an exception", () => {
@@ -146,14 +132,13 @@ describe("no document, however hostile, escapes as an exception", () => {
         }
     });
 
-    it("the alias budget refuses rather than throwing", () => {
-        const bomb =
-            `a: &a [x,x,x,x,x,x,x,x,x,x]\n` +
-            `b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a,*a]\n` +
-            `c: [*b,*b,*b,*b,*b,*b,*b,*b,*b,*b]\n`;
-        expect(codesOf(bomb)).toEqual(["documentUnparseable"]);
-        // A document using aliases WITHIN the budget is still accepted — the
-        // limit bounds expansion, it does not ban a YAML feature outright.
+    /**
+     * The corpus cannot make this claim: every row in it is a rejection, and
+     * what matters here is the rejection that did NOT happen. The limit
+     * bounds expansion, it does not ban a YAML feature — the alias resolves,
+     * and the only complaint is the anchor's own top-level key.
+     */
+    it("a document using aliases within the budget still resolves them", () => {
         const modest = `x: &x observe\nschemaVersion: 1\nmode: *x\ncapabilities: {}\n`;
         const result = parse(modest);
         expect(result.ok).toBe(false);

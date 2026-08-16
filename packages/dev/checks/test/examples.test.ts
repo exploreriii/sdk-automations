@@ -8,12 +8,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { parseConfigDocument } from "@hiero-hackers/automation-core";
+import { docsDir, exampleFiles } from "./repository.js";
 
-const examplesDir = fileURLToPath(new URL("../../../../docs/examples/", import.meta.url));
+const examplesDir = join(docsDir, "examples");
 
 /** The direct capability list these schema examples are read against. */
 const KNOWN = ["assignment", "intake", "prQuality"];
@@ -24,9 +24,7 @@ const parse = (file: string) =>
         knownCapabilities: KNOWN,
     });
 
-const files = readdirSync(examplesDir, { withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith(".yml"))
-    .map((e) => e.name);
+const files = exampleFiles();
 
 describe("the shipped examples", () => {
     /** A directory read that finds nothing passes every loop below in silence. */

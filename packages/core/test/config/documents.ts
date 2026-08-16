@@ -542,19 +542,13 @@ export const VALUE_REJECTIONS: readonly ValueRejection[] = [
         path: "capabilities.checksGate",
         messageIncludes: ['"checksGate"', "not available", "assignment, prQuality"],
     },
-    {
-        code: "capabilityUnknown",
-        why: "an empty admission list says none rather than showing a blank list",
-        raw: { schemaVersion: 1, capabilities: { prQuality: { enabled: true } } },
-        messageIncludes: ["available: none"],
-    },
     /**
      * `knownCapabilities` is required, so omitting the admission authority is
      * a compile error and `[]` is a stated choice: admit nothing.
      */
     {
         code: "capabilityUnknown",
-        why: "an empty admission list fails closed for every name",
+        why: "an empty admission list says none rather than showing a blank list",
         raw: { schemaVersion: 1, capabilities: { checksGate: { enabled: true } } },
         messageIncludes: ["(available: none)"],
     },

@@ -7,8 +7,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
     MAPPABLE_MEANINGS,
     REPOSITORY_MODES,
@@ -17,12 +17,9 @@ import {
 } from "@hiero-hackers/automation-core";
 import type { RecordOnlyCode, SafetyRefusalCode } from "@hiero-hackers/automation-core";
 import { verdictFinding, type Severity } from "@hiero-hackers/automation-core";
-import { normalizeNewlines } from "./repository.js";
+import { docsDir, exampleFiles, normalizeNewlines } from "./repository.js";
 
-const page = (name: string): string =>
-    normalizeNewlines(
-        readFileSync(fileURLToPath(new URL(`../../../../docs/${name}`, import.meta.url)), "utf8"),
-    );
+const page = (name: string): string => normalizeNewlines(readFileSync(join(docsDir, name), "utf8"));
 
 /** The first backtick-quoted token of each table row in one `## section`. */
 function tableCodes(markdown: string, heading: string): string[] {
@@ -82,11 +79,7 @@ describe("docs/quickstart.md", () => {
      */
     it("offers every tested example, and links no phantom ones", () => {
         const quickstart = page("quickstart.md");
-        const shipped = readdirSync(
-            fileURLToPath(new URL("../../../../docs/examples/", import.meta.url)),
-        )
-            .filter((f) => f.endsWith(".yml"))
-            .sort();
+        const shipped = exampleFiles();
         const linked = [...quickstart.matchAll(/\]\(examples\/([a-z-]+\.yml)\)/g)]
             .map((m) => m[1]!)
             .sort();

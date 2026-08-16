@@ -9,9 +9,11 @@
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { PROFILE_EDGES } from "@hiero-hackers/automation-core";
+import { repoRoot } from "./repository.js";
 
-const DOC = new URL("../../../../design/core/taxonomy.md", import.meta.url);
+const DOC = join(repoRoot, "design", "core", "taxonomy.md");
 
 /** Every ```mermaid fence in the document, body only. */
 function mermaidBlocks(markdown: string): string[] {

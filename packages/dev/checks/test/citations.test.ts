@@ -9,22 +9,39 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { markdownDocuments, repoRoot, sourceFiles, workspacePackages } from "./repository.js";
+import { markdownDocuments, repoRoot, sourceFiles } from "./repository.js";
 
 describe("documents cite files that exist", () => {
     const docs = markdownDocuments();
 
-    // Package alternation from the workspace file: a hardcoded list leaves a
-    // new package's citations silently unchecked (D89's mutate glob again).
-    const PATH = new RegExp(
-        String.raw`\b((?:${workspacePackages().join("|")})\/(?:src|test)\/[A-Za-z0-9._/-]+\.ts)\b`,
-        "g",
-    );
+    // Layout-independent on purpose. This alternation was once built from the
+    // workspace file, and the day `dev/` arrived (D112) every historical
+    // citation of a moved package stopped MATCHING — thirteen stale register
+    // paths went invisible instead of dangling. Any packages/…/(src|test)/….ts
+    // shape is a citation; existence is the only judge.
+    const PATH = /\b(packages\/[A-Za-z0-9._/-]+?\/(?:src|test)\/[A-Za-z0-9._/-]+\.ts)\b/g;
 
     // Exactly the two knowledge roots. A bare `examples/x.yml` is a
     // docs-RELATIVE link (D97) and `links.test.ts`'s job, not a repo-rooted
     // path; `docs/examples/…` still matches here.
     const DOC_PATH = /\b((?:design|docs)\/[A-Za-z0-9._/-]+\.(?:md|yml))\b/g;
+
+    /**
+     * Paths the register cites DELIBERATELY before they exist: the executor
+     * is designed, not built. Self-cleaning like the NAME check's PLANNED
+     * set below — the arrival test fails the day one of these lands, so an
+     * entry cannot outlive its future.
+     */
+    const PLANNED_PATHS = new Set([
+        "packages/executor/src/planner.ts",
+        "packages/executor/src/policy.ts",
+        "packages/executor/src/recovery.ts",
+    ]);
+
+    it("no planned path has quietly started existing", () => {
+        const arrived = [...PLANNED_PATHS].filter((path) => existsSync(join(repoRoot, path)));
+        expect(arrived).toEqual([]);
+    });
 
     it("finds documents and citations to check", () => {
         expect(docs.length).toBeGreaterThan(5);
@@ -37,7 +54,7 @@ describe("documents cite files that exist", () => {
         for (const { doc, text } of docs) {
             for (const match of text.matchAll(PATH)) {
                 const cited = match[1]!;
-                if (!existsSync(join(repoRoot, cited))) {
+                if (!PLANNED_PATHS.has(cited) && !existsSync(join(repoRoot, cited))) {
                     dangling.push(`${doc} -> ${cited}`);
                 }
             }
@@ -70,6 +87,15 @@ describe("documents cite files that exist", () => {
         expect(existsSync(join(repoRoot, "design/audit/nope.md"))).toBe(false);
         expect(existsSync(join(repoRoot, "packages/core/src/index.ts"))).toBe(true);
         expect(existsSync(join(repoRoot, "design/audit/services.md"))).toBe(true);
+    });
+
+    it("still matches a package's old home after a move", () => {
+        // The regression the layout-independent shape guards: a citation of a
+        // path that predates a package move must stay MATCHED, so it turns up
+        // dangling rather than slipping outside the pattern.
+        const moved = "packages/checks/test/citations.test.ts";
+        expect([...moved.matchAll(PATH)].map((m) => m[1])).toEqual([moved]);
+        expect(existsSync(join(repoRoot, moved))).toBe(false);
     });
 });
 

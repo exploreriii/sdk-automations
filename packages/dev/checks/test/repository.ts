@@ -26,6 +26,22 @@ export function lines(text: string): string[] {
     return normalizeNewlines(text).split("\n");
 }
 
+/** Where the shipped documentation lives. */
+export const docsDir = join(repoRoot, "docs");
+
+/**
+ * The shipped example configurations, listed once: one check parses them and
+ * another checks the quickstart's links to them, and two derivations of this
+ * directory would let a file quietly fall out of one side (the D112 move had
+ * to edit every hand-walked `../../../` in this package one by one).
+ */
+export function exampleFiles(): string[] {
+    return readdirSync(join(docsDir, "examples"), { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".yml"))
+        .map((entry) => entry.name)
+        .sort();
+}
+
 /** Repository invariants inspect versioned material, not local worktree output. */
 export function trackedFiles(): string[] {
     return execFileSync("git", ["ls-files", "-z"], {

@@ -33,7 +33,7 @@ import {
     type EngineCapability,
 } from "../src/index.js";
 import { assertedWorld } from "../src/safety/world.js";
-import { configWith } from "./config/builders.js";
+import { triageConfig } from "./config/builders.js";
 
 const payload = capture("issues.opened.json").json();
 
@@ -52,14 +52,8 @@ const declaration = declareCapability({
     },
 });
 
-/** One repository, adopting triage and mapping the one label it needs. */
-const configIn = (mode: "active" | "dry-run") =>
-    configWith({
-        mode,
-        capabilities: ["triage"],
-        labels: { awaitingTriage: "status: triage" },
-        revision: "rev-slice-1",
-    });
+/** The shared triage repository, stamped with this file's revision. */
+const configIn = (mode: "active" | "dry-run") => triageConfig(mode, "rev-slice-1");
 
 const externals: DecideExternals = {
     killSwitchActive: false,

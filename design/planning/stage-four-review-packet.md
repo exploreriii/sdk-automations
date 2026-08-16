@@ -201,7 +201,7 @@ this packet was written:
 
 The thirteen boundary rows themselves (D61–D73) are architecture, not
 capability choice, and sit in the register
-([`design2/decisions.md`](../design2/decisions.md)).
+([`decisions.md`](../decisions.md)).
 
 ## Known gaps the review should see
 
@@ -231,7 +231,7 @@ Recorded so ratification is made with eyes open; none blocks the gate:
 ## Ratification mechanics
 
 Per the register's §5 rule, each item above becomes `ratified` only
-when `design/design2/decisions.md` names the approving maintainers, the date,
+when `design/decisions.md` names the approving maintainers, the date,
 and the evidence reviewed. The register's rows already carry the
 evidence text; approval is an edit adding names and dates, done in the
 gate-closing pull request.

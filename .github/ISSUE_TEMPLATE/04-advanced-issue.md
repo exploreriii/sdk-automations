@@ -31,7 +31,7 @@ labels: "advanced"
 **What tends to bite experienced contributors in this repo:**
 
 - `core/` stays pure: moving I/O or clock reads into it is an architecture change, not a convenience.
-- The store and recovery layers have explicit leases, journaling, and overlap contracts in `design/design2/decisions.md`; changing them requires the same rigor.
+- The store and recovery layers have explicit leases, journaling, and overlap contracts in `design/decisions.md`; changing them requires the same rigor.
 - Fail-closed configuration is a safety property, not a style choice.
 - Mutation thresholds are load-bearing; lowering one without a reason is a regression.
 

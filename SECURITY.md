@@ -22,7 +22,7 @@ rather than aspirationally.
 - The recovery design treats effect claims as leases and relies on journaling
   plus GitHub re-reads rather than assuming a single in-flight worker. The
   overlap contract and retention windows are still open decisions in
-  [`design/design2/decisions.md`](design/design2/decisions.md).
+  [`design/decisions.md`](design/decisions.md).
 
 ## Supply chain
 

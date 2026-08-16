@@ -21,7 +21,7 @@ Four things, and nothing else.
 **Two things never earn one:**
 
 - **History.** How we got here, what went wrong before, which finding it closed. That is
-  `design/design2/decisions.md`. Cite the row — `(D90)` — and stop. The register holds the story at
+  `design/decisions.md`. Cite the row — `(D90)` — and stop. The register holds the story at
   full length, and nobody needs it to change the file correctly.
 - **Restatement.** `enabled: boolean` does not need "whether it is enabled".
 

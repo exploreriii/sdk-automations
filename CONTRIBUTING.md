@@ -83,7 +83,7 @@ Each of these is a rule the register earned the hard way; follow the link for th
 than taking it on faith.
 
 - **One fact, one place.** If a value, list, or rule already exists somewhere, derive it — do not
-  restate it. This is the single most repeated finding in the project ([`design/design2/decisions.md`](design/design2/decisions.md)).
+  restate it. This is the single most repeated finding in the project ([`design/decisions.md`](design/decisions.md)).
 - **Every check gets a negative control.** A test that cannot fail is not a check; each invariant in
   [`packages/dev/checks/`](packages/dev/checks/) carries a "proves the check can fail" case, and yours should too.
 - **Never weaken a gate to make it pass.** The mutation threshold in
@@ -103,7 +103,7 @@ than taking it on faith.
   **Start here** if the vocabulary is new.
 - [`design/architecture.md`](design/architecture.md) — the system as diagrams, each naming the code
   or test that falsifies it.
-- [`design/design2/decisions.md`](design/design2/decisions.md) — the register: every non-obvious choice, its
+- [`design/decisions.md`](design/decisions.md) — the register: every non-obvious choice, its
   reasoning, its costs, and what would reopen it.
 - [`docs/`](docs/README.md) — user-facing configuration guide, with its tables locked to the code.
 

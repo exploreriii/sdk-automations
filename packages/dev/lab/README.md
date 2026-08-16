@@ -30,7 +30,7 @@ flowchart LR
     end
     pending -->|"a human reads every file"| fixtures["packages/dev/testkit/fixtures/ — for events.ts"]
     results -.->|"lock reads"| checks["checks/: probedAt matches latest run"]
-    conclusions["every era's conclusions"] --> register["design/design2/decisions.md"]
+    conclusions["every era's conclusions"] --> register["design/decisions.md"]
 ```
 
 Next, in order, each on its trigger:

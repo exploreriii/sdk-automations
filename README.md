@@ -109,7 +109,7 @@ All tracked tests run offline. No GitHub credentials or GitHub App configuration
     <td width="50%">
       <strong>Understand the system</strong><br><br>
       Read the <a href="design/architecture.md">architecture</a>, then the
-      <a href="design/design2/decisions.md">decision register</a>. The
+      <a href="design/decisions.md">decision register</a>. The
       <a href="packages/core/README.md">core README</a> holds the glossary.
     </td>
     <td width="50%">

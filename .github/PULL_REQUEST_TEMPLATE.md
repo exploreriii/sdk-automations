@@ -2,7 +2,7 @@
 
 <!-- One or two sentences: what this PR changes and why it exists. -->
 
-<!-- Which issue or `design/design2/decisions.md` row does this PR serve? -->
+<!-- Which issue or `design/decisions.md` row does this PR serve? -->
 
 ## Checklist
 

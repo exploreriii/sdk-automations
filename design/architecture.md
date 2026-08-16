@@ -1,7 +1,7 @@
 # Architecture
 
 > Drawings. One italic line under each names the code or test that falsifies it.
-> Why: [`decisions.md`](design2/decisions.md). Vocabulary: [`packages/core/README.md`](../packages/core/README.md).
+> Why: [`decisions.md`](decisions.md). Vocabulary: [`packages/core/README.md`](../packages/core/README.md).
 
 ## Part 1 — The system
 
@@ -26,7 +26,7 @@ flowchart LR
     SH -.->|"no writes exist (P5, D46)"| REST
 ```
 
-*Sources: `packages/shell/src/receiver.ts` · [`decisions.md`](design2/decisions.md) P5, D46, D110.*
+*Sources: `packages/shell/src/receiver.ts` · [`decisions.md`](decisions.md) P5, D46, D110.*
 
 ### 2. Packages — the allowed edges, and only those
 
@@ -309,4 +309,4 @@ flowchart LR
 *The goal is drawn only where a register row supports it: gates and order in
 [`build-plan.md`](build-plan.md), stages five to eight · adapter operations in
 [`endpoint-permission-matrix.md`](operations/endpoint-permission-matrix.md) · everything else is
-an open question in [`decisions.md`](design2/decisions.md) §4, deliberately not drawn.*
+an open question in [`decisions.md`](decisions.md) §4, deliberately not drawn.*

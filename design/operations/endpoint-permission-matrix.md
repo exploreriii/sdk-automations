@@ -33,6 +33,16 @@ fail — cite the failure), `untested`.
 
 ## The ceiling
 
+**The proposed baseline** (from the stage-four packet, retired 2026-08-17; ratification still
+pending): installation permissions `issues: write`, `pull_requests: write`, `contents: read`, plus
+App-level webhook access. Event subscriptions `issues`, `issue_comment`, `pull_request`, `push` —
+extended with `pull_request_review` only if a ratified capability needs to observe reviews, a gap
+protocol 6.6 found in the current subscription list. Deliberately withheld: `checks` (probed; the
+403 is harmless) and any `contents: write`.
+
+Protocol 6.3 surfaced an incidental safety property worth keeping deliberately rather than by
+accident: **`contents: read` means the platform cannot modify its own configuration.**
+
 The App registration fixes the maximum permissions any installation can grant, and repository
 configuration cannot reduce what maintainers see at install time. A capability runs only when its
 required permissions are present; one introducing an organization-level or new write permission needs

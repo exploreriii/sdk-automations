@@ -6,7 +6,7 @@ Set up in two minutes: one file, one merge, no per-repository installation.
 
 ## Add the file
 
-**1.** Create `.github/hiero-automations.yml`:
+**1.** Create `automations.yml` in your repository root:
 
 ```yaml
 schemaVersion: 1

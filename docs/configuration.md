@@ -1,6 +1,7 @@
 # Configuration reference
 
-Everything the App does in your repository is controlled by one file: `.github/hiero-automations.yml`.
+Everything the App does in your repository is controlled by one file: `automations.yml`, in your
+repository root.
 This page defines every key.
 
 *Every table on this page is asserted against the code by the test suite, on every commit — the

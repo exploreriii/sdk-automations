@@ -98,6 +98,7 @@ describe("mutation policy stays complete across packages and CI", () => {
     it("discovers every configured workspace package", () => {
         expect(configuredPackages.map(({ name }) => name).sort()).toEqual([
             "core",
+            "probes",
             "shell",
             "store",
         ]);
@@ -151,6 +152,7 @@ describe("mutation policy stays complete across packages and CI", () => {
                 "      matrix:",
                 "        package:",
                 "          - core",
+                "          - probes",
                 "          - shell",
                 "          - store",
                 "    name: mutation testing (${{ matrix.package }})",

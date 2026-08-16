@@ -61,7 +61,7 @@ is the whole contrast with the three rows above them.
 **Cadence:** quarterly for the dated rows, plus ad-hoc whenever the
 first-symptom column starts showing up in operator reports. **Owner:**
 unassigned — falls out of Q13, and is one of the unfilled rows in
-`design/build-plan.md` §14.
+`design/build-plan.md`.
 
 ## Why the failure mode is quiet
 

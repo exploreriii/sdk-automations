@@ -1,7 +1,7 @@
 # Stage-four review packet
 
 Prepared 2026-07-23, ahead of the stage-four window (22 August – 5
-September 2026, `design/build-plan.md` §7). One section per decision the
+September 2026, `design/build-plan.md`, stage four). One section per decision the
 review must ratify: the concrete proposal, the sandbox evidence behind
 it, and the register rows the approval flips.
 
@@ -200,8 +200,8 @@ this packet was written:
   as part of ranking**, not after ratification.
 
 The thirteen boundary rows themselves (D61–D73) are architecture, not
-capability choice, and sit in
-[`ratification-packet.md`](../ratification-packet.md) §2b.
+capability choice, and sit in the register
+([`design2/decisions.md`](../design2/decisions.md)).
 
 ## Known gaps the review should see
 

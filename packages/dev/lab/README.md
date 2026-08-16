@@ -47,7 +47,7 @@ Next, in order, each on its trigger:
 
 ## Era 1 — the feasibility experiments (frozen record)
 
-The falsification experiments from `design/build-plan.md` §6: a throwaway
+The falsification experiments from `design/build-plan.md`'s feasibility phase: a throwaway
 development GitHub App run against a **personal sandbox repository**,
 producing the evidence the stage-three exit gate required. The design's
 assumptions met real GitHub API behavior here for the first time.
@@ -79,18 +79,18 @@ pnpm --filter @hiero-hackers/lab capture
 - **Bounded hostility.** Experiments that provoke failures (secondary rate
   limits, forged webhooks) are capped in the harness; we measure GitHub's
   behavior, we do not hammer GitHub's infrastructure.
-- **Fork code is never executed with App write credentials** (§6.6).
+- **Fork code is never executed with App write credentials** (protocol 6.6).
 
 ## The experiments
 
-| Protocol | Build plan | Register rows it feeds |
+| Protocol | Experiment | Register rows it feeds |
 |---|---|---|
-| [`protocols/6.1-installation-auth.md`](protocols/6.1-installation-auth.md) | §6.1 | permission matrix, diagnostics |
-| [`protocols/6.2-webhook-delivery.md`](protocols/6.2-webhook-delivery.md) | §6.2 | P9, D1, D18, Q15 |
-| [`protocols/6.3-configuration.md`](protocols/6.3-configuration.md) | §6.3 | D31, Q14 |
-| [`protocols/6.4-adapter.md`](protocols/6.4-adapter.md) | §6.4 | D9, D20, Q10, Q16 |
-| [`protocols/6.5-recovery-storage.md`](protocols/6.5-recovery-storage.md) | §6.5 | D1, D13, D24, D27, Q15 |
-| [`protocols/6.6-forks.md`](protocols/6.6-forks.md) | §6.6 | permission matrix, Q11 |
+| [`protocols/6.1-installation-auth.md`](protocols/6.1-installation-auth.md) | 6.1 | permission matrix, diagnostics |
+| [`protocols/6.2-webhook-delivery.md`](protocols/6.2-webhook-delivery.md) | 6.2 | P9, D1, D18, Q15 |
+| [`protocols/6.3-configuration.md`](protocols/6.3-configuration.md) | 6.3 | D31, Q14 |
+| [`protocols/6.4-adapter.md`](protocols/6.4-adapter.md) | 6.4 | D9, D20, Q10, Q16 |
+| [`protocols/6.5-recovery-storage.md`](protocols/6.5-recovery-storage.md) | 6.5 | D1, D13, D24, D27, Q15 |
+| [`protocols/6.6-forks.md`](protocols/6.6-forks.md) | 6.6 | permission matrix, Q11 |
 
 Run order: 6.1 and 6.2 first (the substrate), then 6.3 (reuses the
 `core/` validator), 6.4, then 6.5 with the largest time budget — it

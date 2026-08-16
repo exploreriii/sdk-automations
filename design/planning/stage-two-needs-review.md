@@ -1,7 +1,7 @@
 # Stage-two needs review — discussion pack
 
 Prepared 2026-07-23 for the stage-two window (1–7 August 2026,
-`design/build-plan.md` §5). The exit gate is a ranking of the first two
+`design/build-plan.md`, stage two). The exit gate is a ranking of the first two
 candidate capabilities, backed by maintainer evidence — this pack is
 the collection instrument, not the answers. The audit-derived detail
 for each candidate lives in `design/modules/`; this pack adds what the

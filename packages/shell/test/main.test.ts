@@ -83,8 +83,12 @@ const TEST_TIMEOUT_MS = 15_000;
 interface Shell {
     stdout(): string;
     stderr(): string;
-    /** The exit code, or `null` when a signal ended it. */
+    /**
+     * The exit code, or `null` when a signal ended it. Settled on 'close',
+     * so anything awaiting it reads stdout and stderr complete.
+     */
     readonly exit: Promise<number | null>;
+    /** Settled in the same sense: gone, and its output all here. */
     exited(): boolean;
 }
 
@@ -236,6 +240,8 @@ async function withShell<T>(
     let out = "";
     let error = "";
     let done = false;
+    let code: number | null = null;
+    let failure: Error | undefined;
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
@@ -244,8 +250,23 @@ async function withShell<T>(
     child.stderr.on("data", (chunk: string) => {
         error += chunk;
     });
+    // 'exit' carries the code but can arrive with pipe data still in flight;
+    // 'close' is the one that means the pipes are drained. So the code is
+    // taken from the first and the shell counts as settled on the second,
+    // and an assertion on stderr after a wait cannot read half of it.
+    child.on("exit", (status) => {
+        code = status;
+    });
     const exit = new Promise<number | null>((resolve) => {
-        child.on("exit", (code) => {
+        child.on("close", () => {
+            done = true;
+            resolve(code);
+        });
+        // A spawn that never starts emits 'error' and neither of those two:
+        // without this the wait in the finally below settles on nothing but
+        // the vitest timeout, and takes the coverage drop down with it.
+        child.on("error", (spawnFailure) => {
+            failure = spawnFailure;
             done = true;
             resolve(code);
         });
@@ -268,6 +289,8 @@ async function withShell<T>(
         await exit;
         clearTimeout(lastResort);
         if (drop !== undefined) absorbCoverage(drop);
+        // Whatever the body made of a child that never ran, this is why.
+        if (failure !== undefined) throw failure;
     }
 }
 

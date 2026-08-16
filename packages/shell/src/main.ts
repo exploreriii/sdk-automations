@@ -35,8 +35,10 @@ mkdirSync(dataDir, { recursive: true });
 const configFile = env["CONFIG_FILE"] ?? `${dataDir}automations.yml`;
 const storeFile = env["STORE_PATH"] ?? `${dataDir}shell.sqlite`;
 const port = Number(env["PORT"] ?? 8790);
-// Every interface by default; a test or a sandbox names the loopback.
-const host = env["HOST"] ?? "0.0.0.0";
+// Unnamed by default, which is what binds the unspecified address —
+// dual-stack on an IPv6-capable host, where "0.0.0.0" would be IPv4 only.
+// A test or a sandbox names the loopback.
+const host = env["HOST"];
 
 const shell = createShell({
     secret,
@@ -55,6 +57,7 @@ const shell = createShell({
 void shell.drain().catch((error) => {
     console.error("shell: startup drain failed; inspect durable store state", error);
 });
+// An undefined host is the unnamed case: node reads it as no host at all.
 shell.server.listen(port, host, () => {
     console.log(
         `shell listening on :${port} for ${owner}/${repo} (config copy of ${CONFIG_PATH}: ${configFile}); canonical reports stored in ${storeFile}`,

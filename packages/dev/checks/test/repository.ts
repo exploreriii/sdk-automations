@@ -84,26 +84,17 @@ export function markdownDocuments(): Document[] {
  * package, repository-relative. Package list from the workspace file for the
  * reason `workspacePackages` exists: a hard-coded one leaves a newly arrived
  * package unscanned, and a check nobody edits is a check that stopped running.
+ *
+ * Filtered from the tracked list rather than walked with `readdirSync`, which
+ * fed untracked scratch files to every invariant built on this — a local
+ * failure CI could not reproduce, and the opposite of this module's rule that
+ * invariants inspect versioned material.
  */
 export function sourceFiles(directories: readonly string[] = ["src", "test"]): string[] {
-    const found: string[] = [];
-    for (const workspacePackage of workspacePackages()) {
-        for (const directory of directories) {
-            let entries: string[];
-            try {
-                entries = readdirSync(join(repoRoot, workspacePackage, directory), {
-                    recursive: true,
-                }) as string[];
-            } catch {
-                continue; // a package need not have every directory
-            }
-            found.push(
-                ...entries
-                    .map(normalizeRepoPath)
-                    .filter((path) => path.endsWith(".ts"))
-                    .map((path) => `${workspacePackage}/${directory}/${path}`),
-            );
-        }
-    }
-    return found;
+    const prefixes = workspacePackages().flatMap((workspacePackage) =>
+        directories.map((directory) => `${workspacePackage}/${directory}/`),
+    );
+    return trackedFiles().filter(
+        (path) => path.endsWith(".ts") && prefixes.some((prefix) => path.startsWith(prefix)),
+    );
 }

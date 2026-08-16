@@ -95,6 +95,18 @@ describe("docs/configuration.md", () => {
     const doc = page("configuration.md");
 
     /**
+     * Both reference pages tell the reader their tables are asserted against
+     * the code — this is that assertion noticing itself. A page cannot keep
+     * the promise after losing the checks, because dropping either one here
+     * fails, and the two arrive together.
+     */
+    it("carries the provenance promise, as does troubleshooting", () => {
+        for (const name of ["configuration.md", "troubleshooting.md"]) {
+            expect(page(name), name).toContain("asserted against the code by the test suite");
+        }
+    });
+
+    /**
      * The tree claims to be "the entire shape" and is the first thing on the
      * page, so both the claim and its stated count are held to the key list.
      */

@@ -116,7 +116,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [core, shell, store]
+        package: [core, probes, shell, store]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -133,9 +133,9 @@ jobs:
       # a threshold restated in a comment is one that silently disagrees with
       # the gate later — the drift class the checks package exists to kill
       # (D50, D100). Fanning out over the same package set as mutation is the
-      # point of the matrix: a single `--filter core` run left shell's and
-      # store's configured floors gating nothing at all, which is the shape of
-      # a check that looks green because it never ran. Mutation (below) stays
+      # point of the matrix: a single `--filter core` run left every other
+      # package's configured floors gating nothing at all, which is the shape
+      # of a check that looks green because it never ran. Mutation (below) stays
       # the per-module quality gate; this is the coarser "did we delete the
       # tests" tripwire that the dead-import cleanup in #76 could have
       # defeated silently.
@@ -191,13 +191,23 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # main is authoritative. A push writes the entry under its own commit
-      # SHA; a pull request finds no exact key and restores the newest entry
-      # sharing the prefix, which is main's. The lockfile hash sits in the key
-      # deliberately: an incremental file built by a different toolchain must
-      # never be reused, so a dependency-bump PR misses the cache and gets a
-      # full run instead of trusting results from other dependencies.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      # main is authoritative, and restore and save are separate steps so that
+      # it stays that way. The combined action saves on every run, and GitHub
+      # searches a branch's OWN cache scope before the base branch's — so a
+      # PR's second push restored the entry its first push had just written,
+      # and Stryker seeded incremental output on top of incremental output
+      # instead of main's full build. Only the push to main saves now (the
+      # step below carries the same condition as the `--force` flag, so the
+      # two cannot drift apart); a pull request restores and writes nothing.
+      #
+      # The exact key hits only when the same commit is re-run. Everything
+      # else falls through the restore-keys prefix to the newest entry sharing
+      # it, which — since only main writes — is main's. The lockfile hash sits
+      # in the key deliberately: an incremental file built by a different
+      # toolchain must never be reused, so a dependency-bump PR misses the
+      # cache and gets a full run instead of trusting results from other
+      # dependencies.
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: packages/${{ matrix.package }}/reports/stryker-incremental.json
           key: mutation-${{ matrix.package }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
@@ -208,10 +218,21 @@ jobs:
       #
       # A pull request re-runs only the mutants whose covering code changed,
       # seeded from main's cache; a push to main rebuilds the file from a full
-      # authoritative run (`--force`), so the seed every PR inherits is never
-      # itself incremental. A missing cache degrades to a full run, which is
-      # the safe direction to fail. The flag lives here and NOT in the
-      # `stryker.config.json` files on purpose: a local run stays full by
-      # default, which is what the parity measurement (4m05s full on core
-      # against 9s incremental with nothing changed) compares against.
+      # authoritative run (`--force`) and is the only run allowed to save it,
+      # so the seed every PR inherits is never itself incremental. A missing
+      # cache degrades to a full run, which is the safe direction to fail. The
+      # flag lives here and NOT in the `stryker.config.json` files on purpose:
+      # a local run stays full by default, which is what the parity
+      # measurement (4m05s full on core against 9s incremental with nothing
+      # changed) compares against.
       - run: pnpm --filter @hiero-hackers/automation-${{ matrix.package }} exec stryker run --incremental${{ github.event_name == 'push' && ' --force' || '' }}
+      # The other half of the restore above, and the reason the seed stays
+      # authoritative: `push` is the same condition that adds `--force`, and
+      # `on.push.branches` admits only main — so the single entry any run can
+      # write is a full build of main. Written after Stryker, because the file
+      # this saves is the one it just produced.
+      - if: github.event_name == 'push'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: packages/${{ matrix.package }}/reports/stryker-incremental.json
+          key: mutation-${{ matrix.package }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}

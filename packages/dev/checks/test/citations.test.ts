@@ -108,7 +108,12 @@ describe("documents name files that exist", () => {
 
     const docs = markdownDocuments();
 
-    const NAME = /(?<![\w/.-])([a-z][a-z0-9-]*\.ts)(?![\w-])/g;
+    // Dotted basenames are the majority of the tree — `shell.test.ts`,
+    // `vitest.config.ts` — and a single-dot pattern could not match one at
+    // all: its character class excluded the dot, and the lookbehind then
+    // blocked the `test.ts` tail, so every spec this repository renamed was
+    // invisible to the check that exists to catch renames.
+    const NAME = /(?<![\w/.-])([a-z][a-z0-9-]*(?:\.[a-z0-9-]+)*\.ts)(?![\w-])/g;
 
     /**
      * Files a document names DELIBERATELY before they exist, such as what
@@ -128,13 +133,27 @@ describe("documents name files that exist", () => {
         expect(docs.length).toBeGreaterThan(5);
     });
 
+    /**
+     * Register rows that NARRATE a rename, split or deletion: each names the
+     * file as it was CALLED when the decision was taken — `lab.test.ts` became
+     * `never-tracked.test.ts` and the sentence saying so cannot be rewritten —
+     * and the register is immutable. Excised row by row rather than by name,
+     * so a stale mention of the same file anywhere else still fails, and
+     * active documentation stays checked throughout.
+     */
+    const HISTORIC_ROWS = ["D75", "D85", "D87", "D99", "D108"];
+    const HISTORIC = new RegExp(`^\\| (?:${HISTORIC_ROWS.join("|")}) \\|.*$`, "gm");
+
+    it("every excised row is still a row of the register", () => {
+        const register = readFileSync(join(repoRoot, "design", "decisions.md"), "utf8");
+        const excised = [...register.matchAll(HISTORIC)].length;
+        expect(excised).toBe(HISTORIC_ROWS.length);
+    });
+
     it("every bare source filename in a document resolves to a real file", () => {
         const unknown: string[] = [];
         for (const { doc, text } of docs) {
-            // D108 records a split whose extracted file was later deleted, and
-            // the register is immutable; active documentation stays checked.
-            const activeText =
-                doc === "design/decisions.md" ? text.replace(/^\| D108 \|.*$/m, "") : text;
+            const activeText = doc === "design/decisions.md" ? text.replace(HISTORIC, "") : text;
             for (const match of activeText.matchAll(NAME)) {
                 const name = match[1]!;
                 if (!sourceNames.has(name) && !PLANNED.has(name)) {
@@ -147,11 +166,24 @@ describe("documents name files that exist", () => {
 
     it("proves the check can fail", () => {
         expect(sourceNames.has("write.ts")).toBe(true);
+        expect(sourceNames.has("shell.test.ts")).toBe(true);
         expect(sourceNames.has("taxonomy.ts")).toBe(false);
-        expect([..."see `taxonomy.ts` and `write.ts`".matchAll(NAME)].map((m) => m[1])).toEqual([
+        // The rename this branch made: the dotted name a single-dot pattern
+        // could not see, so its deletion went unreported.
+        expect(sourceNames.has("support.test.ts")).toBe(false);
+        const prose = "see `taxonomy.ts`, `support.test.ts` and `write.ts`";
+        expect([...prose.matchAll(NAME)].map((m) => m[1])).toEqual([
             "taxonomy.ts",
+            "support.test.ts",
             "write.ts",
         ]);
+    });
+
+    it("leaves a name inside a path to the path check", () => {
+        // Paths are the describe above's job, matched whole and judged by
+        // existence; a basename lifted out of one would be reported twice.
+        const cited = "packages/core/test/slice.test.ts and packages/core/src/report/convert.ts";
+        expect([...cited.matchAll(NAME)]).toEqual([]);
     });
 });
 

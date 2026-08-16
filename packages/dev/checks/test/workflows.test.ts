@@ -39,9 +39,62 @@ function workflowLines(path: string): string[] {
 /** A `permissions:` value, in every shape the Actions schema allows. */
 type PermissionBlock = string | Readonly<Record<string, unknown>> | null | undefined;
 
+/** A step, in the two parts these checks ask about: what it runs, and its inputs. */
+interface WorkflowStep {
+    readonly uses?: unknown;
+    readonly with?: Readonly<Record<string, unknown>>;
+}
+
+interface WorkflowJob {
+    readonly permissions?: PermissionBlock;
+    readonly steps?: readonly (WorkflowStep | null)[] | null;
+}
+
 interface WorkflowDocument {
     readonly permissions?: PermissionBlock;
-    readonly jobs?: Readonly<Record<string, { readonly permissions?: PermissionBlock } | null>>;
+    readonly jobs?: Readonly<Record<string, WorkflowJob | null>>;
+}
+
+/** A workflow as the Actions schema describes it, or nothing if it is not a mapping. */
+function workflowDocument(text: string): WorkflowDocument | null {
+    const document = parse(text) as WorkflowDocument | null;
+    return document !== null && typeof document === "object" ? document : null;
+}
+
+/** Every step of every job, flattened — the level both step checks work at. */
+function steps(text: string): WorkflowStep[] {
+    return Object.values(workflowDocument(text)?.jobs ?? {}).flatMap((job) =>
+        [...(job?.steps ?? [])].filter(
+            (step): step is WorkflowStep => step !== null && typeof step === "object",
+        ),
+    );
+}
+
+/** What each step runs. A step without `uses:` runs `run:` and is not an action. */
+function actionRefs(text: string): string[] {
+    return steps(text)
+        .map((step) => step.uses)
+        .filter((uses): uses is string => typeof uses === "string");
+}
+
+/**
+ * The checkouts that leave the token behind, as `<path>: <ref>`.
+ *
+ * Parsed, never scanned line by line, for the reason `permissionWrites` is:
+ * the forward line scan this replaced read a COMMENTED-OUT flag as the flag
+ * being set, missed the quoted `'false'` the action honours, and never saw a
+ * step written as a flow mapping, where the setting shares the `uses:` line.
+ * Actions inputs cross the wire as strings, so `false` and `'false'` are the
+ * same instruction to the action, and both drop the token.
+ */
+function persistingCheckouts(path: string, text: string): string[] {
+    const persisting: string[] = [];
+    for (const step of steps(text)) {
+        if (typeof step.uses !== "string" || !step.uses.startsWith("actions/checkout@")) continue;
+        const flag = step.with?.["persist-credentials"];
+        if (flag !== false && flag !== "false") persisting.push(`${path}: ${step.uses}`);
+    }
+    return persisting;
 }
 
 /**
@@ -69,8 +122,8 @@ function writesIn(path: string, block: PermissionBlock): string[] {
  * Both levels the schema permits: the workflow's own block, and each job's.
  */
 function permissionWrites(path: string, text: string): string[] {
-    const document = parse(text) as WorkflowDocument | null;
-    if (document === null || typeof document !== "object") return [];
+    const document = workflowDocument(text);
+    if (document === null) return [];
     const jobs = Object.values(document.jobs ?? {});
     return [
         ...writesIn(path, document.permissions),
@@ -83,14 +136,33 @@ describe("workflow hygiene stays a checked invariant", () => {
         expect(workflows.length).toBeGreaterThan(0);
     });
 
-    it("pins every action to a full commit SHA with a version comment", () => {
+    /**
+     * The ref comes from the parser, not from a `uses:` substring test: that
+     * test also fires on a comment that happens to contain the word and on a
+     * local `./.github/actions/…` composite, neither of which can carry a SHA.
+     * A local action moves with this repository, so pinning it names nothing.
+     */
+    it("pins every third-party action to a full commit SHA", () => {
+        for (const path of workflows) {
+            for (const ref of actionRefs(workflowText(path))) {
+                if (ref.startsWith("./")) continue;
+                expect(ref.split("@").at(-1), `${path}: ${ref}`).toMatch(/^[0-9a-f]{40}$/);
+            }
+        }
+    });
+
+    /**
+     * A SHA nobody can read is a SHA nobody updates, so each pin names the
+     * version it stands for. Comments do not survive parsing, so this half
+     * stays textual — with the line match ANCHORED to a step's `uses:` key,
+     * which is what the substring test above it was standing in for.
+     */
+    it("names the version behind every pin, in a comment", () => {
         for (const path of workflows) {
             for (const line of workflowLines(path)) {
-                if (!line.includes("uses:")) continue;
-                const match = /^\s*(?:-\s+)?uses:\s+([^\s#]+)\s+#\s*v.+$/.exec(line);
-                expect(match, `${path}: ${line}`).not.toBeNull();
-                const ref = match![1]!.split("@").at(-1)!;
-                expect(ref, `${path}: ${line}`).toMatch(/^[0-9a-f]{40}$/);
+                if (!/^\s*(?:-\s+)?uses:\s/.test(line)) continue;
+                if (/^\s*(?:-\s+)?uses:\s+\.\//.test(line)) continue;
+                expect(line, `${path}: ${line}`).toMatch(/^\s*(?:-\s+)?uses:\s+\S+\s+#\s*v.+$/);
             }
         }
     });
@@ -115,35 +187,57 @@ describe("workflow hygiene stays a checked invariant", () => {
      * and a claim in this repository becomes an invariant (D100).
      */
     it("never persists the token past checkout", () => {
-        const missing: string[] = [];
-        for (const path of workflows) {
-            const body = workflowLines(path);
-            body.forEach((line, i) => {
-                if (!/uses:\s+actions\/checkout@/.test(line)) return;
-                // The `with:` block belongs to this step: scan forward until
-                // the next step (`- `) at the same or shallower indentation.
-                const indent = line.search(/\S/);
-                let persists = false;
-                for (let j = i + 1; j < body.length; j++) {
-                    const next = body[j]!;
-                    if (next.trim() === "") continue;
-                    if (next.search(/\S/) <= indent && /^\s*-\s/.test(next)) break;
-                    if (next.search(/\S/) <= indent && next.trim() !== "") break;
-                    if (/persist-credentials:\s*false/.test(next)) {
-                        persists = true;
-                        break;
-                    }
-                }
-                if (!persists) missing.push(`${path}:${String(i + 1)}`);
-            });
-        }
-        expect(missing).toEqual([]);
+        const persisting = workflows.flatMap((path) =>
+            persistingCheckouts(path, workflowText(path)),
+        );
+        expect(persisting).toEqual([]);
     });
 
     it("proves the pin check can fail in both directions", () => {
         const pin = (ref: string): boolean => /^[0-9a-f]{40}$/.test(ref);
         expect(pin("v4")).toBe(false);
         expect(pin("3d3c42e5aac5ba805825da76410c181273ba90b1")).toBe(true);
+    });
+
+    const CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
+    const checkoutStep = (step: string): string => `jobs:\n  a:\n    steps:\n      ${step}\n`;
+
+    /**
+     * Every row is valid YAML that drops the token, and the last two were read
+     * as PERSISTING by the forward line scan this replaced: the quoted value
+     * missed its regex, and a flow-mapped step keeps the setting on the same
+     * line as `uses:`, ahead of where the scan started looking.
+     */
+    it.each([
+        [
+            "an unquoted false",
+            `- uses: ${CHECKOUT}\n        with:\n          persist-credentials: false`,
+        ],
+        [
+            "a quoted false",
+            `- uses: ${CHECKOUT}\n        with:\n          persist-credentials: "false"`,
+        ],
+        ["a flow-mapped step", `- { uses: ${CHECKOUT}, with: { persist-credentials: false } }`],
+    ] as const)("accepts a checkout that drops the token via %s", (_name, step) => {
+        expect(persistingCheckouts("w", checkoutStep(step))).toEqual([]);
+    });
+
+    /**
+     * The other direction, including the one that made the scan report a PASS:
+     * a commented-out flag satisfied an unanchored search of the step's lines.
+     */
+    it.each([
+        ["no with: block", `- uses: ${CHECKOUT}`],
+        [
+            "the flag commented out",
+            `- uses: ${CHECKOUT}\n        with:\n          # persist-credentials: false\n          fetch-depth: 0`,
+        ],
+        [
+            "the flag set to true",
+            `- uses: ${CHECKOUT}\n        with:\n          persist-credentials: true`,
+        ],
+    ] as const)("reports a checkout with %s", (_name, step) => {
+        expect(persistingCheckouts("w", checkoutStep(step))).toEqual([`w: ${CHECKOUT}`]);
     });
 
     /**

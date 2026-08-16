@@ -33,7 +33,8 @@ Every repository write must satisfy all of the following rules.
 5. A newer human change causes a conflict instead of an automatic reversal. Ordering evidence that cannot
    be established is itself a conflict, never an absence of one (`manual-edits.md` §2, D51): "no human
    change" and "cannot tell" are different answers and only the first permits a write.
-6. The adapter names the exact item and value that it may change.
+6. The adapter names the exact item and value that it may change. It removes only the named values it
+   manages — never every label under a namespace prefix.
 7. The adapter verifies the requested postcondition after the write.
 8. The executor records an unclear outcome and reconciles it instead of retrying blindly.
 9. The operation has a tested disablement, repair, and rollback path.
@@ -82,8 +83,11 @@ pending work is closed, retained, or reconciled after a kill switch activates.
 
 ## 6. Multi-call effects
 
-An operation that changes a label, assignee, and comment uses several GitHub calls. The effect plan must list
-the call order, partial states, safe retries, verification, and restart behavior.
+An operation that changes a label, assignee, and comment uses several GitHub calls, and the App cannot treat
+them as one transaction. The effect plan must name the starting state and expected version of the facts it
+relies on, the call order, the valid state after each partial step, safe retries, how a concurrent human
+change takes priority, how the final postcondition is verified, and how a restart finds and either continues
+or cancels the operation.
 
 The recovery experiment must stop the process after every call and must include a concurrent human edit. A
 multi-call operation cannot enter a real repository until the executor can distinguish an App-created partial

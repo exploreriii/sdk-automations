@@ -101,8 +101,8 @@ than taking it on faith.
 
 - [`packages/core/README.md`](packages/core/README.md) — the glossary and the reading path.
   **Start here** if the vocabulary is new.
-- [`design/design2/architecture-v2.md`](design/design2/architecture-v2.md) — the system as
-  diagrams, each naming the code or test that falsifies it.
+- [`design/architecture.md`](design/architecture.md) — the system as diagrams, each naming the code
+  or test that falsifies it.
 - [`design/design2/decisions.md`](design/design2/decisions.md) — the register: every non-obvious choice, its
   reasoning, its costs, and what would reopen it.
 - [`docs/`](docs/README.md) — user-facing configuration guide, with its tables locked to the code.

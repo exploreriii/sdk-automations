@@ -1,12 +1,10 @@
 /**
  * `parseConfigDocument` — the layer between a file and `parseConfig`.
  *
- * In-package on purpose. The rejection corpus lived at the repository root as
- * `examples/config/invalid/*.yml` and scored this module at 0.00% mutation:
- * Stryker's sandbox is `core/` and nothing above it, so those files were never
- * copied and the tests reading them killed nothing. They ran, they passed, and
- * they measured nothing — the same silent-skip shape as the `src/*.ts` mutate
- * glob that stopped covering three modules when they moved into a directory.
+ * The rejection corpus stays IN-PACKAGE. Stryker's sandbox is `core/` and
+ * nothing above it, so a corpus at the repository root is never copied: the
+ * tests reading it run, pass, and kill no mutants. That is how this module
+ * once scored 0.00%.
  */
 
 import { describe, expect, it } from "vitest";

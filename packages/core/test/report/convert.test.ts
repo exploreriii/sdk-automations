@@ -137,10 +137,9 @@ describe("configuration findings", () => {
     });
 
     /**
-     * This test used to assert the opposite, and was written to FAIL when
-     * D75 landed. It has: every configuration error now carries its own code
-     * and the dotted path it came from, so D38's report can group by kind,
-     * count, and annotate a line instead of pasting a paragraph.
+     * Every configuration error carries its own code and the dotted path it
+     * came from (D75), so D38's report can group by kind, count, and annotate
+     * a line instead of pasting a paragraph.
      */
     it("each kind of configuration error reports its own code and path", () => {
         const result = parseConfig(

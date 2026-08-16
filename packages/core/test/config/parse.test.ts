@@ -10,26 +10,18 @@ import {
 import { VALUE_REJECTIONS, expectRejection } from "./documents.js";
 
 /**
- * Property-based tests (fast-check): randomized structured inputs with
- * fixed seeds — deterministic runs, shrinking to minimal counterexamples
- * on failure. They state PROPERTIES the examples below cannot: that the
- * parser never throws and is a fixed point over its generated input space.
+ * Fixed seed: identical inputs every run, shrinking to minimal
+ * counterexamples on failure. The properties claim what the examples below
+ * cannot — the parser never throws, and it is a fixed point over its
+ * generated input space.
  */
 const SEED = 20260725;
 
 /**
  * Headroom for the two heavy properties, applied PER TEST rather than to
  * core's vitest config, so a genuine hang anywhere else still fails fast.
- *
- * These two run 300 generated cases each and measure 1.5-1.9 s on an idle
- * machine — a 3x margin under vitest's 5 s default. `pnpm -r test` runs
- * six packages concurrently over core's own parallel workers, and a 3x
- * slowdown there is ordinary, which is the best explanation of the
- * intermittent failures these properties produced across 2026-08-07/08:
- * the seed is FIXED, so the inputs are identical on every run and an
- * input-dependent counterexample is impossible, while a timeout is
- * load-dependent by nature. The earlier "seed-dependent flake" reading
- * was wrong for exactly that reason (D98).
+ * They measure 1.5-1.9 s on an idle machine against vitest's 5 s default,
+ * and that margin does not survive a full concurrent `pnpm -r test` (D98).
  */
 const PROPERTY_TIMEOUT_MS = 30_000;
 
@@ -43,10 +35,8 @@ const validConfig = fc
             /**
              * Unique by the VALIDATOR's judgment, not by exact string: the
              * collision rule folds case (D55), so ["Abc", "abc"] is exact-
-             * unique yet labelNotInjective — a real collision class the
-             * exact-string uniqueness permitted. Same fold, same function,
-             * third consumer. (The intermittent failures once blamed on
-             * this generator were a timeout, not a counterexample — D98.)
+             * unique yet labelNotInjective. Generating those would fail a
+             * property that is not about them.
              */
             .uniqueArray(fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9: -]{0,20}[a-zA-Z0-9]$/), {
                 selector: labelKey,
@@ -120,11 +110,9 @@ describe("parseConfig properties", () => {
                     if (!first.ok) return; // covered by the property above
                     /**
                      * `revision` is metadata ABOUT the document, not a key IN
-                     * it (D77), so a parsed configuration is no longer a valid
-                     * document — it carries a field a maintainer never writes.
-                     * Stripping it keeps the property meaningful: what parsing
-                     * produces, minus the identity stamped on it, must parse
-                     * back to the same thing.
+                     * it (D77), so a parsed configuration is not itself a
+                     * valid document. Stripping it is what leaves something
+                     * that can be parsed a second time.
                      */
                     const { revision: _stamped, ...asDocument } = first.config;
                     const second = parseConfig(asDocument as unknown, {
@@ -142,10 +130,8 @@ describe("parseConfig properties", () => {
 });
 
 /**
- * Every way an already-parsed value is wrong, from `documents.ts`. The rows
- * were hand-written `it()`s here and in `adversarial.test.ts` until the two
- * files had drifted into three overlapping catalogues of the same thirteen
- * codes; what remains below is only what a row cannot say.
+ * Every way an already-parsed value is wrong, from `documents.ts`. What
+ * follows the corpus is only what a row cannot say.
  */
 describe("parseConfig rejections (design/config/schema.md)", () => {
     it.each(VALUE_REJECTIONS.map((r) => [`${r.code}: ${r.why}`, r] as const))(
@@ -168,9 +154,8 @@ describe("parseConfig acceptances (design/config/schema.md)", () => {
             const result = parseConfig(raw, { revision: "rev-test", knownCapabilities: [] });
             /**
              * The safe default still carries the revision it was read at
-             * (D77): "there was no file at this commit" is a fact worth
-             * keeping, and an operator report that cannot say WHEN nothing
-             * was found is not evidence of anything.
+             * (D77). An operator report that cannot say WHEN nothing was
+             * found is not evidence of anything.
              */
             expect(result).toEqual({
                 ok: true,
@@ -219,8 +204,7 @@ describe("parseConfig acceptances (design/config/schema.md)", () => {
 
     /**
      * §2.4's other half. The corpus holds the three truthy values that are
-     * NOT consent; this holds the one shape that is silence — and silence
-     * means disabled, not enabled.
+     * NOT consent; this holds the one shape that is silence.
      */
     it("an omitted enabled leaves the capability off, not on", () => {
         const result = parseConfig(
@@ -232,9 +216,9 @@ describe("parseConfig acceptances (design/config/schema.md)", () => {
     });
 
     /**
-     * The other side of D55: the fold decides COLLISION only. Two labels that
-     * genuinely differ both survive, spelt exactly as the maintainer wrote
-     * them, because that spelling is what the App writes to GitHub.
+     * The other side of D55: the fold decides COLLISION only. Distinct labels
+     * keep the maintainer's exact spelling, which is what the App writes to
+     * GitHub.
      */
     it("genuinely distinct labels still pass, with their spelling preserved", () => {
         const result = parseConfig(
@@ -264,10 +248,9 @@ describe("parseConfig acceptances (design/config/schema.md)", () => {
 
 describe("NO_CONFIG is inert all the way down", () => {
     it("carries the empty revision — the parser stamps the real one", () => {
-        // `parseConfig` spreads NO_CONFIG and overwrites `revision` from its
-        // options, so this literal is only ever visible to code that uses
-        // NO_CONFIG directly — which must be able to tell it from any parsed
-        // configuration, and "" is that sentinel.
+        // `parseConfig` overwrites `revision` from its options, so this
+        // literal is only visible to code using NO_CONFIG directly — and ""
+        // is the sentinel telling it apart from a parsed configuration.
         expect(NO_CONFIG.revision).toBe("");
     });
 });

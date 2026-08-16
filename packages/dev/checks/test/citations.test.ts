@@ -14,11 +14,10 @@ import { markdownDocuments, repoRoot, sourceFiles } from "./repository.js";
 describe("documents cite files that exist", () => {
     const docs = markdownDocuments();
 
-    // Layout-independent on purpose. This alternation was once built from the
-    // workspace file, and the day `dev/` arrived (D112) every historical
-    // citation of a moved package stopped MATCHING — thirteen stale register
-    // paths went invisible instead of dangling. Any packages/…/(src|test)/….ts
-    // shape is a citation; existence is the only judge.
+    // Layout-independent on purpose: any packages/…/(src|test)/….ts shape is a
+    // citation, and existence is the only judge. Building this from the
+    // workspace file instead makes a citation of a MOVED package stop matching,
+    // so it goes invisible rather than turning up dangling (D112).
     const PATH = /\b(packages\/[A-Za-z0-9._/-]+?\/(?:src|test)\/[A-Za-z0-9._/-]+\.ts)\b/g;
 
     // Exactly the two knowledge roots. A bare `examples/x.yml` is a
@@ -27,10 +26,9 @@ describe("documents cite files that exist", () => {
     const DOC_PATH = /\b((?:design|docs)\/[A-Za-z0-9._/-]+\.(?:md|yml))\b/g;
 
     /**
-     * Paths the register cites DELIBERATELY before they exist: the executor
-     * is designed, not built. Self-cleaning like the NAME check's PLANNED
-     * set below — the arrival test fails the day one of these lands, so an
-     * entry cannot outlive its future.
+     * Paths the register cites DELIBERATELY before they exist: the executor is
+     * designed, not built. Self-cleaning — the arrival test fails the day one
+     * of these lands, so an entry cannot outlive its future.
      */
     const PLANNED_PATHS = new Set([
         "packages/executor/src/planner.ts",

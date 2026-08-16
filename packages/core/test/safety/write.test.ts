@@ -27,9 +27,9 @@ const request = (over?: Partial<WriteRequest>): WriteRequest => ({
 });
 
 /**
- * The reviewed configuration is now the ONLY source of mode and
- * enablement (D73) — a test that wants a disabled capability or a
- * dry-run repository says so here, where a maintainer would.
+ * The reviewed configuration is the ONLY source of mode and enablement (D73).
+ * A test wanting a disabled capability or a dry-run repository says so here,
+ * where a maintainer would.
  */
 const config = (over?: Partial<RepositoryConfig>): RepositoryConfig => ({
     revision: "rev-test",
@@ -86,12 +86,10 @@ const warningFor = (
     });
 
 /**
- * The exhaustive sweep, where everything below it checks examples: it
- * enumerates the full input space and asserts the PROPERTY — `apply`
- * happens exactly when every safety rule passes, swept over EVERY action
- * class as well as every remaining configuration and context dimension.
- * The capability-link dimension is gone with D53, whose state D73 made
- * unrepresentable.
+ * The exhaustive sweep, where everything below it checks examples. It
+ * enumerates the full input space and asserts the PROPERTY: `apply` happens
+ * exactly when every safety rule passes, over every action class and every
+ * remaining configuration and context dimension.
  */
 const CAUSE_AT = new Date("2026-07-01T00:00:00Z");
 const CAPABILITY = "assignment";
@@ -121,11 +119,9 @@ describe("evaluateWrite: apply ⇔ every rule passes (full sweep)", () => {
     ];
 
     /**
-     * The action class is now a swept DIMENSION, not a fixed value.
-     * D52 exists because it was fixed at `reversibleStateChange`: the
-     * sweep was exhaustive in seven of eight input dimensions, and the
-     * missing one was exactly where `clockTriggeredDestructive` slipped
-     * through `evaluateWrite` and answered `apply`.
+     * The action class is a swept DIMENSION, never a fixed value. Fixing it
+     * leaves the sweep exhaustive in every dimension but the one where
+     * `clockTriggeredDestructive` reaches `apply` (D52).
      */
     it("2,560 (class × context) combinations: apply exactly when nothing refuses and mode is active", () => {
         let applies = 0;
@@ -219,21 +215,11 @@ describe("evaluateWrite: apply ⇔ every rule passes (full sweep)", () => {
         // fail-closed until their explanation/reversal gate exists.
         expect(applies).toBe(4);
     });
-
-    /**
-     * D53's mismatched-capability test is deliberately gone, and the sweep
-     * above lost that dimension with it: `evaluateWrite` derives the
-     * capability from `request.capability` (D73), so a context describing a
-     * different one cannot be constructed. Both enumerated a state the types
-     * no longer permit.
-     */
 });
 
 describe("evaluateWrite (safety.md §2)", () => {
-    // The plain apply/not-apply examples that stood here are demoted: the
-    // sweep above enumerates those outcomes, and §9 deletes a lower tier
-    // once a higher one subsumes it. What survives asserts a specific code,
-    // reason, or ordering the sweep never checks, or pins a named finding.
+    // The sweep above enumerates plain apply/not-apply, so what survives here
+    // asserts a specific code, reason, or ordering it never checks.
 
     it.each([
         ["kill switch", { killSwitchActive: true }, "killSwitch"],
@@ -254,8 +240,8 @@ describe("evaluateWrite (safety.md §2)", () => {
         expect(verdict).toMatchObject({ outcome: "refuse", code });
     });
 
-    // Mode and enablement now come from the reviewed configuration (D73),
-    // so their refusals are stated as configurations, not as context facts.
+    // Mode and enablement refusals are stated as configurations, not as
+    // context facts (D73).
     it("refuses when the repository mode is disabled", () => {
         expect(evalWrite(request(), context(), config({ mode: "disabled" }))).toMatchObject({
             outcome: "refuse",
@@ -272,10 +258,10 @@ describe("evaluateWrite (safety.md §2)", () => {
 
     /**
      * Silence is not enablement. A capability the file never mentions reads
-     * `undefined` out of a null-prototype record, and the derivation has to
-     * treat that as "off" rather than reaching into it — otherwise the
-     * commonest configuration of all (a capability nobody has adopted yet)
-     * is a crash instead of a refusal.
+     * `undefined` out of a null-prototype record, and the derivation must
+     * treat that as "off" rather than reaching into it. Otherwise the
+     * commonest configuration of all — a capability nobody has adopted — is
+     * a crash instead of a refusal.
      */
     it("a capability the reviewed file never mentions is disabled, not a crash", () => {
         expect(evalWrite(request({ capability: "neverConfigured" }), context())).toMatchObject({
@@ -285,9 +271,8 @@ describe("evaluateWrite (safety.md §2)", () => {
     });
 
     /**
-     * D77: "an operator message that names the absent permission is the
-     * difference between a fix and an investigation" — plural, so the list
-     * has to read as a list.
+     * The message names the absent permissions (D77), plural, so the list has
+     * to read as a list.
      */
     it("names every absent grant, not just the first (rule 2)", () => {
         const verdict = evalWrite(
@@ -760,9 +745,7 @@ describe("evaluateDestructive (safety.md §3–§4)", () => {
         // And the observation record-only verdict explains itself too.
         // `context()` here, not `dContext()`: `request()` defaults to the
         // `assignment` capability, and D53's link check runs BEFORE the
-        // observation short-circuit — a request and context describing
-        // different capabilities is malformed input, not a policy
-        // question, so no action class is exempt from it.
+        // observation short-circuit, so no action class is exempt from it.
         const observed = evalWrite(request({ actionClass: "observation" }), context());
         expect(observed).toMatchObject({ outcome: "record-only" });
         if (observed.outcome === "record-only") expect(observed.reason.length).toBeGreaterThan(0);
@@ -778,14 +761,12 @@ describe("evaluateDestructive (safety.md §3–§4)", () => {
 
 describe("the check order is contract, and now assertable directly", () => {
     /**
-     * D39 makes verdict CODES contract, and D52 was a precedence defect: the
-     * kill switch was checked last on the destructive path, so an operator who
-     * had pulled the emergency brake was told "no recorded warning". The
-     * outcome was a refusal either way — only the reported code was wrong.
-     *
-     * While precedence was a sequence of `if`s it could only be tested by
-     * constructing inputs that trip several rules and seeing which wins. As a
-     * list it can be pinned outright, which is the entire reason for the shape.
+     * Verdict codes are contract (D39), so precedence between rules is too: an
+     * operator who has pulled the emergency brake must be told about the kill
+     * switch, not about whatever else also refuses (D52). Precedence as a LIST
+     * can be pinned outright, which is the entire reason for the shape — a
+     * sequence of `if`s can only be tested by tripping several rules at once
+     * and seeing which wins.
      */
     it("pins the general-rule order", () => {
         expect(GENERAL_RULES.map(([name]) => name)).toEqual([
@@ -807,18 +788,17 @@ describe("the check order is contract, and now assertable directly", () => {
     });
 
     /**
-     * The cost of making order DATA: the list is editable, so a rule that
-     * only survives its input because an earlier rule intercepted the hard
-     * case is a landmine waiting for the next reordering. Two rules read
+     * The cost of making order DATA: the list is editable, so a rule that only
+     * survives its input because an earlier rule intercepted the hard case is
+     * a landmine waiting for the next reordering. Two rules read
      * `latestHumanChangeAt` after `humanOrderingUnknown` has removed the one
-     * value that has no `getTime()`, and their guards against it are
-     * unreachable through `evaluateGeneralRulesAfterPreflight` — invisible
-     * to every test that goes through the front door, and the reason those
-     * guards could be deleted without a single failure.
+     * value with no `getTime()`, and their own guards against it are
+     * unreachable through `evaluateGeneralRulesAfterPreflight` — so a test
+     * entering by the front door cannot see them at all.
      *
-     * So every rule is handed that value directly and must ANSWER: a verdict
-     * or `null`, never a throw. The property is per-rule independence, which
-     * is what the list shape claims and what a reordering relies on.
+     * Every rule is therefore handed that value directly and must ANSWER: a
+     * verdict or `null`, never a throw. The property is per-rule independence,
+     * which is what the list shape claims and what a reordering relies on.
      */
     it.each(GENERAL_RULES.map(([name, rule]) => [name, rule] as const))(
         "%s answers unestablished ordering on its own, without the rule above it",

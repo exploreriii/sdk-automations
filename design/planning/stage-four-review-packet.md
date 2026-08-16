@@ -231,7 +231,7 @@ Recorded so ratification is made with eyes open; none blocks the gate:
 ## Ratification mechanics
 
 Per the register's §5 rule, each item above becomes `ratified` only
-when `design/decisions.md` names the approving maintainers, the date,
+when `design/design2/decisions.md` names the approving maintainers, the date,
 and the evidence reviewed. The register's rows already carry the
 evidence text; approval is an edit adding names and dates, done in the
 gate-closing pull request.

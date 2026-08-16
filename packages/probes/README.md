@@ -12,7 +12,7 @@ produce observe or dry-run decisions. They also keep the capability-isolation
 matrix concrete without treating any probe as product scope.
 
 What the probes found is recorded as
-D61–D73 in [`design/decisions.md`](../../design/decisions.md); eight of the thirteen
+D61–D73 in [`design/design2/decisions.md`](../../design/design2/decisions.md); eight of the thirteen
 rows are gaps that no further work inside a single package would have
 surfaced, because each package was individually correct. D72 needed more than
 that again — it appeared only when this branch met the 2026-07-30 audit's

@@ -217,7 +217,7 @@ has to be written down.
 
 Coding the prose surfaced ambiguities; each is tagged `FINDING(...)` in the
 source at the exact place the assumption was made, and each is recorded in
-[`design/decisions.md`](../../design/decisions.md) §3 as a hypothesis with this
+[`design/design2/decisions.md`](../../design/design2/decisions.md) §3 as a hypothesis with this
 code as its evidence:
 
 - `FINDING(taxonomy-blocked)` → **D28** — `blocked` is an orthogonal

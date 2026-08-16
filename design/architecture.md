@@ -94,12 +94,12 @@ Enforced by the implementation today:
 
 - Core stays pure: it owns decisions and no I/O ([capability contract](modules/contract.md#2-runtime-boundary)).
 - Every fact has one owner; consumers derive or validate it rather than create a second source of truth
-  ([D62, D65, D73, and D76](decisions.md#hypotheses-surfaced-by-the-pure-logic-implementation)).
+  ([D62, D65, D73, and D76](design2/decisions.md#hypotheses-surfaced-by-the-pure-logic-implementation)).
 - Uncertainty fails closed ([write rules](core/safety.md#2-rules-for-every-write)).
 - Store-owned state transitions are atomic
   ([storage decision](operations/storage-decision.md#the-decision)).
 - Canonical SQLite report persistence and delivery completion are one atomic durable transition
-  ([D110](decisions.md#hypotheses-surfaced-by-the-pure-logic-implementation)).
+  ([D110](design2/decisions.md#hypotheses-surfaced-by-the-pure-logic-implementation)).
 - SQLite uses an explicit schema version contract and rejects unknown or modified schemas
   ([storage decision](operations/storage-decision.md#durable-report-and-schema-amendment-2026-08-09)).
 The runnable shell supports observe and dry-run. It rejects parsed `active` configuration before
@@ -114,8 +114,8 @@ Required before active mode, not current runtime guarantees:
 - Webhook queue capacity and future effect retries are bounded
   ([platform ownership](#3-what-the-shared-platform-owns)).
 - Activation has sandbox and rollback evidence
-  ([P8](decisions.md#supported-product-principles) and
-  [D22](decisions.md#3-earlier-design-proposals-and-their-current-status)).
+  ([P8](design2/decisions.md#supported-product-principles) and
+  [D22](design2/decisions.md#3-earlier-design-proposals-and-their-current-status)).
 
 ## 3. What the shared platform owns
 
@@ -301,7 +301,7 @@ The following principles are strong enough to guide the next work.
   strings.
 - Real repository writes wait for personal-sandbox evidence and explicit approval.
 
-The 2026-07-25 adoption record (`design/decisions.md` §3) proposed three architectural commitments. The
+The 2026-07-25 adoption record (`design/design2/decisions.md` §3) proposed three architectural commitments. The
 store mechanics remain implemented, but the generic executor prototype was removed because the runnable
 application never called it:
 
@@ -329,7 +329,7 @@ The following questions remain open.
 - The App permission manifest remains open until the first capability is selected.
 - The first pilot repository and rollout dates remain open.
 
-The decision register in `design/decisions.md` records how these questions will be resolved. Candidate
+The decision register in `design/design2/decisions.md` records how these questions will be resolved. Candidate
 capabilities are described in `design/modules/`, and the validation order is described in
 `design/build-plan.md`.
 

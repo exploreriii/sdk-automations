@@ -3,14 +3,14 @@
 > Working material, prepared 2026-07-25. This packet collates every register row awaiting ratification
 > into per-venue agendas so stage four ("Ratify the minimum architecture") is a set of answerable
 > questions, not a re-read of the whole register. Ratification itself is still recorded only in
-> [`decisions.md`](decisions.md) §5 — approving names, date, evidence. Each row below carries the
+> [`decisions.md`](design2/decisions.md) §5 — approving names, date, evidence. Each row below carries the
 > **recommended answer** (what the implementation packages encode today) and the named alternative;
 > a reviewer's job per row is *accept* or *change*, with changes flowing back to code and register.
 
 ## 0. Phase outcome — 2026-07-25
 
 The engineering rows were **adopted as working architecture** (see the adoption record in
-[`decisions.md`](decisions.md) §3): the storage/recovery agenda's recommended answers including the
+[`decisions.md`](design2/decisions.md) §3): the storage/recovery agenda's recommended answers including the
 working values (15-minute lease, 2× requeue threshold, 90-day retention, 5-attempt bound, operator-action
 close-out, the D46 gate on `active`), D29/D33 as encoded, and D40 at quarterly cadence. Those rows moved
 `hypothesis → supported`; formal `ratified` still requires the stage-four review.

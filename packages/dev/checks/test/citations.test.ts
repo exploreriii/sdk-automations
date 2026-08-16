@@ -145,7 +145,7 @@ describe("documents name files that exist", () => {
     const HISTORIC = new RegExp(`^\\| (?:${HISTORIC_ROWS.join("|")}) \\|.*$`, "gm");
 
     it("every excised row is still a row of the register", () => {
-        const register = readFileSync(join(repoRoot, "design", "decisions.md"), "utf8");
+        const register = readFileSync(join(repoRoot, "design", "design2", "decisions.md"), "utf8");
         const excised = [...register.matchAll(HISTORIC)].length;
         expect(excised).toBe(HISTORIC_ROWS.length);
     });
@@ -153,7 +153,8 @@ describe("documents name files that exist", () => {
     it("every bare source filename in a document resolves to a real file", () => {
         const unknown: string[] = [];
         for (const { doc, text } of docs) {
-            const activeText = doc === "design/decisions.md" ? text.replace(HISTORIC, "") : text;
+            const activeText =
+                doc === "design/design2/decisions.md" ? text.replace(HISTORIC, "") : text;
             for (const match of activeText.matchAll(NAME)) {
                 const name = match[1]!;
                 if (!sourceNames.has(name) && !PLANNED.has(name)) {
@@ -192,7 +193,7 @@ describe("documents name files that exist", () => {
  * see it: `D77` was cited three times in `core/src` before its row existed.
  */
 describe("code cites decisions that exist", () => {
-    const register = readFileSync(join(repoRoot, "design", "decisions.md"), "utf8");
+    const register = readFileSync(join(repoRoot, "design", "design2", "decisions.md"), "utf8");
     const recorded = new Set([...register.matchAll(/^\| (D\d+) \|/gm)].map((m) => m[1]!));
 
     const sources = sourceFiles(["src"]).map((file) => ({

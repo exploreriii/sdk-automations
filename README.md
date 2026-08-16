@@ -110,7 +110,7 @@ All tracked tests run offline. No GitHub credentials or GitHub App configuration
     <td width="50%">
       <strong>Understand the system</strong><br><br>
       Follow one delivery in the <a href="design/trace.md">system trace</a>, then read the
-      <a href="design/architecture.md">architecture</a> and <a href="design/decisions.md">decision register</a>.
+      <a href="design/architecture.md">architecture</a> and <a href="design/design2/decisions.md">decision register</a>.
     </td>
     <td width="50%">
       <strong>Use the contract</strong><br><br>

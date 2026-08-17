@@ -7,8 +7,10 @@ protocols stay here with the instrument that executes them.
 
 Three eras (D87, D88):
 
-1. **Feasibility (July 2026, closed)** — protocols 6.1–6.7 below, run by the throwaway `harness/`.
-   Frozen as methods; their conclusions are in the register.
+1. **Feasibility (July 2026, closed — reopened once)** — protocols 6.1–6.7 below, run by the
+   throwaway `harness/`. Frozen as methods; their conclusions are in the register. **6.8 reopens it**:
+   D115 found `readLinkedIssues` carrying no matrix row, and a measurement is the only thing that
+   closes that. An era closes when its gate closes, not when its questions run out.
 2. **Capture (current)** — protocol 7.1: scrubbed webhook payloads for the `events.ts` normalizer.
    `src/scrub.ts` is the rules, `src/capture.ts` the receiver, and nothing unscrubbed can reach a
    tracked path by construction.
@@ -91,6 +93,7 @@ pnpm --filter @hiero-hackers/lab capture
 | [`protocols/6.4-adapter.md`](protocols/6.4-adapter.md) | 6.4 | D9, D20, Q10, Q16 |
 | [`protocols/6.5-recovery-storage.md`](protocols/6.5-recovery-storage.md) | 6.5 | D1, D13, D24, D27, Q15 |
 | [`protocols/6.6-forks.md`](protocols/6.6-forks.md) | 6.6 | permission matrix, Q11 |
+| [`protocols/6.8-linked-issues.md`](protocols/6.8-linked-issues.md) | 6.8 | D115, Q16 — gates the `linkedIssues` resolver |
 
 Run order: 6.1 and 6.2 first (the substrate), then 6.3 (reuses the
 `core/` validator), 6.4, then 6.5 with the largest time budget — it

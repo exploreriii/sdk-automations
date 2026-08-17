@@ -74,7 +74,7 @@ flowchart TD
 | `fetchConfigFile(ref)` | `GET …/contents/{path}` | `ConfigSource` | confirmed |
 | `fetchInstallationGrants()` | token mint response | `installationGrants` | confirmed |
 | `readIssueTimeline(n)` | `GET …/issues/{n}/timeline` | `latestHumanChangeAt` | confirmed |
-| `readLinkedIssues(pr)` | GraphQL `closingIssuesReferences` | `resolve: linkedIssues` | **untested** |
+| `readLinkedIssues(pr)` | GraphQL `closingIssuesReferences` | `resolve: linkedIssues` | semantics measured; App-auth shapes open |
 
 - **The untested read gets a lab protocol before it gets trust.**
 - No matrix row, no citation — and a row without a citation is a guess.
@@ -130,7 +130,7 @@ Four properties make each piece mergeable alone — consequences of the seams, n
 
 - Credentials present composes live implementations; absent composes stubs.
 - CI never holds a credential, and the runnable sandbox keeps working.
-- `readLinkedIssues` needs a lab protocol before it earns trust.
+- `readLinkedIssues` semantics are measured ([`../findings/linked-issues.md`](../findings/linked-issues.md)): closing keywords only, a mention is not a link, and the answer may not be cached across a delivery. Cross-repository and App-auth failure shapes remain open (6.8 cases 3 and 7).
 - Zero stubs is the done-when below, not a step toward it.
 
 ## Verification

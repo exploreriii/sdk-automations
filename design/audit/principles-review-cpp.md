@@ -10,7 +10,7 @@
 >
 > **Source:** the same commit and files as the rest of the audit (`audit/services-cpp.md`,
 > `audit/labels-cpp.md`, `audit/coupling-cpp.md`); `§` references point into `coupling-cpp.md` unless
-> noted. Cross-references to `planning/lessons-learned.md` use its entry codes (A1, B1, …).
+> noted. Cross-references to `audit/lessons-learned.md` use its entry codes (A1, B1, …).
 >
 > **Framework:** classic software-design principles (single source of truth, least privilege, single
 > responsibility, explicit contracts, …), chosen over the cloud-infra Well-Architected pillars because

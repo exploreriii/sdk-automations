@@ -3,7 +3,7 @@
 > **Phase 2 synthesis:** a cross-SDK view of the maintainer automation. It covers what each SDK offers,
 > how the services group together, how an issue or PR moves through them, and a normalized view of the
 > labels that already exist across the SDKs. It draws on the Phase 1, 2, and 3 audit files and lines up
-> with `planning/goals.md` (decoupled by function, config-driven, opt-in).
+> with `design/goals.md` (decoupled by function, config-driven, opt-in).
 >
 > **Third codebase added.** The JavaScript SDK (`hiero-ledger/hiero-sdk-js`), the most used Hiero SDK, was
 > audited as a third data point (`audit/services-js.md`, `audit/labels-js.md`, `audit/coupling-js.md`). Its

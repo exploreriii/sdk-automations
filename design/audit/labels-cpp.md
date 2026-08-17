@@ -222,7 +222,7 @@ C++ automation.
 The CI, build, lint, and test workflows (`zxc-build-library.yaml`, `zxc-lint-workflows.yaml`,
 `zxc-test-bot-scripts.yaml`, `flow-pull-request-checks.yaml`, `on-schedule-builds.yaml`) were searched for
 `label`, `status:`, `skill:`, and `priority:` and match none. They are a project non-goal
-(`planning/goals.md`, Non-goals) and are left out of the flow analysis.
+(`design/goals.md`, Non-goals) and are left out of the flow analysis.
 
 ## Appendix D: the whole repository label set (not just the automated 14)
 

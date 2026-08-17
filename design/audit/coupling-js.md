@@ -35,4 +35,4 @@ them.
 The six notifiers each hard-code the same Slack channel id (`C0958RN2ZTR`) and the same four-name bot
 filter. That is copy-paste duplication (like Python's repeated excluded-author lists), not a runtime
 dependency. If notification logic ever grew, those are the obvious candidates for one shared value, the
-small-scale version of the config-driven principle in `planning/goals.md`.
+small-scale version of the config-driven principle in `design/goals.md`.

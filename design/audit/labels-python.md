@@ -248,6 +248,6 @@ any one and the notifier silently stops firing for it, with no error and no labe
 The CI, build, security, and release workflows (`pr-check-primary-*`, `pr-check-secondary-*`,
 `clusterfuzzlite`, `pre-commit`, `publish`, `release-pr-coderabbit-gate`, `test-on-review`,
 `test-review-sync`) and the two per-PR repo-hygiene checks (`pr-check-primary-{broken-links,test-files}`)
-were all checked and touch no labels. They are a project non-goal (`planning/goals.md`, Non-goals) and are
+were all checked and touch no labels. They are a project non-goal (`design/goals.md`, Non-goals) and are
 left out of the flow analysis. The one workflow that looks like it belongs here but does not is
 `pr-check-feedback-all`: label-free, but in scope as a notification service (see the section above).

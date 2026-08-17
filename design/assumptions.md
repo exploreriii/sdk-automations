@@ -14,15 +14,15 @@ a row with `none` is a risk, not a fact.
 |---|---|---|---|
 | A1 | Maintainers want to focus on core tasks related to their repositories, rather than improving workflows. | The premise of a hosted App: if maintainers enjoy owning workflow code, per-repo Actions are already the right answer. | none — belief |
 | A2 | Maintainers want a low-touch way of automating many of the repetitive tasks. | Justifies configuration over extension. A maintainer who wants to write logic wants a framework, not this. | none — belief |
-| A3 | Maintainers have different preferences as to what repetitive tasks they want automated. | The whole opt-in capability model (P2, P3). If everyone wants the same set, a fixed suite is simpler and better. | **strong** — the three audited SDKs diverge sharply: C++ runs ten services, Python ~40 small workflows, JavaScript almost none ([`services.md`](../audit/services.md), [`services-js.md`](../audit/services-js.md)) |
-| A4 | The load is real and recurring enough to be worth automating at all. | Everything. | **moderate** — two SDKs independently built and maintain bots for it ([`services.md`](../audit/services.md)) |
+| A3 | Maintainers have different preferences as to what repetitive tasks they want automated. | The whole opt-in capability model (P2, P3). If everyone wants the same set, a fixed suite is simpler and better. | **strong** — the three audited SDKs diverge sharply: C++ runs ten services, Python ~40 small workflows, JavaScript almost none ([`services.md`](audit/services.md), [`services-js.md`](audit/services-js.md)) |
+| A4 | The load is real and recurring enough to be worth automating at all. | Everything. | **moderate** — two SDKs independently built and maintain bots for it ([`services.md`](audit/services.md)) |
 | A5 | Maintainers want repository-health automation more than they want it to be free of a hosted dependency. | The hosted model itself; the alternative is a template repo of Actions they copy. | none — belief |
 
 ## Trust and adoption — will they actually install it?
 
 | # | Assumption | What breaks if it is false | Evidence today |
 |---|---|---|---|
-| A6 | Maintainers require the App to use minimal permissions. | The permission ceiling and the refusal of `contents: write` ([`endpoint-permission-matrix.md`](../operations/endpoint-permission-matrix.md)). | none — belief, though it is the safer error |
+| A6 | Maintainers require the App to use minimal permissions. | The permission ceiling and the refusal of `contents: write` ([`endpoint-permission-matrix.md`](operations/endpoint-permission-matrix.md)). | none — belief, though it is the safer error |
 | A7 | Maintainers will grant a third-party hosted App write access to issues and pull requests at all. | Everything downstream of observe mode. The ceiling only matters if the answer is yes. | none — **the largest untested belief in the project** |
 | A8 | Maintainers want to see what automation would do before it does it. | The `observe` → `dry-run` → `active` ladder. If they want value immediately, the ramp reads as friction. | none — belief |
 | A9 | Maintainers want an explanation for every action, not silent success. | The findings, severities, and canonical report — a large share of the built system. | none — belief |
@@ -32,11 +32,11 @@ a row with `none` is a risk, not a fact.
 
 | # | Assumption | What breaks if it is false | Evidence today |
 |---|---|---|---|
-| A11 | Maintainers will accept and maintain a reviewed YAML file in their repository. | The config-driven choice (P2, D93). | **weak** — C++ already maintains `hiero-automation.json` this way ([`services-cpp.md`](../audit/services-cpp.md)) |
-| A12 | Repositories will govern who may edit that file. | Safety. The file is as powerful as branch protection, and nothing in the App restrains who merges a change to it. | none — recorded as a documentation gap in [`to-do.md`](../../docs/to-do.md) |
+| A11 | Maintainers will accept and maintain a reviewed YAML file in their repository. | The config-driven choice (P2, D93). | **weak** — C++ already maintains `hiero-automation.json` this way ([`services-cpp.md`](audit/services-cpp.md)) |
+| A12 | Repositories will govern who may edit that file. | Safety. The file is as powerful as branch protection, and nothing in the App restrains who merges a change to it. | none — recorded as a documentation gap in [`to-do.md`](../docs/to-do.md) |
 | A13 | Per-repository configuration is enough; no organization-level inheritance is needed in the first version. | The no-inheritance non-goal. Fails if repositories turn out to want one policy set centrally. | none — belief |
-| A14 | Repositories express workflow state through labels that can be mapped to stable meanings (P7). | The whole mapping model and the meaning taxonomy. Fails if repositories move to Projects fields or custom statuses. | **strong** — every audited SDK drives its workflow from labels ([`labels-cpp.md`](../audit/labels-cpp.md), [`labels-python.md`](../audit/labels-python.md)) |
-| A15 | Humans will keep editing labels, assignees, and state by hand, and automation must yield to them (P5). | The derived world, the manual-edit rules, and the newer-human-change refusal. | **strong** — the audits show manual entry paths throughout ([`services.md`](../audit/services.md)) |
+| A14 | Repositories express workflow state through labels that can be mapped to stable meanings (P7). | The whole mapping model and the meaning taxonomy. Fails if repositories move to Projects fields or custom statuses. | **strong** — every audited SDK drives its workflow from labels ([`labels-cpp.md`](audit/labels-cpp.md), [`labels-python.md`](audit/labels-python.md)) |
+| A15 | Humans will keep editing labels, assignees, and state by hand, and automation must yield to them (P5). | The derived world, the manual-edit rules, and the newer-human-change refusal. | **strong** — the audits show manual entry paths throughout ([`services.md`](audit/services.md)) |
 
 ## Evolution — will it still be wanted later?
 

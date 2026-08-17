@@ -20,7 +20,7 @@ The register uses the following status values.
 
 | Identifier | Principle | Evidence |
 |---|---|---|
-| P1 | The product is one hosted GitHub App with repository-selected capabilities. | The accepted proposal and `design/planning/goals.md` support this direction. |
+| P1 | The product is one hosted GitHub App with repository-selected capabilities. | The accepted proposal and `design/goals.md` support this direction. |
 | P2 | A repository must explicitly enable every workflow-changing capability, and every user-facing capability defaults to off. | Maintainer consent and the different C++, Python, and JavaScript workflows require explicit opt-in. |
 | P3 | A capability does not call or import another capability. | The coupling audit shows that direct and hidden sibling contracts are difficult to test and change. |
 | P4 | A capability receives only its own configuration and a narrow platform interface. | The C++ shared-config coupling and GitHub API mock drift support a smaller boundary. |

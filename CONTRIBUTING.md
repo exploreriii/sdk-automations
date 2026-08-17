@@ -68,9 +68,8 @@ These are here because each one has actually cost this project time.
 - **Claim one issue at a time.** Comment on the issue to claim it, finish it, then take the next.
   Self-assigning several at once blocks other contributors from work you are not yet doing.
 - **You must be able to explain every line you submit.** AI assistance is fine and normal here — the
-  maintainer uses it. What is not fine is submitting code or prose you cannot defend in review: if
-  you cannot say why a line is there, it is not ready, and reviewing it costs more than writing it
-  would have.
+  maintainer uses it. What is not fine is submitting code or prose you cannot defend in review. See
+  the [AI policy](AI_POLICY.md).
 - **Answer the feedback on your open pull request before starting new work.** A review comment
   waiting for a reply is the most expensive thing in the queue; opening more work while it sits
   means nothing lands.

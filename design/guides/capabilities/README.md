@@ -1,118 +1,71 @@
 # Candidate Capabilities
 
-> **Not built, not ranked — build guides.** Nine proposals derived from the audit. None is scope: the
-> first capability is chosen by maintainer demand (Q2, still open), and the contract they all implement
-> is [`../contract.md`](../contract.md).
+Eight candidates: **not ranked, not built.** The first is chosen by maintainer demand (Q2, still open),
+not by this file's order. Each document follows [`TEMPLATE.md`](TEMPLATE.md), and its §1 declaration
+becomes lockable against `packages/core/src/capability/declaration.ts` the day it is built.
 
-> The audit found the capabilities in this directory. They are candidate product work, not a committed
-> release list. Each candidate must pass maintainer-demand, permission, configuration, safety, and feasibility
-> review before implementation.
+## The ranking table
 
-## 1. What independence means
+Q2's instrument. The ceiling is `issues:write`, `pull_requests:write`, `contents:read`
+(`design/findings/endpoint-permission-matrix.md`, "The ceiling"). Demand cites the service tables in
+`design/audit/services.md` §2 by group.
 
-A capability is independent when all of the following statements are true.
+| Capability | Job | Permissions vs ceiling | Operational needs | Effect risk | Demand evidence |
+|---|---|---|---|---|---|
+| [`pr-quality`](pr-quality.md) | Explain what still blocks a pull request | within for the linked-issue slice; check signals need `checks:read`, deliberately withheld | none declared | comment-only | C++ dashboard, Python partial, JS gate (§2 group 3) |
+| [`intake`](intake.md) | Turn a new issue into a next step | within | none declared | comment-only, then reversible label | Python moderate-and-lock, C++ `/finalize` (§2 group 1) |
+| [`assignment`](assignment.md) | Let a contributor claim and release work | within; cross-repository limits would exceed | durable state candidate; cross-item | reversible label and assignee | C++ and Python both, marked 🟢 (§2 group 2) |
+| [`inactivity`](inactivity.md) | Warn, then release stalled work | within | needs schedules; durable state candidate | destructive — unassign or close | C++ and Python both, marked 🟢 (§2 group 4) |
+| [`notifications`](notifications.md) | Deliver one focused alert | exceeds — `actions:read` plus off-GitHub delivery | needs schedules; durable state required | comment-only on GitHub, but an external send is unrecallable | Python alerts, JS Slack feed (§2 group 6) |
+| [`review-routing`](review-routing.md) | Recommend or request reviewers | exceeds when team routing needs organization `members:read` | durable state candidate; cross-item | reversible request, but notification noise | Python `queue:*` only (§2 group 3) |
+| [`progression`](progression.md) | Recognise completed work, suggest next | within, but **needs org-wide data — out of the first milestone by its own doc** (D57) | durable state candidate; cross-item | reversible label; public ranking can still harm | C++ and Python both, marked 🟢 (§2 group 5) |
+| [`admin`](admin.md) | Rotate mentors, maintain a denylist | **exceeds ceiling — evidence-gathering only**: `contents:write` to propose, organization `members:read` to decide | needs schedules; durable state candidate | its proposal operation is not an approved adapter operation | Python only (§2 group 7) |
 
-1. The capability does not import, call, or name another capability.
-2. The capability receives only its own validated configuration and the shared platform interfaces that its
-   contract declares.
-3. The capability does not receive Octokit, a raw GitHub context, or another unrestricted transport client.
-4. Disabling the capability stops its event handling, scheduled work, capability-only reads, and writes.
-5. The capability can perform its own job without requiring another capability to be enabled.
-6. Any compatibility rule or shared workflow invariant is declared and validated before activation.
-7. The capability declares its permissions, mappings, operational storage, rollback, and uninstall behavior.
+## The meaning matrix
 
-Manual state entry can make a capability useful by itself, but manual reachability does not prove every
-combination is safe or understandable. Related capabilities may be offered as an optional workflow profile
-with tested compatibility rules.
+The seven `MAPPABLE_MEANINGS` (`packages/core/src/config/schema.ts`). R read · W write · blank neither.
+`?` marks a cell derived from a document's behaviour prose rather than quoted from it.
 
-## 2. Candidate catalogue
+| Capability | awaitingTriage | ready | inProgress | needsReview | needsRevision | readyToMerge | blocked |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
+| `pr-quality` | | | | W? | W? | R? | R? |
+| `intake` | RW? | W? | R? | | | | R? |
+| `assignment` | | RW? | RW? | | | | R? |
+| `inactivity` | | W? | R? | R? | R? | | R |
+| `notifications` | | | | R? | | R? | R? |
+| `review-routing` | | | | R? | R? | W? | R? |
+| `progression` | | | | | | R? | |
+| `admin` | | | | | | | |
 
-| Candidate | Maintainer problem | Current evidence | Current status |
-|---|---|---|---|
-| `intake` | New issues need consistent triage without silently rewriting contributor content. | The C++ and Python repositories use different intake flows. | This candidate needs maintainer demand and policy review. |
-| `assignment` | Contributors need a safe way to claim and release work. | The C++ and Python repositories both automate assignment with different rules. | This candidate needs configuration, multi-assignee, and recovery decisions. |
-| `inactivity` | Stalled assignments and pull requests need a fair reclaim process. | Both automated repositories act on inactivity, but their timing and warnings differ. | This candidate is destructive and requires a later safety gate. |
-| `pr-quality` | Pull request authors need one clear view of mechanical checks. | C++ has a dashboard, Python enforces only some conditions, and JavaScript has a small formatting gate. | A comment-only slice is a strong first candidate. |
-| `review-routing` | Some repositories want review state or reviewer routing to be visible. | Python has a review queue, while the other audited repositories do not share it. | This candidate needs named repository demand. |
-| `progression` | Some repositories want to recommend new work or recognize contributor progress. | C++ and Python implement recommendation and skill progression. | This candidate depends on optional skill-policy decisions. |
-| `notifications` | Maintainers and contributors may need focused alerts or explanations. | Python and JavaScript use different notification channels and triggers. | Each subscription needs separate demand and permission review. |
-| `admin` | Some repositories maintain mentor rosters or abuse controls. | These behaviors appear mainly in Python. | This candidate is deferred until repositories request it. |
+Only one cell is quoted: `inactivity` configures blocked behaviour explicitly. Every other cell is
+inferred, because no candidate document names a meaning from `MAPPABLE_MEANINGS` — the matrix is a
+hypothesis to confirm, not a record. `progression` writes `skill:` labels, which are outside these seven.
 
-The catalogue records existing behavior so that it is not lost. It does not require every old service to be
-rebuilt. GitHub-native behavior or a repository-local Action may remain the better solution for some rows.
+**`ready` carries three W entries — an A1-class coupling risk.** `intake` promotes into it, `assignment`
+leaves it on a claim and returns to it on a release, `inactivity` returns reaped work to it. That is
+exactly A1's shape, the shared `status:` namespace no single feature owned, and A3's pair, assignee and
+position mutated together by separately togglable features (`design/audit/lessons-learned.md`). `ready`
+needs a named owner and one documented edge per writer before any two of the three can be ranked
+together. The `blocked` column is read-only for every row: only a human may pause an item (D79).
 
-## 3. Capability acceptance test
+## Profiles
 
-Before a candidate becomes product scope, its document must answer the following questions.
+| Profile | Members | What the profile supplies |
+|---|---|---|
+| contribution | `intake` + `assignment` + `inactivity` | the `ready` and `inProgress` mappings all three touch, and the timers — unresolved until `ready` has an owner |
+| pull request | `pr-quality` + `review-routing` | one distinct managed-comment marker per member and a shared pull-request-flow mapping |
+| signals | `notifications` alone | nothing shared; its coupling is the delivery channel, not a meaning |
 
-1. Which repositories and maintainers have asked for the capability?
-2. What problem do they experience without naming the proposed implementation?
-3. What behavior exists today, and at which pinned source revision was it observed?
-4. Which repository choices must be configurable?
-5. Which GitHub events, reads, writes, and permissions are required?
-6. Which labels, fields, teams, users, or external systems must be mapped?
-7. Does the capability need scheduling, durable operational state, or cross-item coordination?
-8. What happens when the capability is disabled or uninstalled?
-9. What can fail, what is the blast radius, and how does a maintainer reverse the result?
-10. Can GitHub or an existing Action solve the problem with less permission and operational cost?
-11. What is the smallest personal-sandbox experiment that proves the design?
-12. Which compatibility rules apply when the capability runs with other capabilities?
+A profile supplies mappings, defaults, and tested compatibility rules. It never enables a member (P2),
+and every member stays independently disableable (P3).
 
-The candidate is then classified as a shared capability, an optional workflow-profile member, a
-repository-specific extension, an existing GitHub or Actions solution, or work that should be deferred.
+## Independence, and what this catalogue is for
 
-## 4. Interaction through the platform
-
-Capabilities share platform services instead of sharing implementation details.
-
-```mermaid
-flowchart LR
-    OBS["Normalized observation"] --> CAP["Enabled capability"]
-    CFG["Capability configuration"] --> CAP
-    CAP --> INT["Typed intent and explanation"]
-    INT --> POL["Shared policy and effect executor"]
-    POL --> ADP["Narrow GitHub adapter"]
-    ADP --> GH["GitHub"]
-```
-
-A capability may request a shared fact through a declared resolver. For example, assignment and progression
-may both request an answer about contributor eligibility when an optional skill policy is enabled. They do
-not call each other, and the resolver does not force repositories to enable the policy.
-
-## 5. Workflow profiles
-
-A workflow profile packages suggested mappings, defaults, and compatibility rules for repositories with a
-similar process. The candidate Hiero contribution profile may include intake, assignment, inactivity, pull
-request quality, and optional progression.
-
-A profile does not silently enable its members. The repository still selects each capability and can inspect
-the effective configuration. A profile must state which combinations have been tested and which combinations
-are unsupported.
-
-## 6. Implementation order
-
-Implementation order follows technical risk and confirmed demand rather than the catalogue order.
-
-1. The platform first proves App authentication, webhook verification, configuration, dry-run output, and a
-   narrow adapter.
-2. The platform then proves one idempotent managed comment.
-3. The platform then proves one reversible mapped-label operation with failure injection.
-4. The project then selects the first user-facing capability from maintainer demand.
-5. Contributor-facing commands and destructive actions arrive only after recovery and rollback tests pass.
-
-The current best first candidate is a comment-only pull request quality dashboard, but maintainers must still
-confirm that choice.
-
-## 7. Candidate documents
-
-Each file in this directory records evidence, configurable policy, technical needs, safe tests, and open
-questions. Detailed behavior remains a hypothesis until the named maintainers review it.
-
-- `intake.md` describes issue intake and triage candidates.
-- `assignment.md` describes self-service assignment candidates.
-- `inactivity.md` describes warnings and reclaim candidates.
-- `pr-quality.md` describes pull request feedback candidates.
-- `review-routing.md` describes review routing candidates.
-- `progression.md` describes recommendation and recognition candidates.
-- `notifications.md` describes focused notification candidates.
-- `admin.md` describes mentor and abuse-control candidates.
+A capability is independent when it names no sibling, receives only its own validated configuration and
+the platform interfaces its contract declares, holds no Octokit or raw GitHub context, stops every read,
+write, and schedule when disabled, and can do its job with no sibling enabled. Manual state entry proves
+reachability, not that every combination is safe. The catalogue records what the audit found so it is not
+lost; it does not oblige anyone to rebuild an old service, and GitHub-native behaviour or a
+repository-local Action may remain the better answer for a row. Capabilities choose from closed platform
+vocabularies (`packages/core/src/capability/catalogue.ts`, D61) — a capability that needs an operation
+outside them extends the catalogue by review, which is the intended cost.

@@ -10,7 +10,7 @@ instead of waiting to be noticed.
 | [`safety.md`](safety.md) | `packages/dev/checks/test/safety-drift.test.ts` — the refusal table is `SafetyRefusalCode`, exactly |
 
 **The entry rule: no check, no entry.** A document arrives here with the test that locks it, or it
-belongs in [`../guides/`](../guides/README.md) as a build guide. A contract nobody executes is a
+belongs in [`../guides/`](../guides/) as a build guide. A contract nobody executes is a
 proposal wearing a contract's name, and the difference is invisible from the prose.
 
 A guide is promoted here when its subject is built AND a check reads what remains. Built without a

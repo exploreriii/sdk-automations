@@ -1,123 +1,105 @@
-# Candidate Capability: Pull Request Quality Guidance
+# pr-quality — tell a contributor what still stops their pull request from being reviewable
 
-> This capability is a candidate. Repository audits show several quality checks, but each repository uses
-> different branch rules, checks, contribution rules, and issue-link conventions.
+> **Candidate — not ranked, not built.** Status changes here when the register does (Q2).
 
-## 1. Maintainer need and evidence
+GitHub already enforces branch protection and reports checks. This capability explains repository
+policy and combines signals; it never pretends to replace that enforcement.
 
-Contributors often need a single explanation of what still prevents a pull request from being reviewable
-or mergeable. GitHub already enforces branch protection and reports checks. This capability should explain
-repository policy and combine signals without pretending to replace GitHub's enforcement.
+## 1. Declaration
 
-## 2. The capability boundary
+| Field | Value | Why |
+|---|---|---|
+| `triggers` | `pull_request` (opened, edited, synchronize, ready_for_review) | every signal is recomputed from current facts, never accumulated across events |
+| `observations` | `pullRequestUpdated` | it needs the pull request's own projection and its closure; it reads no issue |
+| `resolvers` | `linkedIssues` | the one fact the event does not carry. Check-based signals would need a `requiredChecks` resolver the closed catalogue does not have — an extension by review (D61), §8 |
+| `intents` | `postManagedComment` | one deterministic App-authored comment. Label mode would add `applyMappedLabel`; there is no remove operation (D80) |
+| `permissions.repository` | `pull_requests:read`, `issues:write`, `contents:read` | read the pull request, its files and reviews; GitHub exposes pull request comments and labels through the issue API, so the comment costs `issues:write`; `contents:read` only for a check that inspects a repository file |
+| `permissions.organization` | none | at the ceiling. It needs no merge and no `contents:write` |
+| `operationalNeeds` | `schedule: false`, `durableState: "none"`, `crossItemCoordination: false`, `externalDelivery: false` | §6 |
 
-This capability observes configured pull request signals and publishes guidance or narrow mapped results.
-It does not merge pull requests, approve reviews, change code, push commits, or assign reviewers. The safe
-first version is read-mostly and writes only one managed comment.
+## 2. Decision
 
-## 3. Candidate declaration
-
-```ts
-{
-  name: "pull-request-quality",
-  configSchema: PullRequestQualityConfigSchema,
-  triggers: ["pull_request events", "check_suite.completed", "check_run.completed", "pull_request_review events"],
-  observations: ["PullRequestObservation", "ChecksObservation", "ReviewObservation"],
-  resolvers: ["linkedWork", "requiredChecks", "mayPerform", "isAutomation"],
-  intents: ["UpsertManagedComment", "AddMappedLabel", "RemoveMappedLabel"],
-  permissions: {
-    repository: ["pull_requests:read", "checks:read", "statuses:read", "issues:write", "contents:read"],
-    organization: [],
-  },
-  operationalNeeds: {
-    schedule: false,
-    durableState: "none",
-    crossItemCoordination: false,
-    externalDelivery: false,
-  },
-}
+```mermaid
+flowchart LR
+    O["pullRequestUpdated"] --> CL{"closed or merged?"}
+    CL -->|yes| N0["no intent — never asks"]
+    CL -->|no| R["resolve linkedIssues"]
+    R -->|"ok: false"| X["no intent — explain()"]
+    R -->|"ok: true, linked"| N1["no intent"]
+    R -->|"ok: true, empty"| I["postManagedComment"]
 ```
 
-The experiment must verify which GitHub events and APIs provide reliable required-check and mergeability
-information under the selected App permissions.
+Every other configured signal — title format, assignee, required status checks, review state, merge
+conflicts, sign-off, verified signatures — is a further condition on the same edge, each separately
+configurable because repositories disagree, and each resolving to pass, fail, pending, or unknown with
+its own explanation. Check and workflow names are exact configured identifiers or derived from
+protected-branch rules; there is no universal CI job name.
 
-## 4. Configuration and repository mappings
+## 3. Meanings
 
-The capability defaults to disabled. A repository may select checks for title format, linked issue,
-assignee, required status checks, review state, merge conflicts, sign-off, or verified signatures. Every
-check is separately configurable because repositories disagree about these policies.
+| Meaning | Reads | Writes |
+|---|---|---|
+| `needsReview` | — | label mode only; `qualityReadyForReview` maps here (§8) |
+| `needsRevision` | — | label mode only; `qualityNeedsWork` maps here (§8) |
+| `readyToMerge` | from the projection — it must not contradict a queue that owns this | never |
+| `blocked` | from the projection | never (D79) |
+| `awaitingTriage`, `ready`, `inProgress` | — | never — it observes no issue |
 
-Check and workflow names must be exact configured identifiers or derived from protected-branch rules where
-GitHub exposes them reliably. The capability must not assume a universal CI job name. Optional meanings such
-as `qualityNeedsWork` and `qualityReadyForReview` map to repository labels only when label mode is enabled.
+## 4. Refuses
 
-## 5. Behavior
+| Never | Enforced by |
+|---|---|
+| Merge, approve, push, change code, or request a reviewer | absent from `intents`; the closed catalogue holds no such operation (D61) |
+| Close a pull request for a missing link, signature, assignee, or check — Python does close (`design/audit/services.md` §2 group 3) | no closure intent exists; closure is a reason read from GitHub, never written (D47) |
+| Pause an item | `screenIntent` refuses a capability writing `blocked` (D79) |
+| Take a position off without replacing it | `removeMappedLabel` is deleted from the catalogue (D80) |
+| Read a failed resolver as a fact | the `ResolverAnswer` union makes the two values different (§5) |
+| Decide from another capability's rendered comment prose, or own its marker | its own configured marker; A2 is the audit's instance of this failure (`design/audit/lessons-learned.md`) |
 
-After a relevant pull request event, the capability reads the current pull request and the configured
-signals. Each signal returns pass, fail, pending, or unknown with an explanation. The capability combines
-those results into one managed comment that tells the contributor what is complete, what is pending, what
-needs action, and what the App could not determine.
+## 5. When evidence is unknown
 
-An unknown result must not become a failure or a success. GitHub may temporarily return `mergeable: null`,
-and check suites may still be running. The capability waits for later events or a bounded reconciliation
-instead of posting contradictory messages.
+A resolver answering `ok: false` produces no intent and one `explain()` naming the reason — a rate limit
+is never read as "no linked issue" (`packages/probes/test/prQuality.test.ts`). A failed read is never a
+default (D51). The same holds for `mergeable: null`, a still-running check suite, unavailable branch
+rules, incomplete pagination, and a missing permission: unknown is neither pass nor fail, so the
+capability waits for a later event or a bounded reconciliation rather than posting a contradiction, and
+emits no readiness label. A conflicted projection tells this capability nothing, since it reads no
+position — but closure is read on both branches (D59), so a merged pull request whose labels happen to
+conflict still draws nothing. The comment must distinguish repository work from an App limitation, so a
+contributor is never blamed for an infrastructure failure.
 
-If mapped-label mode is later enabled, label intents are based on the same observed result. A newer human
-label change and a changed configuration revision invalidate an older intent.
+## 6. Operational needs
 
-## 6. GitHub events, reads, writes, and permissions
+None declared. Everything recomputes from current GitHub facts against one deterministic App-authored
+comment whose authorship is verified. A short coalescing queue may reduce repeated work during a burst
+of check events, but correctness must not depend on that queue retaining every delivery. Quality trends
+and one-time notices would need declared durable state and retention, and must not hide inside the
+evaluator.
 
-The capability may read pull request metadata, commits, changed files, reviews, branch rules, checks, commit
-statuses, linked issues, and repository content such as a contribution policy. Commit, check, review, and
-file collections require pagination. Pull requests from forks and contributions from outside collaborators
-must work without exposing secrets or assuming write access to the contributor's branch.
+## 7. Verification
 
-Reading content is necessary only for checks that actually inspect a repository file. Writing the managed
-comment or labels uses issue write permission because GitHub exposes pull request comments and labels
-through issue APIs. The capability does not need merge or content write permission.
+| Scenario | Proves |
+|---|---|
+| Resolver answers `ok: false`; the same pull request then answers `[]` | unknown is not "no linked issue", and the silence was the failure (`packages/probes/test/prQuality.test.ts`) |
+| Redelivered `pull_request` event | one comment, not two — `postManagedComment` is `nonIdempotent`, so recovery goes through read-back |
+| Newer human label edit, or a changed configuration revision | the stale expectation returns `conflict` and the human change survives |
+| Missing `issues:write` | `forbidden`, and the capability does not retry it |
+| More than one page of commits, checks, and files; duplicate check names; reruns; cancelled checks; renamed workflows; changed branch protection | pagination and rename handling, the B1 failure in `design/audit/lessons-learned.md` |
+| `mergeable: null`, draft, fork-sourced pull request, dismissed review, hostile title | unknown stays unknown, and a fork pull request is evaluated with no write access to its branch |
+| Sandbox: App result against GitHub's visible branch-protection result on the same pull request | the capability explains policy rather than replacing enforcement |
 
-Signature policy needs a separate experiment because DCO sign-off text, GitHub verified signatures, and
-organization identity rules are different facts.
+`packages/probes/src/prQuality.ts` is a boundary probe chosen for contract diversity, deliberately not
+for likelihood of being ranked first ([`probes/README.md`](../../../packages/probes/README.md)) — its
+test proves the resolver-failure behaviour above, not that this capability is wanted.
 
-## 7. Compatibility without dependency
+## 8. Open
 
-The capability works without intake, assignment, review routing, or progression. If review routing is also
-enabled, it may observe a quality mapping through configuration, but quality never calls it. A profile must
-prevent two capabilities from owning the same managed comment marker or contradictory label meanings.
-
-## 8. Operational state and recovery
-
-The first version should recompute from current GitHub facts and update one deterministic App-authored
-comment. A short coalescing queue may reduce repeated work during a burst of check events. Correctness must
-not depend on that queue retaining every delivery.
-
-If the capability later sends one-time notifications or records historical quality trends, those features
-need explicit durable state and retention. They should not be hidden inside the quality evaluator.
-
-## 9. Failure handling and safety
-
-Missing permissions, unavailable branch rules, incomplete pagination, delayed checks, and API failures
-produce unknown results and no readiness label. The managed comment should distinguish repository work from
-an App limitation so contributors are not blamed for infrastructure failures.
-
-The first version performs no destructive action and never closes a pull request because an issue link,
-signature, assignee, or check is missing.
-
-## 10. Tests and sandbox proof
-
-Tests must cover more than one page of commits and checks, duplicate check names, reruns, cancelled checks,
-`mergeable: null`, draft pull requests, fork pull requests, renamed workflows, changed branch protection,
-review dismissal, hostile titles, missing permissions, and duplicate deliveries. Sandbox evidence should
-compare the App result with GitHub's visible branch-protection result on the same pull request.
-
-## 11. Disable, uninstall, and migration behavior
-
-Disabling the capability stops all evaluations and writes. Existing managed comments remain unless an
-approved cleanup mode updates them. The capability must run in comment-only dry-run or advisory mode while
-an older quality bot still owns the same labels.
-
-## 12. Open decisions
-
-Maintainers must select the checks they actually want, decide whether advice or labels are useful, and
-define how unknown results appear. The team must verify required-check discovery, signature facts, linked-
-issue reliability, and branch-rule permissions through a GitHub App experiment.
+| Question | Closed by |
+|---|---|
+| Which checks do maintainers actually want; is advice enough, or are labels useful; how should an unknown result read? | maintainer conversation |
+| Are `qualityNeedsWork` and `qualityReadyForReview` real meanings, or do they collapse into `needsRevision` and `needsReview`, which another capability may also write? | maintainer conversation, against the README's meaning matrix |
+| Does required-check and mergeability discovery work under the ceiling? `checks` is deliberately withheld and `statuses:read` sits outside it | App experiment |
+| Are DCO sign-off text, GitHub verified signatures, and organization identity one fact or three? | App experiment |
+| Is closing-reference detection reliable enough to comment on? B2 records two mechanisms answering this question differently (`design/audit/lessons-learned.md`) | App experiment |
+| Does a `requiredChecks` resolver enter the closed catalogue, or does the check slice stay out? | catalogue review (D61) |
+| An older quality bot owning the same labels means comment-only advisory mode until it stops | per-repository migration plan (Q7) |

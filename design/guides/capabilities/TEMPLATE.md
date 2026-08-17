@@ -1,97 +1,69 @@
-# Candidate Capability: Name and One-Sentence Job
+# capability-name — the one-sentence job
 
-> This document describes a candidate capability. Its status must be stated as an idea, an approved
-> experiment, a selected milestone, or an implemented capability. A candidate is not a product commitment.
+> **Candidate — not ranked, not built.** Status changes here when the register does (Q2).
 
-## 1. Maintainer need and evidence
+## 1. Declaration
 
-Explain the maintainer problem in complete sentences. Name the repositories or audits that provide
-evidence, and state what still needs direct confirmation. If no maintainer has asked for the capability,
-say that clearly.
+What the code will declare through the capability contract. This table becomes lockable against the
+real declaration the day the capability is built — that is its graduation into `contracts/`.
 
-## 2. The capability boundary
+| Field | Value | Why |
+|---|---|---|
+| `triggers` | | |
+| `observations` | | |
+| `resolvers` | | |
+| `intents` | | |
+| `permissions.repository` | | derive each from a named operation |
+| `permissions.organization` | | empty unless justified to the ceiling |
+| `operationalNeeds` | | every `candidate`/`required` explained in §6 |
 
-State the one outcome that this capability owns. Explain what remains manual and what belongs to another
-candidate capability. The capability must not import, call, enable, or disable a sibling capability.
+## 2. Decision
 
-## 3. Candidate declaration
+The whole behavior as one diagram: observation in, conditions, intent out — or explicitly no intent.
+If it does not fit in one diagram, it is two capabilities.
 
-Show the information that the implementation would declare through the capability contract.
-
-```ts
-{
-  name: "candidate-name",
-  configSchema: CandidateConfigSchema,
-  triggers: ["named webhook event", "optional scheduled evaluation"],
-  observations: ["named normalized observation"],
-  resolvers: ["named shared resolver"],
-  intents: ["named narrow intent"],
-  permissions: {
-    repository: ["issues:read"],
-    organization: [],
-  },
-  operationalNeeds: {
-    schedule: false,
-    durableState: "candidate",
-    crossItemCoordination: false,
-    externalDelivery: false,
-  },
-}
+```mermaid
+flowchart LR
+    O["observation"] --> C{"condition"}
+    C -->|yes| I["intent"]
+    C -->|no| X["no intent — explain()"]
 ```
 
-The declaration is a design sketch until an experiment proves that the adapter can support it reliably. The
-document must explain every `candidate` or `required` operational need in section 8.
+## 3. Meanings
 
-## 4. Configuration and repository mappings
+The rows the README's meaning matrix derives from. Reading a meaning couples you to whoever writes
+it; writing one couples every reader to you.
 
-List every proposed setting and its safe default. Explain why two reasonable repositories might choose
-different values. Describe mappings between stable internal meanings and repository labels, teams, checks,
-or other names. Defaults must not enable the capability or cause writes.
+| Meaning | Reads | Writes |
+|---|---|---|
 
-## 5. Behavior
+## 4. Refuses
 
-Describe the behavior as a sequence from an observed fact to an intent. Include the manual-use case in
-which every input was produced by a person rather than another capability. State how redelivery, outdated
-observations, and concurrent human edits affect the result.
+What this capability must never do, each with the screen, gate, or declaration that makes it
+impossible rather than discouraged.
 
-## 6. GitHub events, reads, writes, and permissions
+| Never | Enforced by |
+|---|---|
 
-Name the webhook events, scheduled evaluations, REST or GraphQL reads, pagination requirements, and write
-operations that may be needed. Derive each requested permission from a named operation. State any
-uncertainty that requires a feasibility experiment.
+## 5. When evidence is unknown
 
-## 7. Compatibility without dependency
+What happens when a resolver answers `ok: false` or the projection is a conflict. A failed read is
+never a default (D51); say what the capability explains instead of doing.
 
-Explain how the capability behaves when likely companion capabilities are disabled. Then describe any
-explicit compatibility rules or shared mappings needed when several capabilities are enabled together.
-Compatibility must be checked by configuration and tests, not by sibling calls.
+## 6. Operational needs
 
-## 8. Operational state and recovery
+Only if §1 declared any `candidate` or `required`: the minimum durable facts, why current GitHub
+state cannot answer, and the retention.
 
-State whether the capability can derive its decision from current GitHub facts. If it needs schedules,
-deduplication, rotation, multi-call recovery, delivery history, or another durable fact, describe the
-minimum information and retention period. Do not claim that comments or labels replace operational state
-unless a test proves that recovery remains safe.
+## 7. Verification
 
-## 9. Failure handling and safety
+| Scenario | Proves |
+|---|---|
+| | |
 
-Describe permission failures, rate limits, invalid configuration, missing mappings, partial writes, and
-ambiguous observations. State the safe no-op, the useful human message, the operator signal, and the
-rollback behavior. Identify every destructive or difficult-to-reverse action.
+Beyond the shared conformance suite: redelivery, human-override, permission-failure, and the
+capability's own edge cases.
 
-## 10. Tests and sandbox proof
+## 8. Open
 
-List the behavior tests that go beyond the shared conformance suite. Include a personal installation test,
-a Hiero Hackers sandbox test, a redelivery test, a human-override test, and a permission-failure test where
-they apply. State what evidence would allow maintainers to accept or reject the candidate.
-
-## 11. Disable, uninstall, and migration behavior
-
-Explain what immediately stops when the capability is disabled. State whether owned comments, labels, or
-stored records remain, are cleaned up, or expire. Describe how maintainers avoid two writers during
-migration from an existing workflow or bot.
-
-## 12. Open decisions
-
-List unresolved product and technical decisions as questions. Name the experiment, maintainer conversation,
-or design review that should answer each question.
+Questions only a maintainer conversation or an experiment can close, each naming which.

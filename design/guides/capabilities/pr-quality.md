@@ -81,7 +81,7 @@ evaluator.
 | Scenario | Proves |
 |---|---|
 | Resolver answers `ok: false`; the same pull request then answers `[]` | unknown is not "no linked issue", and the silence was the failure (`packages/probes/test/prQuality.test.ts`) |
-| Redelivered `pull_request` event | one comment, not two — `postManagedComment` is `nonIdempotent`, so recovery goes through read-back |
+| Redelivered `pull_request` event | one comment, not two — [`postManagedComment` is `nonIdempotent`](../../contracts/catalogue.md), so recovery goes through read-back |
 | Newer human label edit, or a changed configuration revision | the stale expectation returns `conflict` and the human change survives |
 | Missing `issues:write` | `forbidden`, and the capability does not retry it |
 | More than one page of commits, checks, and files; duplicate check names; reruns; cancelled checks; renamed workflows; changed branch protection | pagination and rename handling, the B1 failure in `design/audit/lessons-learned.md` |

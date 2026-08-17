@@ -84,7 +84,7 @@ maintainers and other bots apply labels for unrelated reasons.
 | Credit a bot | `isAutomationActor`, with an undetermined answer treated as do-not-credit (§5) |
 | Mutate the linked issue as a side effect of a merged pull request — C1 is the audit's instance | one intent names one item (`design/audit/lessons-learned.md`) |
 | Control who may claim an issue | P3 — `assignment` may read the same repository-approved level mapping through shared configuration; neither calls the other |
-| Announce the same milestone twice | `postManagedComment` is `nonIdempotent`, so render-once needs the record §6 names — or the announcement is omitted |
+| Announce the same milestone twice | [`postManagedComment` is `nonIdempotent`](../../contracts/catalogue.md), so render-once needs the record §6 names — or the announcement is omitted |
 | Present a level as an employment judgment, an identity claim, or a GitHub permission | wording is a maintainer-reviewed setting, with `visibility: contributorOnly` as the floor |
 
 ## 5. When evidence is unknown

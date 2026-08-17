@@ -70,7 +70,7 @@ togglable features (`design/audit/lessons-learned.md`), which is why §6 exists.
 | Bulk-remove assignees because a search result was incomplete | an unknown answer is a distinct value, not `[]` (`ResolverAnswer`, §5); each `unassign` names one login |
 | Take a position off without replacing it | `removeMappedLabel` is deleted from the catalogue (D80) |
 | Execute an edited comment as a new command | the declared trigger is `issue_comment` **created**; `edited` is not subscribed |
-| Reply to every refused command | `postManagedComment` is `nonIdempotent`, so one marker per occasion; refusal replies are rate-limited so the App does not amplify spam |
+| Reply to every refused command | [`postManagedComment` is `nonIdempotent`](../../contracts/catalogue.md), so one marker per occasion; refusal replies are rate-limited so the App does not amplify spam |
 | Call `inactivity` when work goes stale, or be called by it | P3 — no capability names a sibling; `inactivity` reclaims through its own declared `unassign` |
 
 ## 5. When evidence is unknown

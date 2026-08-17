@@ -101,7 +101,7 @@ recommendations and requests; it removes no existing review request.
 | A private team, an outside collaborator, and the author appearing in their own ownership group | invisible membership is unknown; self-review is excluded |
 | An existing manual request, then a synchronize event | the manual request survives and is not re-requested |
 | Partial multi-reviewer request | exactly which requests succeeded is reported, not inferred |
-| Redelivered `pull_request` event | one recommendation, not two — `postManagedComment` is `nonIdempotent`, so recovery goes through read-back |
+| Redelivered `pull_request` event | one recommendation, not two — [`postManagedComment` is `nonIdempotent`](../../contracts/catalogue.md), so recovery goes through read-back |
 | Missing `pull_requests:write`, and missing organization `members:read` | `forbidden`, not retried, and team routing degrades to unknown rather than to a guess |
 | Sandbox: dry-run recommendations measured for accuracy before any request is sent | the noise cost is measured before it is inflicted |
 

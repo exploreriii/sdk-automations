@@ -7,6 +7,7 @@ instead of waiting to be noticed.
 |---|---|
 | [`taxonomy.md`](taxonomy.md) | `packages/dev/checks/test/doc-drift.test.ts` — every state-diagram edge equals a `PROFILE_EDGES` row |
 | [`config-schema.md`](config-schema.md) | `packages/dev/checks/test/spec-drift.test.ts` — the modes table is `REPOSITORY_MODES`; every accepted top-level key appears |
+| [`catalogue.md`](catalogue.md) | `packages/dev/checks/test/catalogue-drift.test.ts` — the four closed lists, and each intent's idempotency class, action class, and permission |
 | [`safety.md`](safety.md) | `packages/dev/checks/test/safety-drift.test.ts` — the refusal table is `SafetyRefusalCode`, exactly |
 
 **The entry rule: no check, no entry.** A document arrives here with the test that locks it, or it

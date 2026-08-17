@@ -1,11 +1,12 @@
-# Shared Read-Only Resolvers
+# Shared read-only resolvers
 
-> **Not built — build guide.** `linkedIssues` and `isAutomationActor` are in the closed catalogue
-> (`packages/core/src/capability/catalogue.ts`); `mayPerform`, `priorityOf`, and `eligibleLevel` are
-> candidates only. No resolver has an implementation — the adapter does not exist.
+> **Not built — build guide.** The resolvers that exist are listed in
+> [`../contracts/catalogue.md`](../contracts/catalogue.md); this document covers the rules they follow
+> and the candidates that are not in it. No resolver has an implementation — the adapter does not exist.
 
-> A resolver answers a question that more than one capability must ask in the same way. Resolvers are
-> read-only platform services. Their exact list remains open until the first capabilities are selected.
+A resolver answers a question more than one capability must ask the same way, read-only, so the answer
+cannot differ by who asked. Two are catalogued; the candidates below are not, and each needs a
+catalogue review before a capability may declare it (D115).
 
 ## 1. Resolver rules
 
@@ -20,18 +21,18 @@ Every resolver follows these rules.
 7. Repository policy that changes the answer enters through validated configuration or a selected workflow
    profile.
 
-## 2. Candidate resolver register
+## 2. Candidates the catalogue does not have
 
 | Resolver | Question | Candidate source | Main open issue |
 |---|---|---|---|
-| `linkedIssues` and `linkedPullRequests` | Which issues and pull requests are related under the repository's policy? | GitHub closing references are the candidate default. | Repositories may use different link rules, and reverse lookup cost requires testing. |
 | `mayPerform` | May this actor request the named action? | GitHub repository permissions plus declared teams or deny rules. | The permission and team scopes must remain acceptable to maintainers. |
-| `isAutomationActor` | Did an App or known bot create this event? | GitHub actor type, App identity, and migration configuration. | Old automation identities must be listed during coexistence. |
 | `priorityOf` | What priority does the repository assign to this item? | A configured native field, Project field, or legacy label mapping. | Project fields require additional permissions and may not be wanted. |
 | `eligibleLevel` | Which optional skill-policy rung may this contributor claim? | Configured completion rules over repository or organization history. | Skill policy, credit scope, and completion meaning are not universal decisions. |
+| `linkedPullRequests` | The reverse of `linkedIssues` — which pull requests close this issue? | GitHub closing references. | Reverse lookup cost requires testing; `linkedIssues` is catalogued, this direction is not. |
 
-The first implementation should build only the resolvers required by the selected technical slice and first
-capability.
+Build only the resolvers the selected first capability requires. Adding one is a catalogue review, not
+a documentation edit: it needs a matrix row with a citation, a permission inside the ceiling, and a
+stated unclear-result behavior.
 
 ## 3. Link resolution
 

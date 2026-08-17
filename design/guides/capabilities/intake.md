@@ -98,7 +98,7 @@ content unless configuration asks for one final neutral cleanup update.
 | Scenario | Proves |
 |---|---|
 | No mapped `awaitingTriage`; then an issue already positioned | explains and skips, and the entry gate does not re-triage (`packages/probes/test/intake.test.ts`) |
-| Redelivered `issues` event | one comment and one label, not two — `postManagedComment` is `nonIdempotent` so recovery goes through read-back, while `applyMappedLabel` converges on `already` |
+| Redelivered `issues` event | one comment and one label, not two — [`postManagedComment` is `nonIdempotent`](../../contracts/catalogue.md) so recovery goes through read-back, while `applyMappedLabel` converges on `already` |
 | Newer human label edit, or a changed configuration revision | the stale expectation returns `conflict` and the human change survives |
 | Malformed and valid issue forms; hostile Markdown; a comment carrying the App's own marker | a fake marker is not mistaken for the App's comment, and untrusted body text is never executed |
 | An edited comment carrying a valid command; an unauthorized actor; an ambiguous command | the command runs once, from the right person, or not at all |

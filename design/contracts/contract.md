@@ -10,43 +10,48 @@
 
 ```ts
 interface CapabilityDeclaration {
-  name: string;
-  configSchema: SchemaReference;
-  triggers: readonly Trigger[];
-  observations: readonly ObservationName[];
-  resolvers: readonly ResolverName[];
-  intents: readonly IntentName[];
-  permissions: {
-    repository: readonly GitHubPermission[];
-    organization: readonly GitHubPermission[];
-  };
-  operationalNeeds: {
-    schedule: boolean;
-    durableState: 'none' | 'candidate' | 'required';
-    crossItemCoordination: boolean;
-    externalDelivery: boolean;
-  };
+  readonly name: string;
+  readonly triggers: readonly Trigger[];
+  readonly configKeys: readonly string[];
+  readonly observations: readonly string[];
+  readonly resolvers: readonly string[];
+  readonly intents: readonly string[];
+  readonly operationalNeeds: OperationalNeeds;
+}
+
+type Trigger =
+  | { readonly kind: "event"; readonly event: string }
+  | { readonly kind: "schedule"; readonly description: string };
+
+interface OperationalNeeds {
+  readonly schedule: boolean;
+  readonly durableState: "none" | "candidate" | "required";
+  readonly crossItemCoordination: boolean;
+  readonly externalDelivery: boolean;
 }
 ```
 
 - Every capability declares what the platform needs to validate and isolate it.
 - It reaches configuration validation, permission diagnostics, test generation, operator reporting.
 - A capability cannot request an undeclared resolver or intent.
-- An intent may require any grant the capability declares, repository- or organization-scoped (D57).
 - The registry separates reporting from activation (D58).
 - `describe` returns only a capability's name and retirement status.
 - `get` is the sole declaration lookup and refuses to return a retired capability.
 - Report-only data therefore cannot be mistaken for an activatable declaration.
 
-**Implemented, declaration layer only** — `packages/core/src/capability/declaration.ts`, 2026-07-23.
+**Permissions are not declared.** They are derived from `INTENT_OPERATIONS` per intent (D62), so a
+capability cannot restate, widen, or elevate its own grant. The same rule moved the idempotency class
+to the platform: a declaration that could supply it could also lie about it.
 
-- Two deliberate divergences from the sketch above, both driven by stage-three evidence.
-- `intents` carries a required **idempotency class** per intent, not just a name list.
-- Experiment 6.5: a lost-response retry duplicates comment creation but not label addition.
-- The executor's recovery rule must therefore be declared.
-- Declarations compose into a **registry** whose names feed `parseConfig({ knownCapabilities })`.
-- Experiment 6.3: without it, enabling an unknown capability passes validation silently.
-- The runtime boundary in §2 remains stage-five work.
+**Two shapes, one admission path** — `packages/core/src/capability/declaration.ts`.
+
+- `CapabilityDeclaration` keeps `readonly string[]`, so a malformed external declaration stays
+  runtime-validatable.
+- `TypedDeclaration` narrows `observations`, `resolvers`, and `intents` to catalogue keys.
+- `declareCapability<const D>` is the only admission path — its `const` parameter pins the three name
+  arrays as literal tuples. Annotating an object `: TypedDeclaration` widens them to `string[]` and
+  every projection in `boundary.ts` degrades to "any name", losing the isolation the boundary exists
+  to enforce.
 
 ## 2. Runtime boundary
 

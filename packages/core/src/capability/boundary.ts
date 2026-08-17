@@ -1,5 +1,5 @@
 /**
- * How the platform CALLS a capability — `design/guides/contract.md` §2 and
+ * How the platform CALLS a capability — `design/contracts/contract.md` §2 and
  * §6 as types.
  *
  * `declaration.ts` says what a capability is; this says how it is invoked and

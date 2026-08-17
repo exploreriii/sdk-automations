@@ -63,5 +63,5 @@ details of the report in a public channel.
 and a fix or a documented decision not to fix before any public disclosure. 
 
 Security-sensitive design discussion that is *not* a vulnerability report
-belongs in [`design/spec/threat-model.md`](design/spec/threat-model.md), where
+belongs in [`design/guides/threat-model.md`](design/guides/threat-model.md), where
 open threats and required controls are tracked explicitly.

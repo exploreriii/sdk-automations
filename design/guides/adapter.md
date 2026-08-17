@@ -70,7 +70,7 @@ catalogue's body snapshots are the fixtures.
 **The untested read gets a lab protocol before it gets trust.** No matrix row, no citation — and a
 row without a citation is a guess. Manual links? Cross-repository references? Quota cost? Those are
 questions for `packages/dev/lab/protocols/`, and the answers become matrix rows in
-[`../findings/`](../findings/README.md). Only then does the resolver ship.
+[`../findings/`](../findings/). Only then does the resolver ship.
 
 Two observed facts the operations must honour: **GitHub ids exceed 2^53**, so every id stays a
 string; and **404 means "not found *or* not installed"**, so it maps to `notFoundOrNotInstalled` and

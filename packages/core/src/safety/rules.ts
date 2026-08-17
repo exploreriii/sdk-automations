@@ -1,10 +1,10 @@
 /**
  * The general rules every write passes, and the preflight before them.
  *
- * safety.md §2's mechanically checkable subset only. Rules 7–10 —
- * postcondition verification, unclear-outcome reconciliation, tested
- * rollback, dry-run-before-active rollout — cannot be decided from one
- * request and belong to a future write path and to process.
+ * `design/contracts/safety.md`'s mechanically checkable subset only. Rules
+ * 6–10 — naming the exact value, postcondition verification, unclear-outcome
+ * reconciliation, tested rollback, dry-run-before-active rollout — cannot be
+ * decided from one request and are `design/guides/effects.md`'s.
  *
  * Precedence is policy: kill switch → authoritative precondition → observation
  * → consent → permissions → pause → human conflict → mode. Only the kill
@@ -109,7 +109,7 @@ export const GENERAL_RULES: readonly (readonly [string, Rule])[] = [
         "itemBlocked",
         (f) =>
             isBlocked(f.context.world.observedMeanings)
-                ? refuse("itemBlocked", "the item is blocked — capability writes are paused (§5)")
+                ? refuse("itemBlocked", "the item is blocked — capability writes are paused")
                 : null,
     ],
     [

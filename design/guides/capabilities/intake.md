@@ -9,19 +9,20 @@ invent one.
 
 ## 1. Declaration
 
-| Field | Value | Why |
-|---|---|---|
-| `triggers` | `issues` (opened, edited), `issue_comment` (created) | the comment trigger exists only for an optional finalization command; without that setting the first two suffice |
-| `observations` | `issueUpdated` | the issue's own projection, and nothing else. The draft also wanted a managed-comment observation and a command observation; the closed catalogue has neither, so the App-authored comment is found by read-back and the command slice is an extension by review (D61, §8) |
-| `resolvers` | `isAutomationActor` | so a bot-opened issue is not triaged as a contribution. Command authorization wanted a `mayPerform` resolver the catalogue does not have (§8) |
-| `intents` | `applyMappedLabel`, `postManagedComment` | one position write and one deterministic App-authored comment. The draft's remove-label intent is deleted from the catalogue (D80) |
-| `permissions.repository` | `issues:read`, `issues:write` | read the issue, its author, its labels and its configured form content; GitHub exposes issue comments and labels through the same API, so both writes cost `issues:write` even though neither changes the body |
-| `permissions.organization` | none | at the ceiling. It needs no content write and no membership |
-| `operationalNeeds` | `schedule: false`, `durableState: "none"`, `crossItemCoordination: false`, `externalDelivery: false` | §6 |
+| Field | Value |
+|---|---|
+| `triggers` | `issues` opened/edited · `issue_comment` created |
+| `observations` | `issueUpdated` |
+| `resolvers` | `isAutomationActor` |
+| `intents` | `applyMappedLabel`, `postManagedComment` |
+| `permissions` | `issues:read`, `issues:write` — at the ceiling, no organization grant |
+| `operationalNeeds` | none |
 
-Defaults to disabled (P2). A repository may configure required issue-form fields, required body
-sections, accepted issue types, a finalization command, the roles authorized to use it, and the output
-mode — comment only, or comment plus position. Every rule must name a real repository difference.
+The `issue_comment` trigger exists only for the optional finalization command; without that setting
+the first two suffice. Labels and comments both cost `issues:write` even though neither changes the
+body. Three things the draft wanted are absent from the catalogue — a managed-comment observation, a
+command observation, and a `mayPerform` resolver — so the App-authored comment is found by read-back
+and the command slice needs a catalogue review (§8).
 
 ## 2. Decision
 

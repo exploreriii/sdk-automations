@@ -83,6 +83,10 @@ These are here because each one has actually cost this project time.
   means nothing lands.
 - **Small and finished beats large and nearly.** A focused pull request that makes the suite green
   is worth more than a broad one that needs three rounds.
+- **A large change divides so that every piece merges green with the system still running.** Isolation
+  comes from seams that already exist and from environment gates, not from feature flags. Measurement
+  is its own piece and carries no code. Removing the scaffolding is the last piece, and it is what
+  closes the issue. [`design/guides/adapter.md`](design/guides/adapter.md) is the worked example.
 
 ## Ground rules for changes
 

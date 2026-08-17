@@ -1,8 +1,8 @@
 # The read-only adapter
 
 > **Not built — build guide.** The first component that talks to GitHub at runtime. It lands behind
-> seams that already exist on `main`, so the shell does not change. Sequencing and PR split live on
-> issue #111, not here.
+> seams that already exist on `main`, so the shell does not change. How the work divides is below;
+> its order and estimates live on issue #111, not here.
 
 ```mermaid
 flowchart TD
@@ -99,6 +99,31 @@ flowchart LR
 
 Rate limit, 403, timeout, malformed response — all become `unknown` with a reason. The decision layer
 refuses to act on unknown, so a failed read can never fake a fact.
+
+## How the work divides
+
+```mermaid
+flowchart LR
+    A["auth kernel<br/>token cache, fake clock"] --> B["http client<br/>ETags, classification, retry"]
+    B --> C["config seam<br/>live ConfigSource"]
+    B --> E["resolvers<br/>linked issues, timeline"]
+    D["lab protocol<br/>evidence only"] -.-> E
+    C --> F["rehearsal<br/>stubs removed"]
+    E --> F
+```
+
+Four properties make each piece mergeable on its own, and they are consequences of the seams rather
+than of a plan:
+
+1. **Every piece lands behind a seam that already exists**, so the shell never changes — the final
+   diff there is the composition root alone.
+2. **The composition root is environment-gated.** Credentials present composes live implementations;
+   absent composes stubs. So an unfinished adapter cannot break CI, which never holds a credential,
+   or the runnable sandbox.
+3. **The measurement is its own piece and carries no code.** `readLinkedIssues` needs a lab protocol
+   before it earns trust, and that evidence merges as protocol and matrix rows.
+4. **Removing the stubs is the last piece**, and it is what closes the work: zero stubs is the
+   done-when below, not a step toward it.
 
 ## Verification
 

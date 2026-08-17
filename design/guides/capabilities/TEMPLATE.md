@@ -31,8 +31,8 @@ flowchart LR
 
 ## 3. Meanings
 
-The rows the README's meaning matrix derives from. Reading a meaning couples you to whoever writes
-it; writing one couples every reader to you.
+Which of the seven `MAPPABLE_MEANINGS` this capability touches, and how. Reading a meaning couples you
+to whoever writes it; writing one couples every reader to you.
 
 | Meaning | Reads | Writes |
 |---|---|---|

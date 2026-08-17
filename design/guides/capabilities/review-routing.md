@@ -1,115 +1,119 @@
-# Candidate Capability: Review Routing
+# review-routing — recommend, or request, the right reviewer for a pull request
 
-> This capability is an unconfirmed candidate. The Python audit contains reviewer-related behavior, but
-> direct maintainer demand and a reliable routing policy still need confirmation.
+> **Candidate — not ranked, not built.** Status changes here when the register does (Q2).
 
-## 1. Maintainer need and evidence
+Pull requests wait because the right reviewer does not notice them. The Python audit shows only
+`queue:*` behaviour (`design/audit/services.md` §2 group 3), which is weaker evidence than any other
+candidate has, and routing creates noise and unfair load exactly when ownership facts are incomplete.
+Nothing here should be promised before maintainers explain how they make the decision today.
 
-Pull requests can wait because the right reviewer does not notice them. A routing capability may help when
-ownership rules and team availability are clear. It can create noise and unfair load when those facts are
-incomplete, so the project should not promise automated reviewer selection before maintainers explain how
-they currently make that decision.
+## 1. Declaration
 
-## 2. The capability boundary
+| Field | Value | Why |
+|---|---|---|
+| `triggers` | `pull_request` (opened, ready_for_review, synchronize) | routing happens when a pull request becomes reviewable, and again only when policy says a dismissed or completed review must be renewed |
+| `observations` | `pullRequestUpdated` | its projection and its closure. Changed files and existing review requests are not in the payload and have no resolver, so the ownership evidence has to come from somewhere the catalogue does not yet reach (D61, §8) |
+| `resolvers` | `isAutomationActor` | so a bot author is excluded from a routing decision. The draft's `reviewCandidates` and `mayPerform` are not in the catalogue, and `reviewCandidates` is the one that decides everything (§8) |
+| `intents` | `postManagedComment`, `applyMappedLabel` | recommendation mode, and a configured position write (§3). The draft's request-reviewers intent has **no catalogue operation**, so request mode is unbuildable today — which happens to be the lower-risk half first |
+| `permissions.repository` | `pull_requests:read`, `pull_requests:write`, `contents:read` | read changed files, current requests and reviews; `contents:read` only when an ownership file is the configured source; `pull_requests:write` only for real review requests |
+| `permissions.organization` | `members:read`, only when team routing is configured | **exceeds the ceiling.** Team visibility is optional precisely because it adds a permission (`design/findings/endpoint-permission-matrix.md`, "The ceiling"), and the App must not broaden organization access to support an optional setting without maintainer agreement |
+| `operationalNeeds` | `schedule: false`, `durableState: "candidate"`, `crossItemCoordination: true`, `externalDelivery: false` | §6 |
 
-This capability may recommend or request configured reviewers for an eligible pull request. It does not
-judge pull request quality, grant approval, merge code, or maintain contributor skill. The first useful
-experiment can produce a dry-run recommendation without requesting a review.
+Defaults to disabled (P2). A repository configures path-to-team rules, excluded authors, draft
+behaviour, the maximum reviewers requested, whether existing requests are preserved, and whether the
+result is advice or a real request. It may point at a CODEOWNERS file, explicit path rules, or configured
+teams — and the platform must not assume those three sources mean the same thing.
 
-## 3. Candidate declaration
+## 2. Decision
 
-```ts
-{
-  name: "review-routing",
-  configSchema: ReviewRoutingConfigSchema,
-  triggers: ["pull_request.opened", "pull_request.ready_for_review", "pull_request.synchronize"],
-  observations: ["PullRequestObservation", "ChangedFilesObservation", "ReviewRequestObservation"],
-  resolvers: ["reviewCandidates", "mayPerform", "isAutomation"],
-  intents: ["RequestReviewers", "UpsertManagedComment"],
-  permissions: {
-    repository: ["pull_requests:read", "pull_requests:write", "contents:read"],
-    organization: ["members:read when team membership is part of policy"],
-  },
-  operationalNeeds: {
-    schedule: false,
-    durableState: "candidate",
-    crossItemCoordination: true,
-    externalDelivery: false,
-  },
-}
+```mermaid
+flowchart LR
+    O["pullRequestUpdated"] --> CL{"draft, closed, or merged?"}
+    CL -->|yes| N0["no intent"]
+    CL -->|no| EX{"author excluded, or a bot?"}
+    EX -->|"yes, or ok: false"| N1["no intent — explain()"]
+    EX -->|no| R["resolve ownership from the configured source"]
+    R -->|"ok: false"| X["no intent — explain()"]
+    R -->|"ok: true, no candidate"| N2["no intent, or explain the missing rule — configured"]
+    R -->|"ok: true, already requested"| N3["no intent — a manual request is preserved"]
+    R -->|"ok: true, candidates"| M{"advice, or request?"}
+    M -->|advice| C["postManagedComment — the recommendation"]
+    M -->|request| RR["request reviewers (§1) — bounded by the configured maximum"]
 ```
 
-GitHub team visibility and organization permissions require a personal App experiment before this
-declaration can be accepted.
+A synchronize event does not re-request the same reviewer unless policy says a dismissed or completed
+review must be renewed. A maintainer's manual request is valid input, preserved, and never removed to
+enforce a rotation.
 
-## 4. Configuration and repository mappings
+## 3. Meanings
 
-The capability defaults to disabled. Candidate settings include path-to-team rules, excluded authors,
-draft behavior, maximum requested reviewers, whether existing requests are preserved, and whether the
-result is advice or an actual review request. A repository may reference a CODEOWNERS file, explicit path
-rules, or configured teams, but the project must not assume these sources mean the same thing.
+| Meaning | Reads | Writes |
+|---|---|---|
+| `needsReview` | from the projection — a pull request sitting here is exactly what routing is for | never; arriving at `needsReview` is `pr-quality`'s edge, not this one |
+| `needsRevision` | from the projection — a pull request waiting on its author is not routed to a reviewer | never |
+| `readyToMerge` | from the projection — it must not contradict a queue that owns this | label mode only: `reviewPolicySatisfied`, `needsReview → readyToMerge`. **Genuinely ambiguous** — the draft says this capability does not grant approval, yet it is the only one that observes review state (§8) |
+| `blocked` | from the projection | never (D79) |
+| `awaitingTriage`, `ready`, `inProgress` | — | never — it observes no issue |
 
-Team names and reviewer identities are repository or organization mappings. Missing and invisible teams
-produce an invalid or unknown result rather than a guessed reviewer.
+## 4. Refuses
 
-## 5. Behavior
+| Never | Enforced by |
+|---|---|
+| Approve, merge, push, or change code | absent from `intents`; the closed catalogue holds no such operation (D61) |
+| Close a pull request that has no eligible reviewer | no closure intent exists; closure is a reason read from GitHub, never written (D47) |
+| Pause an item | `screenIntent` refuses a capability writing `blocked`, code `pauseNotCapabilityWritable` (D79) |
+| Remove a maintainer's manual review request to enforce its own rotation | no remove-reviewer operation exists, and none is proposed |
+| Take a position off without replacing it | `removeMappedLabel` is deleted from the catalogue (D80) |
+| Move a pull request along an undocumented edge — `needsRevision → readyToMerge` is not one | `screenIntent`'s `transitionNotOnMap` (D78) |
+| Guess a reviewer when a team is invisible or a rule is missing | the `ResolverAnswer` union: an invisible team is `ok: false`, not an empty candidate list (§5) |
+| Request reviewers while quality guidance is disabled, or wait for it | P3 — a compatibility rule may require a shared quality-ready fact, but neither capability calls the other |
+| Keep requesting after the brake is pulled | `killSwitch` refuses first, at repository and organization scope (D39) |
 
-When a pull request becomes ready for review, the capability observes changed files, existing review
-requests, author identity, and the configured ownership source. It resolves eligible candidates and returns
-either a recommendation comment or a bounded review-request intent. A synchronize event should not request
-the same reviewer again unless policy says a dismissed or completed review must be renewed.
+## 5. When evidence is unknown
 
-A maintainer's manual reviewer request is valid input and is preserved. The capability must not remove a
-manual request merely to enforce its own rotation. If no candidate is known, it explains the missing rule or
-does nothing according to configuration.
+An ownership resolver answering `ok: false` produces no request and one `explain()` naming the reason —
+missing team access is never read as "no eligible reviewer" (D51). The same holds for a private team, an
+outside collaborator whose membership cannot be seen, an incomplete page of changed files, a pull request
+with too many changed files to attribute, a rate limit, and stale pull-request facts: unknown is neither
+a candidate nor an absence, so the capability recommends nothing rather than requesting the wrong person.
+A conflicted projection has no position to move from, so any label-mode intent is refused
+`positionConflict` while the recommendation, which moves nothing, may still be explained. A recommendation
+is the lower-risk output because a real request generates notifications, and repeated wrong notifications
+damage trust faster than silence does.
 
-## 6. GitHub events, reads, writes, and permissions
+## 6. Operational needs
 
-The capability reads changed files, current requested reviewers, reviews, repository content when an
-ownership file is selected, and team membership when team routing is selected. Changed files and membership
-lists require pagination. Requesting individual or team reviewers uses pull request write access.
+`durableState: "candidate"`, `crossItemCoordination: true`. Path ownership recomputes from current GitHub
+facts and needs nothing durable. Fair round-robin selection, recent workload, cooldowns, and vacation
+handling are the cross-item half, and they need history GitHub does not expose reliably — so they either
+get a defined durable record with stated retention, or they stay out of the first experiment. A request
+to several reviewers is idempotent only after the adapter verifies existing requests against GitHub's
+response, and a partial result must report exactly which requests succeeded. Disabling stops
+recommendations and requests; it removes no existing review request.
 
-Private team visibility, outside collaborators, suspended members, author exclusion, and team review
-requests need direct API tests. The App must not broaden organization access merely to support an optional
-candidate without maintainer agreement.
+## 7. Verification
 
-## 7. Compatibility without dependency
+| Scenario | Proves |
+|---|---|
+| Ownership resolver answers `ok: false`; the same pull request then answers an empty candidate list | unknown is not "no eligible reviewer", and the silence was the failure |
+| Drafts; renamed and deleted files; more than one page of changed files | the file-level evidence survives GitHub's pagination and rename behaviour |
+| CODEOWNERS and explicit path rules disagreeing on one path | precedence is configured, not assumed — the three sources are not one fact |
+| A private team, an outside collaborator, and the author appearing in their own ownership group | invisible membership is unknown; self-review is excluded |
+| An existing manual request, then a synchronize event | the manual request survives and is not re-requested |
+| Partial multi-reviewer request | exactly which requests succeeded is reported, not inferred |
+| Redelivered `pull_request` event | one recommendation, not two — `postManagedComment` is `nonIdempotent`, so recovery goes through read-back |
+| Missing `pull_requests:write`, and missing organization `members:read` | `forbidden`, not retried, and team routing degrades to unknown rather than to a guess |
+| Sandbox: dry-run recommendations measured for accuracy before any request is sent | the noise cost is measured before it is inflicted |
 
-Review routing works when quality guidance is disabled because a maintainer can mark a pull request ready
-by hand. If a profile combines the two, it may require an explicit quality-ready observation before routing.
-That is a compatibility rule evaluated from shared facts, not a call from one capability to another.
+## 8. Open
 
-## 8. Operational state and recovery
-
-Path ownership can be recomputed from current GitHub facts. Fair round-robin selection, recent workload,
-cooldowns, and vacation handling require history that GitHub may not expose reliably. Those policies need a
-defined durable record or should stay out of the first experiment.
-
-Review requests are idempotent only after the adapter verifies existing requests and GitHub's response. A
-partial request to several reviewers must report exactly which requests succeeded.
-
-## 9. Failure handling and safety
-
-Missing team access, no eligible reviewer, too many changed files, rate limits, and stale pull request facts
-cause no blind request. A recommendation is lower risk than a real request because review requests generate
-notifications and can damage trust through repeated noise. The repository and organization kill switches
-must stop new requests immediately.
-
-## 10. Tests and sandbox proof
-
-Tests must cover drafts, renamed and deleted files, more than one page of files, CODEOWNERS precedence,
-private teams, outside collaborators, existing manual requests, the author appearing in an ownership group,
-duplicate events, partial multi-reviewer results, and missing permissions. Maintainers should first inspect
-dry-run recommendations and measure their accuracy before enabling notifications.
-
-## 11. Disable, uninstall, and migration behavior
-
-Disabling the capability stops recommendations and review requests. It does not remove existing review
-requests. Any older reviewer bot must stop before active request mode begins, although both systems may be
-compared safely in a no-write experiment.
-
-## 12. Open decisions
-
-Maintainers need to confirm that they want routing, identify the authoritative ownership source, and decide
-whether advice is sufficient. The team must decide whether fairness and availability belong in scope and
-whether their operational history justifies durable storage.
+| Question | Closed by |
+|---|---|
+| Do maintainers want routing at all? The demand evidence here is the weakest of the eight | maintainer conversation |
+| Which ownership source is authoritative — CODEOWNERS, path rules, or configured teams? | maintainer conversation |
+| Is advice sufficient, or is a real review request wanted? | maintainer conversation |
+| Does this capability write `readyToMerge` when the review policy is satisfied, or does it write nothing and leave that to whoever owns the merge queue? §3 records the ambiguity rather than resolving it | maintainer conversation, against `pr-quality` §3 |
+| Do fairness and availability belong in scope, and does their history justify durable storage? | maintainer conversation, then App experiment |
+| Do a `reviewCandidates` resolver, a changed-files observation, and a review-request operation enter the closed catalogue? Without them this capability has no evidence and no request | catalogue review (D61) |
+| Does organization `members:read` get added above the ceiling, or does team routing stay out? | maintainer review of the permission ceiling, then App experiment on team visibility |
+| An older reviewer bot must stop before active request mode begins, though both may be compared safely in a no-write experiment | per-repository migration plan (Q7) |

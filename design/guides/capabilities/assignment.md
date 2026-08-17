@@ -1,123 +1,122 @@
-# Candidate Capability: Contributor Assignment
+# assignment — let a contributor claim work, and release it again
 
-> This capability is a candidate. Existing C++ automation provides evidence for command-based assignment,
-> but the exact policy must be confirmed with each repository that wants it.
+> **Candidate — not ranked, not built.** Status changes here when the register does (Q2).
 
-## 1. Maintainer need and evidence
+A public issue attracts several contributors, abandoned claims, and repeated requests. C++ and Python
+both automate it and both are marked 🟢 (`design/audit/services.md` §2 group 2); other repositories
+prefer GitHub's own assignee with no gate. So this is a configurable capability, not one universal rule.
 
-A public issue can attract several contributors, abandoned assignments, and repeated requests. The existing
-C++ flow uses assignment commands, contributor limits, and skill-related policy. Other repositories may
-prefer ordinary GitHub assignment with no additional gate. The platform therefore needs a configurable
-capability, not one universal assignment rule.
+## 1. Declaration
 
-## 2. The capability boundary
+| Field | Value | Why |
+|---|---|---|
+| `triggers` | `issue_comment` (created), `issues` (assigned, unassigned) | the command path and the native-UI path both have to reach the same evaluator, or the App fights the UI |
+| `observations` | `issueUpdated` | the issue's projection. The draft also wanted a command observation and an actor observation; neither is in the closed catalogue, and today's payload carries no assignee, comment body, or actor — this capability is **not buildable on the catalogue as it stands** (D61, §8) |
+| `resolvers` | `isAutomationActor` | never treat a bot as a claimant. The draft's `mayPerform` and `eligibleForAssignment` are not in the catalogue; the eligibility one also crosses the repository boundary (§8) |
+| `intents` | `applyMappedLabel`, `postManagedComment`, `unassign` | the catalogue has `unassign` and **no assign operation**, so the headline write — adding an assignee — is an extension by review (§8). The draft's remove-label intent is deleted (D80) |
+| `permissions.repository` | `issues:read`, `issues:write`, `metadata:read` | read assignees, labels, command authors and repository roles; adding or removing an assignee and writing a comment are all `issues:write` |
+| `permissions.organization` | none | at the ceiling. A limit counted across repositories would need organization-wide reads and leave it (§8) |
+| `operationalNeeds` | `schedule: false`, `durableState: "candidate"`, `crossItemCoordination: true`, `externalDelivery: false` | §6 |
 
-This capability handles an explicit request to assign or unassign a contributor and returns assignment-
-related intents. It does not decide whether issue intake is complete, measure inactivity, or maintain a
-contributor progression system. Those facts can remain manual or come from independently enabled policies.
+Defaults to disabled (P2). A repository may configure the exact assign and unassign commands, the
+authorized actor roles, the maximum open assignments per contributor, whether self-assignment is
+allowed, whether several assignees are allowed, and whether a skill policy applies. Skill checking is
+optional and is never a platform default (Q3).
 
-## 3. Candidate declaration
+## 2. Decision
 
-```ts
-{
-  name: "contributor-assignment",
-  configSchema: AssignmentConfigSchema,
-  triggers: ["issue_comment.created", "issues.assigned", "issues.unassigned"],
-  observations: ["IssueObservation", "CommandObservation", "ActorObservation"],
-  resolvers: ["mayPerform", "eligibleForAssignment", "isAutomation"],
-  intents: ["AddAssignee", "RemoveAssignee", "UpsertManagedComment", "AddMappedLabel", "RemoveMappedLabel"],
-  permissions: {
-    repository: ["issues:read", "issues:write", "metadata:read"],
-    organization: [],
-  },
-  operationalNeeds: {
-    schedule: false,
-    durableState: "candidate",
-    crossItemCoordination: true,
-    externalDelivery: false,
-  },
-}
+```mermaid
+flowchart LR
+    O["issueUpdated + command"] --> CF{"conflict, or closed?"}
+    CF -->|yes| N0["no intent — explain()"]
+    CF -->|no| K{"claim or release?"}
+    K -->|claim| AU{"actor authorized, not a bot?"}
+    AU -->|"no, or ok: false"| N1["no intent — explain()"]
+    AU -->|yes| P{"position is ready?"}
+    P -->|no| N2["no intent — explain()"]
+    P -->|yes| L{"under the assignment limit?"}
+    L -->|"no, or unknown"| C1["postManagedComment — rate-limited refusal"]
+    L -->|yes| I1["assign (§1) + applyMappedLabel inProgress / contributorAssigned"]
+    K -->|release| RA{"actor is the assignee, or may remove others?"}
+    RA -->|no| N3["no intent — explain()"]
+    RA -->|yes| I2["unassign + applyMappedLabel ready / lastContributorUnassigned"]
 ```
 
-The eligibility resolver and permission list require an experiment because limits based on assignments in
-other repositories would cross the repository boundary.
+A person may also use GitHub's native assignment controls. That is a valid manual decision: the
+capability either accepts it or advises about a configured violation, and never silently fights the UI —
+which is why the `issues.assigned` trigger exists and produces no counter-write.
 
-## 4. Configuration and repository mappings
+## 3. Meanings
 
-The capability defaults to disabled. Candidate settings include exact assign and unassign commands,
-authorized actor roles, the maximum number of open assignments per contributor, whether self-assignment is
-allowed, whether several assignees are allowed, and whether a skill policy is enabled. Skill checking is
-optional and must not be part of the platform default.
+| Meaning | Reads | Writes |
+|---|---|---|
+| `ready` | from the projection — a claim is only legal from here | `lastContributorUnassigned`, `inProgress → ready` on a release. This is the draft's `assignmentAvailable`, and one of three writers of `ready`, with `intake` and `inactivity` — A1's shape (`design/audit/lessons-learned.md`) |
+| `inProgress` | from the projection — a second claim on claimed work is refused, not queued | `contributorAssigned`, `ready → inProgress`. This is the draft's `assignmentActive` |
+| `awaitingTriage` | from the projection — an untriaged issue is explained, not claimed | never; `awaitingTriage → inProgress` is not a documented edge |
+| `blocked` | from the projection | never (D79) |
+| `needsReview`, `needsRevision`, `readyToMerge` | — | never — it observes no pull request |
 
-If the repository wants workflow labels, meanings such as `assignmentAvailable` and `assignmentActive` map
-to exact labels. A repository that uses only native GitHub assignees does not need those mappings.
+Assignee and position move together on both edges. That is A3's exact pair, mutated by separately
+togglable features (`design/audit/lessons-learned.md`), which is why §6 exists.
 
-## 5. Behavior
+## 4. Refuses
 
-For an assignment command, the capability parses the exact command, identifies the requested contributor,
-checks current actor permission, observes current assignees, and evaluates configured eligibility. If every
-check passes, it returns an assignee intent and any separately configured managed-output intents.
+| Never | Enforced by |
+|---|---|
+| Close, lock, or comment-moderate an issue | absent from `intents`; closure is a reason read from GitHub, never written (D47, D61) |
+| Pause an item | `screenIntent` refuses a capability writing `blocked`, code `pauseNotCapabilityWritable` (D79) |
+| Claim an issue that is untriaged, already claimed, or conflicted | `screenIntent` returns `transitionNotOnMap` for the first two and `positionConflict` for the third (D35, D78) |
+| Overwrite a newer human assignment or label edit | the `newerHumanChange` rule, ties to the human (`packages/core/src/safety/rules.ts`) |
+| Bulk-remove assignees because a search result was incomplete | an unknown answer is a distinct value, not `[]` (`ResolverAnswer`, §5); each `unassign` names one login |
+| Take a position off without replacing it | `removeMappedLabel` is deleted from the catalogue (D80) |
+| Execute an edited comment as a new command | the declared trigger is `issue_comment` **created**; `edited` is not subscribed |
+| Reply to every refused command | `postManagedComment` is `nonIdempotent`, so one marker per occasion; refusal replies are rate-limited so the App does not amplify spam |
+| Call `inactivity` when work goes stale, or be called by it | P3 — no capability names a sibling; `inactivity` reclaims through its own declared `unassign` |
 
-For an unassignment command, it verifies that the actor may unassign the named contributor and returns a
-remove-assignee intent. The policy may allow a contributor to release their own assignment while reserving
-third-party removal for maintainers.
+## 5. When evidence is unknown
 
-A person may also use GitHub's native assignment controls. The capability must either treat that action as
-a valid manual decision or advise about a configured violation. It must not silently fight the native UI.
-Edited comments do not execute commands, and duplicate deliveries use the same idempotency identity.
+An eligibility or actor resolver answering `ok: false` produces no assignment write and one `explain()`
+naming the reason — a rate limit is never read as "under the limit", and an undetermined actor is never
+read as "a human" (D51). Search-backed limit queries are the sharp case: they paginate and are eventually
+consistent, so an incomplete page is unknown, not zero. An ambiguous command, an unauthorized actor, an
+unavailable GitHub user, a missing permission, or a stale observation all produce no write; a concise
+managed response may explain the next step. A conflicted projection has no position to move from, so the
+intent is refused rather than repaired. Unassignment is reversible but disrupts a person's work, so it
+is the one edge where unknown must read as "do not act".
 
-## 6. GitHub events, reads, writes, and permissions
+## 6. Operational needs
 
-The capability reads issue assignees, labels, command authors, repository permissions, and possibly a
-contributor's other open assignments. Search results require correct pagination and may be eventually
-consistent. Repository-wide or organization-wide eligibility queries need measured cost and a stated
-privacy boundary.
+`durableState: "candidate"`, `crossItemCoordination: true`. Adding an assignee and setting the position
+are separate GitHub calls, so a crash between them leaves a partial effect. The safest first milestone
+manages only the native assignee; the alternative is a durable operation record holding the expected
+state, the completed step, the cause, and the configuration revision — and the App must never infer a
+pending operation from an unusual label-and-assignee combination. Per-actor command budgets and
+per-contributor limits are the cross-item part: they need short-lived state or an equivalent counter,
+with a named retention and tenant boundary. Disabling stops command handling and assignment writes
+immediately and removes no existing assignee.
 
-Adding and removing assignees and writing issue comments require `issues:write`. Reading repository roles
-and public metadata requires the relevant read access. The experiment must verify fork, outside-
-collaborator, suspended-user, renamed-user, and deleted-user behavior.
+## 7. Verification
 
-## 7. Compatibility without dependency
+| Scenario | Proves |
+|---|---|
+| Self-assignment, maintainer assignment, an unauthorized command, an ambiguous command | the authorization gate, and that a refusal is explained rather than silent |
+| A limit query spanning more than one page, and a stale search result | pagination and eventual consistency; unknown is not "under the limit" |
+| Crash between the assignee call and the label call | the partial effect is recoverable from the record, not guessed from the label-plus-assignee shape |
+| Redelivered `issue_comment` and two concurrent commands on one issue | one effect per occasion — the key is derived from capability, item, operation and cause (`packages/core/src/capability/intent.ts`) |
+| Native UI assignment and unassignment while the capability is enabled | the manual decision survives; the App does not counter-write |
+| Several assignees; fork, outside-collaborator, suspended, renamed, and deleted users | the identity edge cases GitHub actually produces |
+| Missing `issues:write` | `forbidden`, and the capability does not retry it |
+| Sandbox: dry-run decisions before any real assignee write | the destructive half is seen before it happens |
 
-Assignment works when intake is disabled because a human can identify an assignable issue. Inactivity may
-later remove an assignment through its own approved intent, but it does not call this capability. If both
-capabilities write the same position mapping, their compatibility profile must define clear preconditions
-and tests.
+## 8. Open
 
-## 8. Operational state and recovery
-
-Adding an assignee and changing a label are separate GitHub calls. A crash between them can leave a partial
-effect. The safest first milestone can manage only the native assignee or can use a durable operation record
-that stores the expected state, completed step, cause, and configuration revision. The App must not infer a
-pending operation merely from an unusual label and assignee combination.
-
-Per-actor command budgets also require short-lived state or a queue service that provides an equivalent
-counter. The design must name its retention and tenant boundary.
-
-## 9. Failure handling and safety
-
-Ambiguous commands, unauthorized actors, full contributor limits, unavailable GitHub users, missing
-permissions, and stale observations cause no assignment write. A concise managed response may explain the
-next step, but refusal replies are rate-limited so the App does not amplify spam.
-
-An unassignment is reversible but can disrupt contributor work. The capability must preserve a newer human
-assignment and must never bulk-remove assignees because a search result was incomplete.
-
-## 10. Tests and sandbox proof
-
-Tests must cover self-assignment, maintainer assignment, unauthorized commands, edited comments, duplicate
-deliveries, several assignees, concurrent commands, limit queries with more than one page, stale search
-results, partial effects, missing permissions, and native UI changes. The sandbox should begin with dry-run
-decisions before it writes a real assignee.
-
-## 11. Disable, uninstall, and migration behavior
-
-Disabling the capability stops command handling and assignment writes immediately. It does not remove
-current assignees. A repository migrating from an old bot must disable the old command handler before this
-one becomes active, because two bots can both accept the same command and create conflicting messages.
-
-## 12. Open decisions
-
-Maintainers need to decide whether assignment is self-service, whether native assignment bypasses policy,
-whether several assignees are allowed, whether limits cross repositories, and whether skill eligibility is
-useful. The technical experiment must determine the minimum safe recovery record for multi-call effects.
+| Question | Closed by |
+|---|---|
+| Is assignment self-service? Does native assignment bypass policy? Are several assignees allowed? | maintainer conversation |
+| Do limits cross repositories, and is skill eligibility useful at all? | maintainer conversation (Q3) |
+| `ready` has three writers, of which this is one — who owns it, and what is assignment's documented edge? | maintainer conversation, against `intake` and `inactivity` §3 |
+| Does an assign operation enter the closed catalogue? Without one there is no claim write, only a release | catalogue review (D61) |
+| Do a command observation, an actor observation, and a `mayPerform` resolver enter the catalogue? The current `issueUpdated` payload carries none of the facts a command needs | catalogue review (D61) |
+| Does an `eligibleForAssignment` resolver enter it, and what is its privacy boundary and cost when the limit spans repositories? | catalogue review, then App experiment |
+| What is the minimum safe recovery record for a two-call effect? | App experiment |
+| An older bot accepting the same commands means both answer one comment — it must stop before this one becomes active | per-repository migration plan (Q7) |

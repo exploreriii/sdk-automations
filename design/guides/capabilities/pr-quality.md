@@ -97,7 +97,7 @@ test proves the resolver-failure behaviour above, not that this capability is wa
 | Question | Closed by |
 |---|---|
 | Which checks do maintainers actually want; is advice enough, or are labels useful; how should an unknown result read? | maintainer conversation |
-| Are `qualityNeedsWork` and `qualityReadyForReview` real meanings, or do they collapse into `needsRevision` and `needsReview`, which another capability may also write? | maintainer conversation, against the README's meaning matrix |
+| Are `qualityNeedsWork` and `qualityReadyForReview` real meanings, or do they collapse into `needsRevision` and `needsReview`, which another capability may also write? | maintainer conversation, against `review-routing` §3 |
 | Does required-check and mergeability discovery work under the ceiling? `checks` is deliberately withheld and `statuses:read` sits outside it | App experiment |
 | Are DCO sign-off text, GitHub verified signatures, and organization identity one fact or three? | App experiment |
 | Is closing-reference detection reliable enough to comment on? B2 records two mechanisms answering this question differently (`design/audit/lessons-learned.md`) | App experiment |

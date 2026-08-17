@@ -1,122 +1,122 @@
-# Candidate Capability: Issue Intake
+# intake — turn a new or edited issue into a clear next step
 
-> This capability is a candidate, not an approved product commitment. The C++ and Python audits show
-> existing intake behavior, but maintainers must confirm which parts they want to keep.
+> **Candidate — not ranked, not built.** Status changes here when the register does (Q2).
 
-## 1. Maintainer need and evidence
+The C++ workflow checks required issue content and relabels once a contributor finalizes; the Python
+workflow moderates (`design/audit/services.md` §2 group 1). Both are evidence that some repositories
+want help at the front door. Neither proves a universal required template, and the platform must not
+invent one.
 
-Some repositories need help turning a new or edited issue into a clear next step. The C++ workflow checks
-required issue content and changes labels after a contributor finalizes the issue. The Python workflow uses
-moderation-oriented labels and messages. These are useful examples, but they do not prove that every Hiero
-repository wants the same intake process.
+## 1. Declaration
 
-## 2. The capability boundary
+| Field | Value | Why |
+|---|---|---|
+| `triggers` | `issues` (opened, edited), `issue_comment` (created) | the comment trigger exists only for an optional finalization command; without that setting the first two suffice |
+| `observations` | `issueUpdated` | the issue's own projection, and nothing else. The draft also wanted a managed-comment observation and a command observation; the closed catalogue has neither, so the App-authored comment is found by read-back and the command slice is an extension by review (D61, §8) |
+| `resolvers` | `isAutomationActor` | so a bot-opened issue is not triaged as a contribution. Command authorization wanted a `mayPerform` resolver the catalogue does not have (§8) |
+| `intents` | `applyMappedLabel`, `postManagedComment` | one position write and one deterministic App-authored comment. The draft's remove-label intent is deleted from the catalogue (D80) |
+| `permissions.repository` | `issues:read`, `issues:write` | read the issue, its author, its labels and its configured form content; GitHub exposes issue comments and labels through the same API, so both writes cost `issues:write` even though neither changes the body |
+| `permissions.organization` | none | at the ceiling. It needs no content write and no membership |
+| `operationalNeeds` | `schedule: false`, `durableState: "none"`, `crossItemCoordination: false`, `externalDelivery: false` | §6 |
 
-This capability can validate configured issue requirements and publish a clear intake result. It does not
-assign contributors, measure inactivity, route reviewers, or decide contributor skill. Those concerns stay
-manual unless their own capabilities are enabled.
+Defaults to disabled (P2). A repository may configure required issue-form fields, required body
+sections, accepted issue types, a finalization command, the roles authorized to use it, and the output
+mode — comment only, or comment plus position. Every rule must name a real repository difference.
 
-The safe first version should advise through one managed comment. Label changes, issue locking, and issue
-closure require separate approval because they create more policy and recovery risk.
+## 2. Decision
 
-## 3. Candidate declaration
-
-```ts
-{
-  name: "issue-intake",
-  configSchema: IssueIntakeConfigSchema,
-  triggers: ["issues.opened", "issues.edited", "issue_comment.created"],
-  observations: ["IssueObservation", "ManagedCommentObservation"],
-  resolvers: ["mayPerform", "isAutomation"],
-  intents: ["UpsertManagedComment", "AddMappedLabel", "RemoveMappedLabel"],
-  permissions: {
-    repository: ["issues:read", "issues:write"],
-    organization: [],
-  },
-  operationalNeeds: {
-    schedule: false,
-    durableState: "none",
-    crossItemCoordination: false,
-    externalDelivery: false,
-  },
-}
+```mermaid
+flowchart LR
+    O["issueUpdated"] --> CF{"conflict, or closed?"}
+    CF -->|yes| N0["no intent — explain()"]
+    CF -->|no| M{"awaitingTriage mapped?"}
+    M -->|no| N1["no intent — explain()"]
+    M -->|yes| P{"current position"}
+    P -->|none| A["applyMappedLabel awaitingTriage / intakeObserved"]
+    P -->|awaitingTriage| R{"requirements met, finalized?"}
+    P -->|"ready or inProgress"| N2["no intent — entry gate only"]
+    R -->|no| C1["postManagedComment — what is missing"]
+    R -->|yes| C2["applyMappedLabel ready / triageCompleted"]
 ```
 
-The final event and permission list depends on whether maintainers select comments, labels, commands, or
-moderation actions.
+Each configured requirement — a form field, a body section, an accepted type, the finalization command —
+is a further condition on the same `requirements met` edge, each separately configurable and each
+resolving to met, missing, or unknown with its own explanation. In comment-only mode both label edges
+collapse into the same comment; the promotion edge is the one a maintainer has to ask for.
 
-## 4. Configuration and repository mappings
+## 3. Meanings
 
-The capability should default to disabled. A repository may configure required issue-form fields, required
-body sections, accepted issue types, a finalization command, authorized command roles, and the output mode.
-Every rule must explain a real repository difference. The platform must not invent a universal required
-template.
+| Meaning | Reads | Writes |
+|---|---|---|
+| `awaitingTriage` | from the projection — the entry gate is "no position", and this is where an untriaged issue lands | `intakeObserved`, `[*] → awaitingTriage` |
+| `ready` | from the projection — a triaged issue is left alone | label mode only: `triageCompleted`, `awaitingTriage → ready`. This is the draft's `intakeReady`, and one of three writers of `ready`, with `assignment` and `inactivity` — A1's shape (`design/audit/lessons-learned.md`) |
+| `inProgress` | from the projection — claimed work is never re-triaged | never; the claim edge belongs to `assignment` |
+| `blocked` | from the projection | never (D79) |
+| `needsReview`, `needsRevision`, `readyToMerge` | — | never — it observes no pull request |
 
-If label output is enabled, internal results such as `intakeNeedsInformation` and `intakeReady` map to exact
-repository label names. Missing mappings make only the affected label intent unavailable. The App must not
-create or remove labels based on a prefix.
+The draft's `intakeNeedsInformation` maps to no meaning at all. "This issue is missing information" is a
+sentence, not a position: the item stays in `awaitingTriage` while the comment says what is missing.
 
-## 5. Behavior
+## 4. Refuses
 
-When an issue is opened or edited, the capability evaluates the current issue against the configured
-requirements. It returns a managed-comment intent that lists missing information and explains the next
-step. When every requirement is satisfied, it updates or clears that comment according to configuration.
+| Never | Enforced by |
+|---|---|
+| Lock, close, reopen, or edit a contributor's title or body — Python does moderate (`design/audit/services.md` §2 group 1) | absent from `intents`; the closed catalogue holds no such operation, and closure is a reason read from GitHub, never written (D47, D61) |
+| Pause an item | `screenIntent` refuses a capability writing `blocked`, code `pauseNotCapabilityWritable` (D79) |
+| Move an issue that already holds a later position | `screenIntent`'s `transitionNotOnMap` — `ready → awaitingTriage` is not a documented edge (D78) |
+| Act on a double-labelled issue | `screenIntent` returns `positionConflict`; a conflict is reported, never repaired (D35) |
+| Take a position off without replacing it, or create and delete labels by prefix — A1's bulk strip | `removeMappedLabel` is deleted from the catalogue (D80), and the capability never sees a label string (contract.md §6) |
+| Undo a newer human label decision because a late validation event arrived | the `newerHumanChange` rule, ties to the human (`packages/core/src/safety/rules.ts`) |
+| Use a meaning the repository has not mapped | only mapped meanings reach the capability (contract.md §6); `packages/probes/test/intake.test.ts` proves the sweep explains and skips |
+| Execute an edited comment as a new command | the declared trigger is `issue_comment` **created**; an `edited` action is not subscribed, so the capability is never called |
 
-A repository may optionally require a finalization command before it marks intake as ready. The command
-parser checks exact syntax and current actor permission. An edited comment does not execute as a new
-command. A redelivered event produces the same managed comment and does not create duplicates.
+## 5. When evidence is unknown
 
-The capability must work when a maintainer manually assigns an intake label or performs every later step.
-It must not undo a newer human label decision because an older validation event arrived late.
+`isAutomationActor` answering `ok: false` produces no intent and one `explain()` naming the reason — "the
+author could not be determined" is never read as "a human opened it" (D51). An unmapped `awaitingTriage`
+has the same shape: the capability explains that this repository has not mapped a triage meaning and
+emits nothing rather than guessing a label (`packages/probes/test/intake.test.ts`). A conflicted
+projection has no position to move from, so the intent is refused `positionConflict` and the comment
+says the issue holds two positions. Invalid configuration or a missing required mapping produces a
+configuration error for maintainers and no write; a permission failure stops retries until permissions
+change; a rate limit delays advisory work and changes nothing. Unknown labels and unrelated comments are
+left untouched, and the comment must distinguish a missing requirement from an App limitation so a
+contributor is never blamed for an infrastructure failure.
 
-## 6. GitHub events, reads, writes, and permissions
+## 6. Operational needs
 
-The candidate reads the issue, issue author, labels, and configured issue-form content. It may need comment
-reads to find an App-authored managed comment. It writes only that comment in the first experiment.
-`issues:write` is required for issue comments and label effects even though the content being changed is not
-the issue body.
+None declared. Current issue content, current labels, and one deterministic App-authored comment whose
+authorship is verified are enough for the first experiment; the marker identity is the capability's own
+and never another's (A2). Warning history, command history, and multi-step moderation would each need
+declared durable state and retention — whether a narrow operation record is safer than reconstructing
+history from comments is §8's, and it must not be answered by hiding state inside the evaluator.
+Disabling stops every intake evaluation and write; existing managed comments remain as historical GitHub
+content unless configuration asks for one final neutral cleanup update.
 
-If maintainers request lock, unlock, close, reopen, or body-edit behavior, each operation needs a separate
-permission and safety review. The default design does not edit contributor titles or bodies.
+## 7. Verification
 
-## 7. Compatibility without dependency
+| Scenario | Proves |
+|---|---|
+| No mapped `awaitingTriage`; then an issue already positioned | explains and skips, and the entry gate does not re-triage (`packages/probes/test/intake.test.ts`) |
+| Redelivered `issues` event | one comment and one label, not two — `postManagedComment` is `nonIdempotent` so recovery goes through read-back, while `applyMappedLabel` converges on `already` |
+| Newer human label edit, or a changed configuration revision | the stale expectation returns `conflict` and the human change survives |
+| Malformed and valid issue forms; hostile Markdown; a comment carrying the App's own marker | a fake marker is not mistaken for the App's comment, and untrusted body text is never executed |
+| An edited comment carrying a valid command; an unauthorized actor; an ambiguous command | the command runs once, from the right person, or not at all |
+| Missing `issues:write` | `forbidden`, and the capability does not retry it |
+| Sandbox: personal App installation, then comment-only dry runs in a Hiero Hackers repository | maintainers review accuracy **and** tone before any label write |
 
-Assignment and progression capabilities may observe an intake result through configured mappings, but
-intake never calls them. Intake remains useful by itself because a person can act on its explanation. A
-profile that combines capabilities must reject contradictory mappings, such as mapping ready and needs-
-information meanings to the same label.
+`packages/probes/src/intake.ts` is a boundary probe chosen for contract diversity, deliberately not for
+likelihood of being ranked first ([`probes/README.md`](../../../packages/probes/README.md)) — its test
+proves the mapping and entry-gate behaviour above, not that this capability is wanted.
 
-## 8. Operational state and recovery
+## 8. Open
 
-Current issue content, current labels, and an App-authored managed comment should be enough for the first
-experiment. The managed-comment identity must be deterministic and must verify authorship. If later policy
-needs warning history, command history, or multi-step moderation, the team must decide whether a small
-durable operation record is safer than reconstructing history from comments.
-
-## 9. Failure handling and safety
-
-Invalid configuration or missing required mappings causes no write and produces a configuration error for
-maintainers. A permission failure stops retries until permissions change. Rate limits delay advisory work.
-Unknown labels and unrelated comments remain untouched.
-
-The first experiment has no destructive action. Locking, closing, rewriting user content, or deleting
-comments must not be added silently to the same milestone.
-
-## 10. Tests and sandbox proof
-
-Tests must cover malformed and valid issue forms, edited issues, duplicate deliveries, hostile Markdown,
-fake managed markers, command authorization, missing mappings, missing permissions, and a newer human label
-edit. A personal App installation should run before a Hiero Hackers repository receives comment-only dry
-runs. Maintainers should review both the accuracy and the tone of the resulting message.
-
-## 11. Disable, uninstall, and migration behavior
-
-Disabling intake stops every intake evaluation and write. Existing managed comments may remain as historical
-GitHub content unless configuration requests one final neutral cleanup update. Before label mode is enabled,
-maintainers must disable the old workflow that writes the same labels.
-
-## 12. Open decisions
-
-Maintainers need to decide whether the desired outcome is validation, moderation, finalization, or a smaller
-combination. They must also decide whether comments are sufficient, which labels are repository-owned, who
-may finalize an issue, and whether any close or lock action belongs in scope.
+| Question | Closed by |
+|---|---|
+| Is the wanted outcome validation, moderation, finalization, or a smaller combination? Are comments enough, or is the position write wanted too? | maintainer conversation |
+| Who may finalize an issue, and which labels are repository-owned? | maintainer conversation |
+| `ready` has three writers, of which this is one — which capability owns it, and what is intake's documented edge? | maintainer conversation, against `assignment` and `inactivity` §3 |
+| Does any lock, close, or reopen behaviour belong in scope? Each needs its own permission and safety review | maintainer conversation, then security review |
+| Do a command observation and a `mayPerform` resolver enter the closed catalogue, or does the finalization slice stay out? | catalogue review (D61) |
+| Is command and warning history reconstructable from App-authored comments, or does it need a durable record with stated retention? | App experiment |
+| An older workflow writing the same labels means comment-only mode until it stops | per-repository migration plan (Q7) |

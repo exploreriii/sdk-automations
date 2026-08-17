@@ -7,9 +7,7 @@
 
 ## 1. The operator
 
-One deployment gives every repository the same configuration, permissions, adapter behaviour, and
-upgrades — but it needs an organization-owned operator, not one contributor's personal account
-(Q1, Q13). Whoever takes it must be able to:
+Whoever takes the operator role must be able to:
 
 - store and rotate the App private key and the webhook secret;
 - control deployment, kill switches, storage, backups, and retention;
@@ -17,77 +15,88 @@ upgrades — but it needs an organization-owned operator, not one contributor's 
 - suspend processing without uninstalling the App;
 - prove whether one or several application processes are active.
 
-A personal development App is separate from the production App and is only ever used for sandbox work
-(P8).
+- One deployment gives every repository the same configuration, permissions, adapter, and upgrades.
+- It needs an organization-owned operator, not one contributor's personal account (Q1, Q13).
+- A personal development App is separate from the production App (P8).
+- The personal App is only ever used for sandbox work.
 
 ## 2. Intake
 
-**The production receiver terminates GitHub's POST directly — no relay, tunnel, or forwarding tier.**
-Protocol 6.2 demonstrated why: an acknowledging relay is structurally an ack-first receiver, so
-GitHub's ledger records `OK` for deliveries the receiver never saw, recreating P9's loss window
-somewhere no process discipline can reach. Relays are acceptable only in ring-zero development.
+- **The production receiver terminates GitHub's POST directly.** No relay, tunnel, or forwarding tier.
+- Protocol 6.2 showed why: an acknowledging relay is structurally an ack-first receiver.
+- GitHub's ledger then records `OK` for deliveries the receiver never saw.
+- That recreates P9's loss window somewhere no process discipline can reach.
+- Relays are acceptable only in ring-zero development.
 
 ## 3. Process and coordination
 
-Whether the first production version runs one process or several is open (D18 answers it for
-business-hours operation; Q17 carries the rest). Whichever is chosen must define **deployment
-overlap, restart behaviour, poison-item handling, and how pending work transfers to a new process.**
-Current-state checks alone do not stop two processes reaching opposing decisions from the same stale
-read.
+- Whether the first production version runs one process or several is open.
+- D18 answers it for business-hours operation; Q17 carries the rest.
+- Whichever is chosen must define **deployment overlap and restart behaviour**.
+- It must define **poison-item handling and how pending work transfers to a new process**.
+- Current-state checks alone do not stop two processes deciding oppositely from one stale read.
 
 ## 4. Pacing
 
-**The adapter is the only component that handles rate-limit and retry behaviour. Capabilities never
-implement a private retry loop.** The adapter records primary and secondary rate-limit headers, uses
-conditional reads where supported, paginates every list operation, paces writes, applies bounded
-backoff, and stops retrying when GitHub's response says waiting is required. Measured budgets are in
-[`../findings/endpoint-permission-matrix.md`](../findings/endpoint-permission-matrix.md) (Q10).
+- **The adapter is the only component handling rate-limit and retry behaviour.**
+- **Capabilities never implement a private retry loop.**
+- The adapter records primary and secondary rate-limit headers.
+- It uses conditional reads where supported and paginates every list operation.
+- It paces writes and applies bounded backoff.
+- It stops retrying when GitHub's response says waiting is required.
+- Measured budgets (Q10):
+  [`../findings/endpoint-permission-matrix.md`](../findings/endpoint-permission-matrix.md).
 
 ## 5. Failure audiences
 
-Every failure class has one primary audience and a clear next step. **The App must not create a new
-repository comment for every internal retry or temporary GitHub failure.**
-
 | Failure | Primary audience | Candidate channel |
 |---|---|---|
-| Configuration is invalid or outdated. | The repository maintainer or configuration author. | A configuration report whose final form depends on permissions. |
-| A capability lacks an installation permission. | The repository or installation owner. | The effective-configuration report names the missing permission and the blocked operations. |
-| A command is refused or remains unclear. | The person who issued the command. | The command acknowledgement is updated with the current facts and a safe next step. |
-| A capability repeatedly creates invalid intent. | The capability developer and the operator. | Telemetry and audit records, without repeated repository comments. |
-| Webhook delivery or queue delay is sustained. | The operator. | Metrics and an alert naming the installation and the delay. |
-| GitHub returns a sustained service or rate failure. | The operator; the repository only when user-visible service is affected. | The adapter reports it and pauses unsafe retries. |
-| A repository item repeatedly crashes processing. | The operator. | The queue isolates the item and records enough detail for a safe replay. |
-| The executor cannot tell whether a write happened. | The operator, and any directly affected command user. | The recovery record states the observed postcondition and the next reconciliation step. |
+| Invalid or outdated configuration | maintainer, config author | a configuration report |
+| A capability lacks a permission | repository or installation owner | effective-configuration report |
+| A command is refused or unclear | the person who issued it | acknowledgement, updated with facts |
+| Repeatedly invalid intent | capability developer, operator | telemetry, no repeated comments |
+| Sustained delivery or queue delay | the operator | metrics, an alert naming the delay |
+| Sustained GitHub service failure | the operator | the adapter pauses unsafe retries |
+| An item repeatedly crashes | the operator | the queue isolates it for safe replay |
+| An unprovable write | operator, affected command user | the recovery record |
+
+- Every failure class has one primary audience and a clear next step.
+- **The App must not comment for every internal retry or temporary GitHub failure.**
+- The configuration report's final form depends on permissions.
+- The effective-configuration report names the missing permission and the blocked operations.
+- The acknowledgement also gives a safe next step; the alert also names the installation.
+- A sustained GitHub failure reaches the repository only when user-visible service is affected.
+- The recovery record states the observed postcondition and the next reconciliation step.
 
 ## 6. Audit records and retention
 
-One audit record should connect the normalized observation, the effective configuration revision, the
-capability decision, the typed intent, the policy result, the adapter calls, the final outcome, and
-any recovery activity. The canonical delivery report covers the first half of that chain today; the
-adapter and recovery halves do not exist.
-
-An audit record carries no secrets and no unnecessary repository content. Retention period, access
-control, deletion process, and whether public and private repositories need different handling are
-open (Q17); ninety days was proposed for the delivery and journal tables under D43 and never
-ratified. Repository comments are user-facing output, never the operational audit record.
+- One audit record should connect the whole chain: normalized observation · effective configuration
+  revision · capability decision · typed intent · policy result · adapter calls · outcome · recovery.
+- The canonical delivery report covers the first half of that chain today.
+- The adapter and recovery halves do not exist.
+- An audit record carries no secrets and no unnecessary repository content.
+- Retention period, access control, and deletion process are open (Q17).
+- Whether public and private repositories need different handling is open too.
+- Ninety days was proposed for the delivery and journal tables under D43, and never ratified.
+- Repository comments are user-facing output, never the operational audit record.
 
 ## 7. Kill switches
 
-Five stop controls, of which only the third exists:
+| Switch | Stops | Built |
+|---|---|---|
+| Global | all new processing | no |
+| Installation | one organization or installation | no |
+| Repository mode | workflow-changing writes for one repository | `disabled`, `observe` |
+| Capability | one capability, leaving others alone | no |
+| Item-level pause | as a selected workflow profile defines | no |
 
-- a **global** operator switch stops all new processing;
-- an **installation** switch stops one organization or installation;
-- a **repository mode** stops workflow-changing writes for one repository — *built*: `disabled` and
-  `observe`;
-- a **capability** switch stops one capability without touching another;
-- an **item-level pause** may be supplied by a selected workflow profile.
-
-The operator runbook must say what happens to queued and pending work when each switch activates.
+- Five stop controls, of which only the third exists.
+- The operator runbook must say what happens to queued and pending work when each switch activates.
 
 ## 8. Migration
 
-Old and new automation must never write the same managed state at the same time (Q7). Every pilot
-repository needs an inventory of its old triggers, permissions, state writes, effect writes,
-disablement controls, and rollback steps before the App writes anything. A migration mapping may
-translate old labels or fields into internal meanings; it stays specific to that repository and never
-becomes universal platform policy.
+- Old and new automation must never write the same managed state at the same time (Q7).
+- Every pilot repository needs an inventory before the App writes anything.
+- Inventory: old triggers · permissions · state writes · effect writes · disablement · rollback.
+- A migration mapping may translate old labels or fields into internal meanings.
+- It stays specific to that repository and never becomes universal platform policy.

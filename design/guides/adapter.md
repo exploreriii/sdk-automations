@@ -6,7 +6,9 @@
 
 ```mermaid
 flowchart TD
-    SH["shell processor — unchanged"] -->|"calls, never throws across"| SEAMS["seams: ConfigSource · externals · resolve"]
+    SH["shell processor — unchanged"]
+    SEAMS["seams: ConfigSource · externals · resolve"]
+    SH -->|"calls, never throws across"| SEAMS
     SEAMS -->|"implemented by"| A
     subgraph A ["adapter package — new"]
         AUTH["app auth<br/>token cache"]
@@ -21,42 +23,49 @@ flowchart TD
 
 | Rule | Consequence |
 |---|---|
-| The shell does not change | The whole sequence lands behind the four seams; the final shell diff is one composition-root conditional |
-| Nothing throws across a seam | Every failure is a typed value, so one bad delivery can never wedge the queue |
+| The shell does not change | Everything lands behind the four seams |
+| Nothing throws across a seam | Every failure is a typed value |
 | Unknown is never absence (D51) | A failed read must never become a default |
-| Core stays pure | The adapter is a new package; core contributes only `classifyFailure` |
-| Fail closed on identity | Config fetches pin the default branch — the contents API serves fork-authored content at a PR head sha (observed, 6.6) |
+| Core stays pure | A new package; core adds only `classifyFailure` |
+| Fail closed on identity | Config fetches pin the default branch |
+
+- The final shell diff across the whole sequence is one composition-root conditional.
+- Typed failures are why one bad delivery can never wedge the queue.
+- The contents API serves fork-authored content at a PR head sha (observed, 6.6).
 
 ## Auth
 
-The private key signs a ~10-minute JWT (`node:crypto`, no library);
-`POST /app/installations/{id}/access_tokens` returns a 1-hour installation token. The `TokenSource`
-that wraps it is:
+| Concern | Behaviour |
+|---|---|
+| JWT | The private key signs a ~10-minute JWT (`node:crypto`, no library) |
+| Installation token | `POST /app/installations/{id}/access_tokens`, valid 1 hour |
+| `TokenSource` | Cached, refreshed early, single-flight |
+| Expiry | Locally expiry-aware, clock-injected |
+| Credentials | `APP_ID`, `PRIVATE_KEY_PATH`, `INSTALLATION_ID` |
 
-- **cached, refreshed early, single-flight** — concurrent requests never stampede the mint endpoint;
-- **locally expiry-aware** — an expired token and a wrong key return the byte-identical 401
-  `"Bad credentials"`, so only a local `expires_at` separates them. This is why `classifyFailure`
-  takes `tokenPastExpiry` as an input;
-- **clock-injected** — tests drive expiry with a fake clock, and no test touches the network.
-
-Credentials are untracked environment only — `APP_ID`, `PRIVATE_KEY_PATH`, `INSTALLATION_ID` — the
-lab's rule, extended to a second package as D99 predicted.
+- Single-flight means concurrent requests never stampede the mint endpoint.
+- An expired token and a wrong key return the byte-identical 401 `"Bad credentials"`.
+- Only a local `expires_at` separates them, so `classifyFailure` takes `tokenPastExpiry` as an input.
+- Tests drive expiry with a fake clock, and no test touches the network.
+- Credentials are untracked environment only — the lab's rule, extended as D99 predicted.
 
 ## HTTP client
-
-One function every operation calls, owning five concerns:
 
 | Concern | Behaviour |
 |---|---|
 | Request shaping | Auth header, API version, timeout via `AbortSignal` |
-| Conditional reads | ETag cache per URL; a 304 costs zero quota, which is how the Q10 budget stays comfortable |
+| Conditional reads | ETag cache per URL; a 304 costs zero quota |
 | Rate awareness | Track `x-ratelimit-*` on every response |
-| Classification | A non-success builds a `FailureObservation` and calls core's `classifyFailure` — no parallel vocabulary |
-| Bounded retry | `tokenExpired`: refresh, retry once · `transient`: retry once · `secondaryLimit`: **never** auto-retry, it carries no wait signal at all · everything else returns immediately |
+| Classification | Non-success builds a `FailureObservation` for core |
+| Bounded retry | One retry, and only for two classes |
 
-Its tests replay every row of the failure catalogue
-([`../findings/endpoint-permission-matrix.md`](../findings/endpoint-permission-matrix.md)); the
-catalogue's body snapshots are the fixtures.
+- One function every operation calls, owning those five concerns.
+- A free 304 is how the Q10 budget stays comfortable.
+- Classification calls core's `classifyFailure` — no parallel vocabulary.
+- Retry: `tokenExpired` refreshes and retries once · `transient` retries once · the rest return at once.
+- `secondaryLimit` is **never** auto-retried: it carries no wait signal at all.
+- Its tests replay every row of the failure catalogue, whose body snapshots are the fixtures —
+  [`../findings/endpoint-permission-matrix.md`](../findings/endpoint-permission-matrix.md).
 
 ## Operations
 
@@ -65,28 +74,26 @@ catalogue's body snapshots are the fixtures.
 | `fetchConfigFile(ref)` | `GET …/contents/{path}` | `ConfigSource` | confirmed |
 | `fetchInstallationGrants()` | token mint response | `installationGrants` | confirmed |
 | `readIssueTimeline(n)` | `GET …/issues/{n}/timeline` | `latestHumanChangeAt` | confirmed |
-| `readLinkedIssues(pr)` | GraphQL `closingIssuesReferences` | `resolve: linkedIssues` | **untested — blocked** |
+| `readLinkedIssues(pr)` | GraphQL `closingIssuesReferences` | `resolve: linkedIssues` | **untested** |
 
-**The untested read gets a lab protocol before it gets trust.** No matrix row, no citation — and a
-row without a citation is a guess. Manual links? Cross-repository references? Quota cost? Those are
-questions for `packages/dev/lab/protocols/`, and the answers become matrix rows in
-[`../findings/`](../findings/). Only then does the resolver ship.
-
-Two observed facts the operations must honour: **GitHub ids exceed 2^53**, so every id stays a
-string; and **404 means "not found *or* not installed"**, so it maps to `notFoundOrNotInstalled` and
-never to a confident absence.
+- **The untested read gets a lab protocol before it gets trust.**
+- No matrix row, no citation — and a row without a citation is a guess.
+- Manual links, cross-repository references and quota cost go to `packages/dev/lab/protocols/`.
+- The answers become matrix rows in [`../findings/`](../findings/); only then does the resolver ship.
+- **GitHub ids exceed 2^53**, so every id stays a string.
+- **404 means "not found *or* not installed"** — it maps to `notFoundOrNotInstalled`, never to a
+  confident absence.
 
 ## The seams, once implemented
 
-- **`githubConfigSource`** — fetches at the default branch; `revision` is the blob sha; a 404 maps to
-  the absent-file default, matching `fileConfigSource`'s semantics exactly.
-- **`liveExternals`** — the real grant list, and `latestHumanChangeAt` from the timeline, answering
-  **unknown** when evidence cannot be established within budget. This is the moment dry-run stops
-  overstating. `killSwitchActive` stays operator environment.
+- **`githubConfigSource`** — fetches at the default branch; `revision` is the blob sha.
+- A 404 maps to the absent-file default, matching `fileConfigSource`'s semantics exactly.
+- **`liveExternals`** — the real grant list, and `latestHumanChangeAt` from the timeline.
+- It answers **unknown** when evidence cannot be established within budget.
+- That is the moment dry-run stops overstating. `killSwitchActive` stays operator environment.
 - **`linkedIssuesResolver`** — an empty answer and a failed answer are different values.
-
-Wiring: if the three credential variables are present, `main.ts` composes live implementations;
-otherwise stubs. One conditional — the sandbox runs live, CI stays stubbed and credential-free.
+- Wiring: with the three credential variables present, `main.ts` composes live implementations.
+- Without them it composes stubs. One conditional — the sandbox runs live, CI stays credential-free.
 
 ## The fail-honest read
 
@@ -97,8 +104,8 @@ flowchart LR
     Q -->|"everything else"| UNK["unknown + reason<br/>any failure at all"]
 ```
 
-Rate limit, 403, timeout, malformed response — all become `unknown` with a reason. The decision layer
-refuses to act on unknown, so a failed read can never fake a fact.
+- Rate limit, 403, timeout, malformed response — all become `unknown` with a reason.
+- The decision layer refuses to act on unknown, so a failed read can never fake a fact.
 
 ## How the work divides
 
@@ -112,24 +119,25 @@ flowchart LR
     E --> F
 ```
 
-Four properties make each piece mergeable on its own, and they are consequences of the seams rather
-than of a plan:
+Four properties make each piece mergeable alone — consequences of the seams, not of a plan.
 
-1. **Every piece lands behind a seam that already exists**, so the shell never changes — the final
-   diff there is the composition root alone.
-2. **The composition root is environment-gated.** Credentials present composes live implementations;
-   absent composes stubs. So an unfinished adapter cannot break CI, which never holds a credential,
-   or the runnable sandbox.
-3. **The measurement is its own piece and carries no code.** `readLinkedIssues` needs a lab protocol
-   before it earns trust, and that evidence merges as protocol and matrix rows.
-4. **Removing the stubs is the last piece**, and it is what closes the work: zero stubs is the
-   done-when below, not a step toward it.
+| Property | Consequence |
+|---|---|
+| Each piece lands behind an existing seam | The shell never changes |
+| The composition root is environment-gated | An unfinished adapter cannot break CI |
+| The measurement is its own piece, no code | Evidence merges as protocol and matrix rows |
+| Removing the stubs is the last piece | Zero stubs closes the work |
+
+- Credentials present composes live implementations; absent composes stubs.
+- CI never holds a credential, and the runnable sandbox keeps working.
+- `readLinkedIssues` needs a lab protocol before it earns trust.
+- Zero stubs is the done-when below, not a step toward it.
 
 ## Verification
 
 | Layer | Runs | Proves |
 |---|---|---|
-| Unit and fixture tests | CI, no credentials | Auth edges, ETags, every catalogue row classifies correctly |
+| Unit and fixture tests | CI, no credentials | Auth edges, ETags, all catalogue rows classify |
 | Mutation gate | CI | The adapter's Stryker range, pinned to end-of-file |
 | Lab conformance | Sandbox, manual | Linked-issue semantics; D40's prose-snapshot re-probe |
 | Sandbox rehearsal | Sandbox, live | Zero stubs; dry-run reports stop overstating |
@@ -140,5 +148,4 @@ than of a plan:
 - Dry-run reports stop overstating, recorded in a register row.
 - CI never needed a credential; the lab never tracked one.
 - The shell diff across the whole sequence is the composition root only.
-- Every GitHub assumption carries a citation — an existing matrix row, or a new one this work
-  produced.
+- Every GitHub assumption carries a citation — an existing matrix row, or a new one this work produced.

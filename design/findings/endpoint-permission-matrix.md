@@ -1,16 +1,9 @@
 # Endpoint and permission matrix
 
-The stage-three exit-gate artifact (Q16's input): every operation the
-first capabilities need, with the permission that grants it and its
-**observed** behavior — filled from harness evidence logs, one citation
-per row. A row without a citation is a guess and does not close the gate.
+**Answer (Q16): the confirmed rows below are the adapter's operation list; the failure catalogue is
+its error type.** A row without a citation is a guess and does not close the gate.
 
-> Moved from the lab (then `experiments/`) on 2026-07-23: experiments produce evidence,
-> their conclusions live in `design/`. The cited evidence logs
-> (`lab/harness/evidence/*.jsonl`) are local and untracked.
-
-Status values: `confirmed` (observed in a run), `blocked` (observed to
-fail — cite the failure), `untested`.
+Status: `confirmed` observed in a run · `blocked` observed to fail, failure cited · `untested`.
 
 ## Operations
 

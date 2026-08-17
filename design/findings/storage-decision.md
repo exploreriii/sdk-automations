@@ -1,21 +1,12 @@
 # Storage decision
 
-> Moved from the lab (then `experiments/`) on 2026-07-23: experiments produce evidence,
-> their conclusions live in `design/`. The cited evidence logs are local
-> and untracked under `lab/harness/evidence/`.
-
-The stage-three exit-gate artifact for Q15, produced by protocol 6.5:
-what minimum owned operational state does recovery require? The answer
-moves D1, D13, D24, and D27 out of `reopened`.
+**Answer (Q15, protocol 6.5): a single-file SQLite store.** Nothing else survives the observed
+recovery runs. Closes D1, D13, D24, D27.
 
 ## The comparison
 
-Each cell: `sufficient` / `insufficient` / `sufficient-at-cost` (name
-the cost), with a citation into the 6.5 evidence log. Judged **only** on
-observed recovery runs — not on what a source should theoretically hold.
-
-Citations `#n` are into `6.5-recovery-2026-07-23T19-45-28-929Z.jsonl`
-unless prefixed; 6.2 citations are from that protocol's run.
+Judged only on observed runs, never on what a source should theoretically hold. Citations `#n` index
+the 6.5 evidence log; `6.2` citations that protocol's run.
 
 | Operational need | (a) GitHub state + events | (b) App comment metadata | (c) Small owned store | Citation |
 |---|---|---|---|---|
@@ -45,8 +36,7 @@ flowchart TD
     CLASS -->|"non-idempotent, e.g. comment create"| CHECK["Retry only via the marker read-back path"]
 ```
 
-A blind retry that skips the resolver step is the demonstrated failure
-mode: it duplicated the managed comment on the first attempt.
+A blind retry that skips the resolver duplicated the managed comment on the first attempt.
 
 ## The decision
 
@@ -57,49 +47,10 @@ mode: it duplicated the managed comment on the first attempt.
   later adds `DELIVERY_REPORT` for a different proved boundary: committing a
   canonical decision report with delivery completion.
 
-  ```mermaid
-  erDiagram
-      SEEN_DELIVERY {
-          string delivery_id PK "opaque string, ids exceed 2^53"
-          string event_name
-          bytes payload "cleared on completion"
-          string payload_digest
-          string received_at
-          string state
-          string claim_worker
-          string claim_token
-          string claimed_at
-          string completed_at
-      }
-      EFFECT_JOURNAL {
-          string effect_id PK
-          int call_seq PK
-          string intent "the call about to be made"
-          string status "sent or done"
-          string at
-          int attempt "durable retry counter - amendment D42"
-          string revision "default-branch config revision/effective hash"
-      }
-      EFFECT_CLAIM {
-          string effect_id PK
-          string worker
-          string at
-      }
-      SCHEDULE {
-          string schedule_id PK
-          string due_at
-          string effect "the work to run when due"
-          string status
-          string claimed_at "stamped on claim; drives stuck-requeue - amendment D43"
-          string claim_token "per-firing token; fences stale completion"
-      }
-      DELIVERY_REPORT {
-          string delivery_id PK
-          string claim_token "token that committed completion"
-          string report_json "canonical shell record"
-          string completed_at
-      }
-  ```
+  The live schema — five tables since D110 — is drawn in
+  [`../architecture.md`](../architecture.md) §8 and defined in `packages/store/src/schema.ts`,
+  whose version fingerprint rejects any drift.
+
 
   The tables have no foreign keys. Most hot paths remain one `INSERT` or
   primary-key lookup. Delivery finalization is the intentional exception:
@@ -135,46 +86,41 @@ mode: it duplicated the managed comment on the first attempt.
 
 ## Risk-review amendment (2026-07-28)
 
-The local store can fence a stale schedule completion with a per-firing
-claim token, and journal rows now retain the configuration revision and
-completion time. It cannot fence a GitHub request already in flight when
-an effect lease is stolen. D41 is therefore reopened: the serialized
-crash grid remains useful restart evidence, but it is not evidence that
-live lease takeover preserves a non-idempotent exactly-once outcome.
+- **Can** fence a stale schedule completion — per-firing claim token; journal rows retain the
+  configuration revision and completion time.
+- **Cannot** fence a GitHub request already in flight when an effect lease is stolen.
+- **So D41 reopens.** The serialized crash grid is restart evidence, not evidence that live lease
+  takeover preserves a non-idempotent exactly-once outcome.
 
 ## Durable report and schema amendment (2026-08-09)
 
-The shell formerly appended a filesystem report and then separately completed
-the delivery. A crash between those writes left a pending delivery beside an
-already-visible report, so retry appended a duplicate. D110 moves the canonical
-record into `DELIVERY_REPORT` and makes `completeDeliveryWithReport` the only
-public completion operation. Under one `BEGIN IMMEDIATE` transaction it verifies
-the delivery GUID, event name, payload digest, processing state, and current
-claim token; inserts exactly one report row keyed by delivery GUID; changes the
-delivery to `done`; and clears the payload. The report row retains the committing
-token, so retrying the same token and exact JSON returns `alreadyCompleted`.
-Released, stale, or stolen tokens return `notOwned`; the same token with changed
-JSON returns `reportConflict`. SQLite is the only canonical report store.
-`deliveryReports` reads canonical records in stable completion-time and
-delivery-ID order. The shell does not create or rebuild a filesystem projection;
-startup recovery continues to drain pending deliveries from SQLite.
+**The bug:** the shell appended a filesystem report, then separately completed the delivery. A crash
+between those writes left a pending delivery beside an already-visible report, so retry appended a
+duplicate.
 
-SQLite `PRAGMA user_version` is the schema contract, currently version 4. A
-newer declared version is refused before database configuration or migration.
-Version-zero databases are fingerprinted against the exact owned SQLite objects
-from the three real schemas previously created here. Table and index SQL is
-normalized only for whitespace, preserving types, nullability, primary
-keys, checks, and partial-index predicates; extra triggers, views, tables, or
-indexes are refused. Migrations run in numeric order with their version updates
-inside one write transaction, so an interruption leaves either the complete old
-schema or version 4 and reopening is repeatable. Unknown unversioned shapes fail
-closed.
+**D110's fix:** `completeDeliveryWithReport` is the only public completion, and SQLite the only
+canonical report store. In one `BEGIN IMMEDIATE` it verifies the delivery GUID, event name, payload
+digest, processing state, and claim token; inserts one report row; marks the delivery `done`; clears
+the payload.
 
-Migration cannot invent missing facts. Identity-only delivery rows become
-completed legacy identities whose unknown event and digest force a conflict on
-redelivery. Original journal rows receive attempt 1 and the non-current revision
-`legacy:unknown`; original running schedules, which had no completion token,
-return to pending. Deliveries already done before version 4 have no fabricated
-report. The one-report guarantee therefore applies exactly to completions made
-through the version-4 operation. Retention deletes a completed delivery and its
-report in one transaction.
+| Retry shape | Outcome |
+|---|---|
+| Same token, identical JSON | `alreadyCompleted` |
+| Released, stale, or stolen token | `notOwned` |
+| Same token, changed JSON | `reportConflict` |
+
+**Schema contract:** `PRAGMA user_version`, currently 4.
+
+- A newer declared version is refused before configuration or migration.
+- Version-zero files are fingerprinted against the exact owned objects of the three real prior
+  schemas — whitespace normalized only, so types, nullability, keys, checks, and partial-index
+  predicates all count; extra triggers, views, tables, or indexes are refused.
+- Migrations run in numeric order with their version update inside one transaction, so an
+  interruption leaves either the complete old schema or version 4. Unknown unversioned shapes fail
+  closed.
+
+**Migration cannot invent facts.** Identity-only delivery rows become completed legacy identities
+whose unknown event and digest force a conflict on redelivery; original journal rows get attempt 1
+and revision `legacy:unknown`; running schedules return to pending; deliveries already done before
+version 4 get no fabricated report. The one-report guarantee applies exactly to completions made
+through the version-4 operation.

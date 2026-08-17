@@ -33,7 +33,7 @@ labels: "good first issue"
 - [ ] I ran the change locally and checked it does what the issue asks
 - [ ] `pnpm -r test` passes
 - [ ] My changes stay within the scope of this issue
-- [ ] My commits are signed: `git commit -s -m "fix: description"`
+- [ ] My commits are signed: `git commit -S -s -m "fix: description"`
 - [ ] The PR description links this issue with `Closes #<number>`
 
 **Stuck?** Comment here with what you have tried. See the [contributor guide](https://github.com/hiero-hackers/sdk-automations/blob/main/CONTRIBUTING.md) for setup and expectations.

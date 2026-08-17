@@ -1,13 +1,7 @@
 # Read-after-write staleness
 
-> Conclusion of protocol 6.7 (2026-07-25), the measurement register row D46 required. Evidence log:
-> `6.7-read-after-write-2026-07-25T21-00-55-057Z.jsonl` (local, untracked, per the experiments
-> convention).
-
-## Question
-
-The recovery loop's exactly-once guarantee is proven relative to a consistent read-back (D46). How stale
-is the real read the resolver uses, immediately after a write returns?
+**Answer (D46, protocol 6.7): no staleness observed — every write was visible on the first read.**
+The rule still spends one delay on the "absent" side, because a wrong "absent" duplicates.
 
 ## Measured
 

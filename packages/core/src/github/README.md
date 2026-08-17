@@ -81,7 +81,7 @@ As the platform reaches GitHub, more observed knowledge will want this home —
 at which point subdirectories may start to earn their keep:
 
 - `endpoints.ts` — the confirmed operation list from
-  `design/operations/endpoint-permission-matrix.md`.
+  `design/findings/endpoint-permission-matrix.md`.
 - `subscriptions.ts` — the webhook subscription list, including the
   `pull_request_review` gap experiment 6.6 found.
 - the read-after-write freshness rule (D46, experiment 6.7), which is not

@@ -1,5 +1,5 @@
 /**
- * The owned operational store — `design/operations/storage-decision.md`
+ * The owned operational store — `design/findings/storage-decision.md`
  * made real, with the exact crash semantics protocol 6.5 demonstrated.
  * **Ratification pending** under the stage-four review.
  *

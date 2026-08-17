@@ -101,9 +101,9 @@ produces a *decision*, not just measurements — and 6.6 last.
 The stage-three gate closes when these are filled with observations and
 the affected register rows are updated:
 
-- [`endpoint-permission-matrix.md`](../../../design/operations/endpoint-permission-matrix.md) — one
+- [`endpoint-permission-matrix.md`](../../../design/findings/endpoint-permission-matrix.md) — one
   row per operation: endpoint, permission, observed behavior.
-- [`storage-decision.md`](../../../design/operations/storage-decision.md) — the three recovery
+- [`storage-decision.md`](../../../design/findings/storage-decision.md) — the three recovery
   sources compared against the five operational needs.
 - Each protocol's own **Observations** section, with delivery ids and
   response excerpts as citations.

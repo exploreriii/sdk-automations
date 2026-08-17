@@ -13,6 +13,8 @@ code is still tested against it. Every document says which of those two it is.
 | [`projections.md`](projections.md) | **Not built — build guide.** Managed comments, markers, reactions, reports. No write path exists; this is the working answer to Q9 |
 | [`contract.md`](contract.md) | **Built** — `packages/core/src/capability/boundary.ts` and `declaration.ts` implement it and cite it by section |
 | [`capabilities/`](capabilities/README.md) | **Not built, not ranked — build guides.** Nine proposals; the first is chosen by maintainer demand (Q2) |
+| [`threat-model.md`](threat-model.md) | **Not built** — threats and required controls; a draft written before permissions and storage were decided, so it needs an audit against the running system |
+| [`operations.md`](operations.md) | **Not built** — operator duties, intake requirement, kill switches, failure audiences, audit record, migration |
 | [`resolvers.md`](resolvers.md) | **Not built — build guide.** Two of its five candidates (`linkedIssues`, `isAutomationActor`) are in the closed catalogue; three are not |
 
 A **build guide** is finished when its subject is built: what the code does moves to that package's

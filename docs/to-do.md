@@ -23,7 +23,7 @@
 - **Installation and credentials.** There is no page for: installing the GitHub App, what permissions
   it requests and why, org-wide versus per-repository installation, and how to revoke it. Cannot be
   written truthfully before the App and its permission manifest exist — the manifest is designed
-  (`design/operations/endpoint-permission-matrix.md`) but has never been submitted to GitHub.
+  (`design/findings/endpoint-permission-matrix.md`) but has never been submitted to GitHub.
   Note for then: users hold **no credentials at all** — no tokens, no secrets in the repo — and
   saying that loudly will be one of the docs' best sentences.
 - **Who may change the config.** The file is as powerful as branch protection; the docs should

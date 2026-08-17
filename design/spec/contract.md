@@ -127,7 +127,7 @@ recovery rule after a crash or unclear response.
 The first implementation must not assume that comment metadata can recover every plan. The personal-sandbox
 experiment decided this (protocol 6.5, 2026-07-23): the owned store's intent journal records the plan and
 its progress, GitHub state resolves sent-but-unconfirmed calls, and comment metadata serves as effect
-identity and receipt only — see `design/operations/storage-decision.md` (ratification pending).
+identity and receipt only — see `design/findings/storage-decision.md` (ratification pending).
 
 ## 6. Configuration and mapping access
 

@@ -7,7 +7,7 @@
 
 An assigned issue or pull request can remain inactive while other contributors wait. A useful capability
 can warn the responsible person and later release or close stale work. That behavior can also annoy active
-contributors when the service misunderstands meaningful activity, so every timer and final action must be
+contributors when the capability misunderstands meaningful activity, so every timer and final action must be
 repository policy.
 
 ## 2. The capability boundary

@@ -308,5 +308,5 @@ flowchart LR
 
 *The goal is drawn only where a register row supports it: gates and order in
 [`build-plan.md`](build-plan.md), stages five to eight · adapter operations in
-[`endpoint-permission-matrix.md`](operations/endpoint-permission-matrix.md) · everything else is
+[`endpoint-permission-matrix.md`](findings/endpoint-permission-matrix.md) · everything else is
 an open question in [`decisions.md`](decisions.md) §4, deliberately not drawn.*

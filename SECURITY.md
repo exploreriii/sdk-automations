@@ -41,5 +41,5 @@ rather than aspirationally.
 
 Please use GitHub's private vulnerability reporting on this repository rather
 than a public issue. Security-sensitive design discussion belongs in
-[`design/operations/threat-model.md`](design/operations/threat-model.md), where
+[`design/spec/threat-model.md`](design/spec/threat-model.md), where
 open threats and required controls are tracked explicitly.

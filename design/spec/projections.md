@@ -68,7 +68,7 @@ The recovery experiment decided this split (protocol 6.5, 2026-07-23): comment m
 identity and receipt — the marker is what makes a retry-after-check safe and cleanup findable — while
 intent, deduplication, claims, and schedules belong in the owned operational store. Metadata records nothing
 before a write lands and cannot coordinate concurrent writers, so it is not the write-ahead log. See
-`design/operations/storage-decision.md` (ratification pending).
+`design/findings/storage-decision.md` (ratification pending).
 
 ## 5. Command acknowledgements
 

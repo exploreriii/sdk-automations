@@ -22,7 +22,7 @@ a row with `none` is a risk, not a fact.
 
 | # | Assumption | What breaks if it is false | Evidence today |
 |---|---|---|---|
-| A6 | Maintainers require the App to use minimal permissions. | The permission ceiling and the refusal of `contents: write` ([`endpoint-permission-matrix.md`](operations/endpoint-permission-matrix.md)). | none — belief, though it is the safer error |
+| A6 | Maintainers require the App to use minimal permissions. | The permission ceiling and the refusal of `contents: write` ([`endpoint-permission-matrix.md`](findings/endpoint-permission-matrix.md)). | none — belief, though it is the safer error |
 | A7 | Maintainers will grant a third-party hosted App write access to issues and pull requests at all. | Everything downstream of observe mode. The ceiling only matters if the answer is yes. | none — **the largest untested belief in the project** |
 | A8 | Maintainers want to see what automation would do before it does it. | The `observe` → `dry-run` → `active` ladder. If they want value immediately, the ramp reads as friction. | none — belief |
 | A9 | Maintainers want an explanation for every action, not silent success. | The findings, severities, and canonical report — a large share of the built system. | none — belief |
@@ -43,8 +43,8 @@ a row with `none` is a risk, not a fact.
 | # | Assumption | What breaks if it is false | Evidence today |
 |---|---|---|---|
 | A16 | Some maintainers will increase or decrease their involvement over time, so preferences should scale up and down easily. | Justifies per-capability toggles over a single on/off. | none — belief |
-| A17 | No single service will remain desirable; the App should evolve with changing needs. | Justifies the capability loop and the disposability of any one capability. | none — belief |
-| A18 | AI use will increase, and App services should be complementary to it or eventually offer such an option. | Long-term positioning; unaddressed by anything built so far. | none — belief |
+| A17 | No single capability will remain desirable; the App should evolve with changing needs. | Justifies the capability loop and the disposability of any one capability. | none — belief |
+| A18 | AI use will increase, and the App's capabilities should be complementary to it or eventually offer such an option. | Long-term positioning; unaddressed by anything built so far. | none — belief |
 | A19 | Maintainers will retire their existing bots rather than run both (Q7). | Migration. Two writers on the same managed state is the one thing the rules forbid outright. | none — belief, and the hardest to walk back if wrong |
 
 ## The operating model — will anyone run it?

@@ -44,42 +44,39 @@ flowchart TD
 
 ## Part 2 — Inside each package
 
-### 3. shell — the mode gate
+### 3. shell — what the shell actually does
 
 ```mermaid
-stateDiagram-v2
-    [*] --> Load: loadConfig
-    Load --> Observe: file absent
-    Load --> Parse: text read
-
-    Parse --> Observe: empty document
-    Parse --> Rejected: documentUnparseable, duplicateKey
-    Parse --> Sections: YAML parsed
-
-    Sections --> Rejected: notAMapping, unknownKey, schemaVersionUnsupported, modeInvalid
-    Sections --> Observe: mode key absent
-    Sections --> Disabled: mode disabled
-    Sections --> Observe: mode observe
-    Sections --> DryRun: mode dry-run
-    Sections --> Active: mode active
-
-    Rejected: record 'configRejected' — fail closed, nothing decided
-    Active: record 'modeUnsupported' — BEFORE decide()
-
-    Disabled --> Decide
-    Observe --> Decide
-    DryRun --> Decide
-    Decide: decide() runs — gates refuse per intent (modeDisabled, modeRecordsOnly)
-    Decide --> Done: record 'decision'
-    Rejected --> Done
-    Active --> Done
-    Done: atomic completion — every path ends here
-    Done --> [*]
+flowchart LR
+    L["load config text"] --> P["core parses it"]
+    P -->|"rejected"| REC["configRejected"]
+    P -->|"active"| MU["modeUnsupported<br/>intercepted BEFORE decide()"]
+    P -->|"disabled · observe · dry-run"| D["decide()"]
+    D --> DEC["decision"]
+    REC --> C["atomic completion"]
+    MU --> C
+    DEC --> C
 ```
 
-*Sources: `packages/core/src/config/parse.ts` · `packages/core/src/config/sections.ts` ·
-`packages/shell/src/processor.ts` — pinned by `packages/core/test/config/parse.test.ts` and
-`packages/shell/test/shell.test.ts`.*
+Three steps: hand the text to core, intercept `active`, complete atomically whatever happened. Note
+`disabled` is **not** intercepted — it runs through `decide()` and the `modeDisabled` gate refuses each
+intent, which is why it sits with `observe` and `dry-run` rather than with `active`.
+
+Every config outcome, which is data rather than flow:
+
+| Configuration | Mode | Record |
+|---|---|---|
+| absent · empty document · no `mode` key | `observe` | `decision` |
+| `disabled` · `observe` · `dry-run` | as written | `decision` |
+| `active` | — | `modeUnsupported` |
+| unparseable · duplicate key · not a mapping · unknown key · unsupported `schemaVersion` · invalid mode | — | `configRejected` |
+
+Every rejection **fails closed and still completes** — no retry loop, and a redelivery produces no
+second record.
+
+*Sources: `packages/shell/src/processor.ts` · the parse outcomes are core's
+(`packages/core/src/config/parse.ts`, `sections.ts`) — pinned by
+`packages/core/test/config/parse.test.ts` and `packages/shell/test/shell.test.ts`.*
 
 ### 4. core — inside `decide()`
 

@@ -127,7 +127,7 @@ Closing records **why** (§2: `merged`, `closedByHuman`, `completedByLinkedMerge
 label untouched, because the App does not clean up labels on close — see `manual-edits.md` §3 and the
 `status:*` strip that the audit found removing human-set `status: blocked` labels as a side effect
 (`design/audit/labels-cpp.md`). Downstream policy needs the reason: contributor progression credits a merged
-linked pull request and not an abandoned one (`design/modules/progression.md`), and the audited post-merge
+linked pull request and not an abandoned one (`design/spec/capabilities/progression.md`), and the audited post-merge
 cleanup is gated on `merged == true`.
 
 Reopening therefore **clears the closure and restores nothing else** — the position labels were never

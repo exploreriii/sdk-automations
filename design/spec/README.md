@@ -11,6 +11,8 @@ code is still tested against it. Every document says which of those two it is.
 | [`manual-edits.md`](manual-edits.md) | **Partly built** — the human-precedence rule is in `workflow/project.ts`; the five incoherence classes are proposals |
 | [`testing.md`](testing.md) | **Partly built** — the strategy the suite grew from; its adapter and effect-recovery tiers have nothing to test yet |
 | [`projections.md`](projections.md) | **Not built — build guide.** Managed comments, markers, reactions, reports. No write path exists; this is the working answer to Q9 |
+| [`contract.md`](contract.md) | **Built** — `packages/core/src/capability/boundary.ts` and `declaration.ts` implement it and cite it by section |
+| [`capabilities/`](capabilities/README.md) | **Not built, not ranked — build guides.** Nine proposals; the first is chosen by maintainer demand (Q2) |
 | [`resolvers.md`](resolvers.md) | **Not built — build guide.** Two of its five candidates (`linkedIssues`, `isAutomationActor`) are in the closed catalogue; three are not |
 
 A **build guide** is finished when its subject is built: what the code does moves to that package's

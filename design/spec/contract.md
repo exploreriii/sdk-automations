@@ -1,5 +1,8 @@
 # Capability Contract Proposal
 
+> **Built** — `packages/core/src/capability/boundary.ts` and `declaration.ts` implement this contract
+> and cite it by section; the probes exercise it. The TypeScript names below settled.
+
 > This contract is a draft for the first two capability experiments. The exact TypeScript names may change,
 > but the isolation, permission, configuration, and outcome requirements are part of the architecture review.
 

@@ -1,5 +1,9 @@
 # Candidate Capabilities
 
+> **Not built, not ranked — build guides.** Nine proposals derived from the audit. None is scope: the
+> first capability is chosen by maintainer demand (Q2, still open), and the contract they all implement
+> is [`../contract.md`](../contract.md).
+
 > The audit found the capabilities in this directory. They are candidate product work, not a committed
 > release list. Each candidate must pass maintainer-demand, permission, configuration, safety, and feasibility
 > review before implementation.

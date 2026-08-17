@@ -30,6 +30,14 @@ pnpm --filter @hiero-hackers/automation-core test
 pnpm lint
 ```
 
+```bash
+pnpm format
+```
+
+CI runs `pnpm format:check` and fails the build on a formatting difference, so run `pnpm format`
+before pushing — or let your editor do it. Prettier is formatter-only here and markdown is excluded;
+what it covers is [`.prettierignore`](.prettierignore)'s business, not this page's.
+
 ## Sign your commits (DCO)
 
 Every commit needs a Developer Certificate of Origin sign-off:

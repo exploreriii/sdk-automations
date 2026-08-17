@@ -37,9 +37,31 @@ rather than aspirationally.
 - Contributions are signed off with `git commit -s`; maintainers enforce the
   DCO.
 
-## Reporting
+## Supported versions
 
-Please use GitHub's private vulnerability reporting on this repository rather
-than a public issue. Security-sensitive design discussion belongs in
-[`design/spec/threat-model.md`](design/spec/threat-model.md), where
+| Version | Supported |
+|---|---|
+| `main` | Yes — the only supported branch |
+| Tagged releases | None exist yet; there is no published package or hosted service |
+
+No hosted service or production installation exists, so a vulnerability here
+affects contributors and anyone running the code locally, not end users.
+
+## Reporting a vulnerability
+
+**Report privately at
+<https://github.com/hiero-hackers/sdk-automations/security/advisories/new>** —
+GitHub's private vulnerability reporting. Please do not open a public issue for
+a suspected vulnerability.
+
+If that page is unavailable to you, report it through the LFDT (Hyperledger) in the Hiero section
+Discord at <https://discord.com/invite/hyperledger> and ask to reach a
+maintainer of `hiero-hackers/sdk-automations` privately. Do not include the
+details of the report in a public channel.
+
+**What to expect.** Expect an acknowledgement within **7 days**, an initial assessment within **14 days**,
+and a fix or a documented decision not to fix before any public disclosure. 
+
+Security-sensitive design discussion that is *not* a vulnerability report
+belongs in [`design/spec/threat-model.md`](design/spec/threat-model.md), where
 open threats and required controls are tracked explicitly.

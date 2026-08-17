@@ -1,5 +1,9 @@
 # Managed Comments and Other Human-Facing Output
 
+> **Not built — build guide.** No write path exists, so nothing here is implemented. This is the
+> working answer to Q9 (managed-comment marker and schema) and the spec for the first reversible
+> effect in `build-plan.md`.
+
 > This document proposes how the App creates comments, reactions, and health reports. It does not decide that
 > comment metadata is the durable store for every recovery problem.
 

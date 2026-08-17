@@ -95,7 +95,7 @@ than taking it on faith.
   secrets and unscrubbed payloads; a test enforces this and a `git add -f` will fail the build
   ([`packages/dev/lab/README.md`](packages/dev/lab/README.md)).
 - **Comments carry constraints, not narration.** Say what must stay true and cite the decision; the
-  story belongs in the register ([`design/testing/README.md`](design/testing/README.md)).
+  story belongs in the register ([`design/spec/testing.md`](design/spec/testing.md)).
 
 ## Where the "why" lives
 

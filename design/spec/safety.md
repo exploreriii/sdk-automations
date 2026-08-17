@@ -1,5 +1,8 @@
 # Safety Requirements for Repository Changes
 
+> **Built, except §3–§4** — the write rules are `packages/core/src/safety/rules.ts` and `write.ts`. The
+> clock-triggered destructive door exists in `destructive.ts` but no catalogued operation reaches it.
+
 > This document defines platform safety requirements. Candidate action rows remain inactive until the
 > affected maintainers approve the capability, configuration, warning, rollback, and test evidence.
 

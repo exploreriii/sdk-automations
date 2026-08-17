@@ -1,5 +1,9 @@
 # Shared Read-Only Resolvers
 
+> **Not built — build guide.** `linkedIssues` and `isAutomationActor` are in the closed catalogue
+> (`packages/core/src/capability/catalogue.ts`); `mayPerform`, `priorityOf`, and `eligibleLevel` are
+> candidates only. No resolver has an implementation — the adapter does not exist.
+
 > A resolver answers a question that more than one capability must ask in the same way. Resolvers are
 > read-only platform services. Their exact list remains open until the first capabilities are selected.
 

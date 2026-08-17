@@ -1,5 +1,8 @@
 # Repository Configuration Proposal
 
+> **Built, except §11** — `packages/core/src/config/`, pinned by `packages/core/test/config/parse.test.ts`.
+> Migration and rollback (§11) are unwritten; the path is decided (D93).
+
 > This document describes the first configuration requirements. The first version uses YAML with strict
 > schema validation. The exact file name and final schema still need validation against real repository
 > examples before they become stable.

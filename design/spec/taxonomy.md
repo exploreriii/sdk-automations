@@ -1,5 +1,9 @@
 # Candidate Hiero Contribution Workflow Profile
 
+> **Built** — `packages/core/src/workflow/transitions.ts`. Every edge in the diagrams below is held
+> equal to `PROFILE_EDGES` by `packages/dev/checks/test/doc-drift.test.ts`, so this document cannot
+> drift silently.
+
 > This document records one possible workflow profile derived from the current C++ and Python automation.
 > It is not the universal state model of the GitHub App. Maintainers must review the profile, and each
 > repository must choose whether to use it.

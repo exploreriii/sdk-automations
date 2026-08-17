@@ -1,5 +1,5 @@
 /**
- * Clock-triggered destructive actions — `design/core/safety.md` §3–§4.
+ * Clock-triggered destructive actions — `design/spec/safety.md` §3–§4.
  *
  * Separate from `write.ts` because it answers a different question. The
  * general rules ask "may this write happen"; this asks "has the warning,

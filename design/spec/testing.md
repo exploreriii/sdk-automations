@@ -1,5 +1,8 @@
 # Test Strategy for the GitHub App Platform
 
+> **Partly built** — the strategy the suite grew from. Its adapter-contract and effect-recovery tiers
+> have nothing to test yet.
+
 > The test strategy must prove capability isolation, GitHub adapter behavior, effect recovery, configuration
 > safety, and rollout controls. Specific frameworks will be selected with the implementation.
 

@@ -1,5 +1,8 @@
 # Candidate Rules for Human Workflow Edits
 
+> **Partly built** — the human-precedence rule is in `packages/core/src/workflow/project.ts`. The five
+> incoherence classes are proposals (D8, `replaced`).
+
 > This document describes candidate behavior for a repository that chooses a workflow profile with
 > mapped position labels. These rules do not apply when a repository has not enabled that profile.
 > Maintainers must approve the rules before the App writes any mapped position.

@@ -171,7 +171,7 @@ flowchart TD
 
 ### 7. core — the workflow state machine
 
-Drawn once, in [`core/taxonomy.md`](core/taxonomy.md), where
+Drawn once, in [`spec/taxonomy.md`](spec/taxonomy.md), where
 `packages/dev/checks/test/doc-drift.test.ts` holds its every edge equal to `PROFILE_EDGES` in
 `packages/core/src/workflow/transitions.ts`. Not copied here — a second drawing would be the
 unchecked one.

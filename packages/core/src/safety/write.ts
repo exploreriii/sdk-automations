@@ -1,6 +1,6 @@
 /**
  * The general entry point — every action class EXCEPT
- * `clockTriggeredDestructive` (`design/core/safety.md` §2).
+ * `clockTriggeredDestructive` (`design/spec/safety.md` §2).
  *
  * **The rules themselves are in `rules.ts`.** This file is short on purpose,
  * and the shortness is information: it holds only the policy belonging to

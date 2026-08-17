@@ -10,6 +10,7 @@ code is still tested against it. Every document says which of those two it is.
 | [`config-schema.md`](config-schema.md) | **Built**, except §11 — `packages/core/src/config/`; migration and rollback are unwritten |
 | [`manual-edits.md`](manual-edits.md) | **Partly built** — the human-precedence rule is in `workflow/project.ts`; the five incoherence classes are proposals |
 | [`testing.md`](testing.md) | **Partly built** — the strategy the suite grew from; its adapter and effect-recovery tiers have nothing to test yet |
+| [`adapter.md`](adapter.md) | **Not built — build guide.** The first component that talks to GitHub; lands behind seams that already exist, so the shell does not change (#111) |
 | [`projections.md`](projections.md) | **Not built — build guide.** Managed comments, markers, reactions, reports. No write path exists; this is the working answer to Q9 |
 | [`contract.md`](contract.md) | **Built** — `packages/core/src/capability/boundary.ts` and `declaration.ts` implement it and cite it by section |
 | [`capabilities/`](capabilities/README.md) | **Not built, not ranked — build guides.** Nine proposals; the first is chosen by maintainer demand (Q2) |

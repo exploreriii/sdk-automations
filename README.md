@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/readme-wordmark.png" alt="SDK AUTOMATIONS" width="100%">
+  <img src="design/readme-wordmark.png" alt="SDK AUTOMATIONS" width="100%">
 </p>
 
 <p align="center">

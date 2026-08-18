@@ -11,8 +11,18 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { repoRoot, workspacePackages } from "./repository.js";
+import { join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+
+function workspacePackages(): string[] {
+    const yaml = readFileSync(join(repoRoot, "pnpm-workspace.yaml"), "utf8");
+    return yaml
+        .split(/\r?\n/)
+        .map((line) => /^\s*-\s*(.+?)\s*$/.exec(line)?.[1])
+        .filter((name): name is string => name !== undefined);
+}
 
 export interface PackageDependencies {
     readonly dependencies: readonly string[];
@@ -154,7 +164,7 @@ export function gitChangedFiles(baseRef?: string): string[] {
 
 // CLI entry point for CI steps:
 // node --experimental-strip-types packages/dev/checks/test/mutation-invalidation.ts <package> [baseRef]
-if (import.meta.url === `file://${process.argv[1]?.replaceAll("\\", "/")}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     const pkg = process.argv[2];
     const baseRef = process.argv[3];
     if (!pkg) {

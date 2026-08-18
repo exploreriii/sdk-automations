@@ -39,7 +39,7 @@ would create exactly the cycle the architecture check exists to reject. That ref
 | `WEBHOOK_CAPTURES` | Every capture, listed rather than discovered — a directory read would go quietly empty |
 | `capture(name)` | One capture by filename; a wrong name throws with the available ones, not `ENOENT` |
 | `WebhookCapture` | `name`, `event`, `capturedAt`, `protocol`, `synthetic: false`, and `bytes()` / `json()` |
-| `withTempDir(prefix, fn)` | A temporary directory removed in a `finally`, so a throwing test leaks nothing |
+| `withTempDir(prefix, fn)` | Runs a synchronous or asynchronous block with a fresh temporary directory, guaranteed removed on return, throw, or rejection |
 | `useTempDir(prefix)` | The hook form (D114): registers the `beforeEach`/`afterEach` pair; the returned `TempDirHandle`'s `dir` / `file(name)` reach the current test's directory |
 
 `event` is derived from the filename — `<event>.<action>.json` is the capture protocol's naming

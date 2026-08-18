@@ -74,6 +74,24 @@ function matrixDrift(
     };
 }
 
+function coverageJob(workflow: string): Job {
+    const job = (parse(workflow) as Workflow).jobs?.coverage;
+    if (job === undefined) throw new Error("the ci workflow has no coverage job");
+    return job;
+}
+
+const COVERAGE_RUN = "test:coverage";
+
+function coverageCommand(job: Job): string | undefined {
+    return runCommands(job).find((run) => run.includes(COVERAGE_RUN));
+}
+
+interface CoveragePackage {
+    readonly name: string;
+    readonly path: string;
+    readonly script: string;
+}
+
 const tracked = trackedFiles();
 const trackedSet = new Set(tracked);
 const configuredPackages: ConfiguredPackage[] = workspacePackages()
@@ -90,9 +108,29 @@ const configuredPackages: ConfiguredPackage[] = workspacePackages()
         return { name: basename(packagePath), path: packagePath, config, sources };
     });
 
-const mutation = mutationJob(
-    readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8"),
-);
+const coveragePackages: CoveragePackage[] = workspacePackages()
+    .filter((packagePath) => {
+        const manifestPath = join(repoRoot, packagePath, "package.json");
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+            scripts?: Record<string, string>;
+        };
+        return typeof manifest.scripts?.["test:coverage"] === "string";
+    })
+    .map((packagePath) => {
+        const manifestPath = join(repoRoot, packagePath, "package.json");
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+            scripts?: Record<string, string>;
+        };
+        return {
+            name: basename(packagePath),
+            path: packagePath,
+            script: manifest.scripts!["test:coverage"]!,
+        };
+    });
+
+const workflowContent = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
+const mutation = mutationJob(workflowContent);
+const coverage = coverageJob(workflowContent);
 
 describe("mutation policy stays complete across packages and CI", () => {
     it("discovers every configured workspace package", () => {
@@ -167,5 +205,46 @@ describe("mutation policy stays complete across packages and CI", () => {
         expect(matrixPackages(reformatted)).toEqual(matrixPackages(mutation));
         expect(reformatted.name).toBe(mutation.name);
         expect(strykerCommand(reformatted)).toContain("--incremental");
+    });
+});
+
+describe("coverage policy stays complete across packages and CI", () => {
+    it("discovers every package owning a test:coverage script", () => {
+        expect(coveragePackages.map(({ name }) => name).sort()).toEqual([
+            "core",
+            "probes",
+            "shell",
+            "store",
+        ]);
+    });
+
+    it("runs every coverage-configured package in the coverage matrix", () => {
+        expect(coverage.name).toBe("line coverage (${{ matrix.package }})");
+        expect(
+            coverageCommand(coverage),
+            "no test:coverage run step in coverage job",
+        ).toBeDefined();
+        expect(
+            matrixDrift(
+                coveragePackages.map(({ name }) => name),
+                matrixPackages(coverage),
+            ),
+        ).toEqual({ missing: [], extra: [] });
+    });
+
+    it("proves missing, extra, or misspelled coverage matrix packages fail", () => {
+        const configured = coveragePackages.map(({ name }) => name);
+        expect(matrixDrift(configured, ["core", "shell", "store"])).toEqual({
+            missing: ["probes"],
+            extra: [],
+        });
+        expect(matrixDrift(configured, ["core", "probes", "shell", "store", "checks"])).toEqual({
+            missing: [],
+            extra: ["checks"],
+        });
+        expect(matrixDrift(configured, ["core", "probes", "shlel", "store"])).toEqual({
+            missing: ["shell"],
+            extra: ["shlel"],
+        });
     });
 });

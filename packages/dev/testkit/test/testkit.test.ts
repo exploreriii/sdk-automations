@@ -120,6 +120,24 @@ describe("a temporary directory does not outlive its block", () => {
         expect(seen).not.toBe("");
         expect(existsSync(seen)).toBe(false);
     });
+
+    it("removes the directory when thenable assimilation throws synchronously", () => {
+        let seen = "";
+        const brokenThenable = {
+            then() {
+                throw new Error("thenable boom");
+            },
+        };
+        expect(() =>
+            withTempDir("testkit-check-", (dir) => {
+                seen = dir;
+                writeFileSync(join(dir, "file"), "content");
+                return brokenThenable;
+            }),
+        ).toThrow("thenable boom");
+        expect(seen).not.toBe("");
+        expect(existsSync(seen)).toBe(false);
+    });
 });
 
 /**

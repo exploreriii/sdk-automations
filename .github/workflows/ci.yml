@@ -185,6 +185,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -213,19 +214,28 @@ jobs:
           key: mutation-${{ matrix.package }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
           restore-keys: |
             mutation-${{ matrix.package }}-${{ hashFiles('pnpm-lock.yaml') }}-
+      # On pull requests, evaluate whether changes to test helpers, fixtures,
+      # configs, or workspace dependencies require forcing a full mutation run
+      # instead of reusing incremental state.
+      - name: determine mutation invalidation
+        id: mode
+        if: github.event_name == 'pull_request'
+        run: |
+          FLAGS=$(node --experimental-strip-types packages/dev/checks/test/mutation-invalidation.ts ${{ matrix.package }} origin/${{ github.base_ref }})
+          echo "flags=${FLAGS}" >> "$GITHUB_OUTPUT"
       # Each package owns its mutation scope and threshold; the checks package
       # locks this static matrix to the set of tracked Stryker configs.
       #
       # A pull request re-runs only the mutants whose covering code changed,
-      # seeded from main's cache; a push to main rebuilds the file from a full
-      # authoritative run (`--force`) and is the only run allowed to save it,
-      # so the seed every PR inherits is never itself incremental. A missing
-      # cache degrades to a full run, which is the safe direction to fail. The
-      # flag lives here and NOT in the `stryker.config.json` files on purpose:
-      # a local run stays full by default, which is what the parity
-      # measurement (4m05s full on core against 9s incremental with nothing
-      # changed) compares against.
-      - run: pnpm --filter @hiero-hackers/automation-${{ matrix.package }} exec stryker run --incremental${{ github.event_name == 'push' && ' --force' || '' }}
+      # seeded from main's cache, unless invalidation forced a full run; a push
+      # to main rebuilds the file from a full authoritative run (`--force`) and
+      # is the only run allowed to save it, so the seed every PR inherits is
+      # never itself incremental. A missing cache degrades to a full run, which
+      # is the safe direction to fail. The flag lives here and NOT in the
+      # `stryker.config.json` files on purpose: a local run stays full by
+      # default, which is what the parity measurement (4m05s full on core
+      # against 9s incremental with nothing changed) compares against.
+      - run: pnpm --filter @hiero-hackers/automation-${{ matrix.package }} exec stryker run --incremental${{ github.event_name == 'push' && ' --force' || steps.mode.outputs.flags }}
       # The other half of the restore above, and the reason the seed stays
       # authoritative: `push` is the same condition that adds `--force`, and
       # `on.push.branches` admits only main — so the single entry any run can

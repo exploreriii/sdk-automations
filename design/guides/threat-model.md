@@ -65,6 +65,8 @@ flowchart LR
 | Stored data leaking private repository content | Minimum fields, encryption, tenant separation |
 | An off-GitHub integration leaking data | Opt-in, destination validation, host allowlist |
 | Reaching arbitrary network addresses | No arbitrary callback URLs in the first design |
+| A relay inside the webhook path — smee acks, then forwards | Rehearsal only; never production ingress |
+| The operator's machine holding secrets and payload bytes | Disk encryption, restricted access, rotation on handover |
 
 - Intake rejects missing, invalid, and oversized requests.
 - Delivery identifiers may support short-term deduplication, but correctness never rests on a cache.
@@ -100,6 +102,16 @@ flowchart LR
 - Off-GitHub delivery also needs secret isolation and an explicit data contract.
 - A later outbound HTTP feature needs scheme, host, redirect, DNS, and private-address controls,
   against server-side request forgery.
+- A relay acknowledges GitHub the instant it receives a delivery, before forwarding, so the
+  receiver's own response time is unmeasurable through it.
+- A response held 15 s was recorded as `OK, 0.05 s`, and two forwarders on one channel turned
+  154 unique deliveries into 308 accepts (experiment 6.2).
+- Rehearsal tooling should make relay use obvious in its own output, so a captured timing or
+  duplication is never mistaken for a measurement of the real receiver.
+- The operator machine holds `WEBHOOK_SECRET`, App credentials, and a store carrying unscrubbed
+  payload bytes for every delivery still pending or processing.
+- The never-tracked invariant (D99) proves *git* never commits that directory; it proves nothing
+  about the *disk*.
 
 ## 4. Permission design
 

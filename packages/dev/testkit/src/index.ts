@@ -131,18 +131,23 @@ export function withTempDir<T>(prefix: string, fn: (dir: string) => T): T {
     // `.then` rather than `.finally`, so any thenable is handled and not
     // just a real Promise. The cast restores the caller's own type: the
     // chained promise settles to exactly what `fn` settled to.
-    const thenable = result as PromiseLike<unknown> | undefined;
-    if (typeof thenable?.then === "function") {
-        return thenable.then(
-            (value) => {
-                remove();
-                return value;
-            },
-            (error: unknown) => {
-                remove();
-                throw error;
-            },
-        ) as T;
+    try {
+        const thenable = result as PromiseLike<unknown> | undefined;
+        if (typeof thenable?.then === "function") {
+            return thenable.then(
+                (value) => {
+                    remove();
+                    return value;
+                },
+                (error: unknown) => {
+                    remove();
+                    throw error;
+                },
+            ) as T;
+        }
+    } catch (error) {
+        remove();
+        throw error;
     }
 
     remove();

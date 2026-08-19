@@ -53,6 +53,9 @@ const ALLOWED: Readonly<Record<string, ReadonlySet<string>>> = {
     core: new Set(),
     store: new Set(["core"]),
     shell: new Set(["core", "store", "probes"]),
+    probes: new Set(["core"]),
+    checks: new Set(["core"]),
+    lab: new Set(["core"]),
     // A leaf on purpose: a builder here would need core, and core's tests need
     // the testkit — the cycle this empty set refuses in advance.
     testkit: new Set(),
@@ -152,17 +155,23 @@ function testkitViolation(edge: Edge): Violation | undefined {
 }
 
 function directionViolation(edge: Edge): Violation | undefined {
-    if (role(edge.imported) === TESTKIT) return testkitViolation(edge);
     const importerRole = role(edge.importer);
     const importedRole = role(edge.imported);
+    const allowed = ALLOWED[importerRole];
+    if (allowed === undefined) {
+        return violation(
+            edge,
+            `unknown workspace role '${importerRole}' requires an architecture decision`,
+        );
+    }
+    if (importedRole === TESTKIT) return testkitViolation(edge);
     if (
         !NON_PRODUCTION.has(importerRole) &&
         (importedRole === "checks" || importedRole === "lab")
     ) {
         return violation(edge, "production packages cannot import checks or lab");
     }
-    const allowed = ALLOWED[importerRole];
-    if (allowed === undefined || allowed.has(importedRole)) return undefined;
+    if (allowed.has(importedRole)) return undefined;
     return violation(
         edge,
         `${importerRole} may import only ${[...allowed].join(", ") || "external packages"}`,
@@ -322,6 +331,17 @@ describe("workspace manifests declare the allowed dependency directions", () => 
         );
         expect(messages(manifestViolations(asRuntime))).toEqual([
             `packages/shell/package.json: ${packageName("shell")} -> ${packageName("testkit")}: testkit is test-only; declare it under devDependencies`,
+        ]);
+    });
+
+    it("rejects an unknown workspace role participating in internal dependencies", () => {
+        const unknownRolePackage: WorkspacePackage = {
+            directory: "packages/unknown-role",
+            name: "@hiero-hackers/automation-unknown-role",
+            dependencies: [[packageName("core"), "workspace:*", "dependencies"] as const],
+        };
+        expect(messages(manifestViolations([...packages, unknownRolePackage]))).toEqual([
+            `packages/unknown-role/package.json: @hiero-hackers/automation-unknown-role -> ${packageName("core")}: unknown workspace role 'unknown-role' requires an architecture decision`,
         ]);
     });
 });

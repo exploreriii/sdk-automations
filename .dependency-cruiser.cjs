@@ -58,10 +58,21 @@ module.exports = {
             to: { path: `${P}(?:shell|probes|checks|lab)/` },
         },
         {
-            name: "shell-imports-core-store-probes",
+            name: "adapter-imports-core-only",
             severity: "error",
             comment:
-                "The transport shell composes core, store and probes. D93 owns shell -> probes: " +
+                "The adapter is the only package that talks to GitHub, and it sits directly on "
+                + "core. Nothing downstream of core belongs in the one place that holds "
+                + "credentials.",
+            from: { path: `${P}adapter/(?:src|test)/` },
+            to: { path: `${P}(?:store|shell|probes|checks|lab)/` },
+        },
+        {
+            name: "shell-imports-core-store-probes-adapter",
+            severity: "error",
+            comment:
+                "The transport shell composes core, store, probes and the adapter. D93 owns shell -> "
+                + "probes: " +
                 "the shell decides nothing, so the disposable capability stubs are a legitimate " +
                 "runtime edge rather than a leak, and they leave with probes/ at stage four.",
             from: { path: `${P}shell/(?:src|test)/` },

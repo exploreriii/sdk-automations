@@ -52,7 +52,8 @@ interface Manifest {
 const ALLOWED: Readonly<Record<string, ReadonlySet<string>>> = {
     core: new Set(),
     store: new Set(["core"]),
-    shell: new Set(["core", "store", "probes"]),
+    adapter: new Set(["core"]),
+    shell: new Set(["core", "store", "probes", "adapter"]),
     probes: new Set(["core"]),
     checks: new Set(["core"]),
     lab: new Set(["core"]),
@@ -402,12 +403,13 @@ describe("source imports follow the layer policy, checked by dependency-cruiser"
             ),
         );
         expect([...fired].sort()).toEqual([
+            "adapter-imports-core-only",
             "core-imports-no-internal-package",
             "no-circular",
             "no-import-past-the-barrel",
             "not-to-unresolvable",
             "production-imports-no-checks-or-lab",
-            "shell-imports-core-store-probes",
+            "shell-imports-core-store-probes-adapter",
             "store-imports-core-only",
             "testkit-imports-no-internal-package",
             "testkit-is-test-only",

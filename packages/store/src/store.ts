@@ -499,7 +499,7 @@ export class Store {
     /**
      * Classify an effect from the journal alone — the left half of the
      * storage decision's recovery loop. `planLength` is the declared
-     * call count of the effect's plan (contract.md §5); the journal
+     * call count of the effect's plan; the journal
      * cannot know completion without it.
      *
      * Classification reads the highest-seq row only, which assumes caller

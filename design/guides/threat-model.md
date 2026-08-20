@@ -1,7 +1,9 @@
 # Threat Model for the Hosted GitHub App
 
-> **Draft.** Threats the architecture must address before a production installation. Permission,
-> storage, and off-GitHub decisions remain open, so this model must be updated once they are made.
+> **Draft, partly implemented.** Webhook verification, durable delivery acceptance/deduplication, strict
+> configuration parsing, SQLite storage, safety refusals, and CI supply-chain controls exist. The live
+> adapter, effect executor, production hosting/operator, retention, and every off-GitHub integration remain
+> open, so required controls below are not claims that all of them run today.
 
 ## 1. Trust boundaries
 
@@ -9,10 +11,10 @@
 flowchart LR
     U["Untrusted GitHub users and repository content"] --> G["GitHub"]
     G -->|"Signed webhook"| I["Webhook intake"]
-    I --> Q["Bounded queue"]
+    I --> Q["Durable SQLite delivery intake"]
     Q --> P["Policy and capability process"]
     C["Repository configuration"] --> P
-    P --> E["Effect executor"]
+    P -.-> E["Future effect executor"]
     E -->|"Installation token"| A["GitHub API"]
     P <--> S["Owned operational storage (storage decision)"]
     P --> O["Operator logs and alerts"]
@@ -38,7 +40,7 @@ flowchart LR
 - One repository must not be able to make every installation unavailable.
 - Permissions are not fixed: the minimum set depends on the capabilities an installation enables.
 - The production App requests the smallest practical installation-wide set.
-- Every effect must also pass a capability-level permission check.
+- Every intent is checked against the installation grants required by its platform-owned operation facts.
 - A capability needing unusually powerful access may need a separate App, or stay out of scope.
 
 ## 3. Threats and required controls
@@ -46,7 +48,7 @@ flowchart LR
 | Threat, with an example | Required control |
 |---|---|
 | A forged webhook — a fake issue event to the endpoint | HMAC over the raw body, before parse or queue |
-| A replayed delivery — manual, API, or repeated send | Idempotent intent keys and effects |
+| A replayed delivery — manual, API, or repeated send | Durable delivery-GUID deduplication, stable intent keys, and operation-specific recovery |
 | Out-of-order events — a removal before its addition | Current observations, dated causes, state check |
 | Command abuse — `/assign` spam, spending budget and noise | Syntax, actor permission, budgets |
 | Untrusted text — a title with markup or a fake marker | Escape, defang mentions, limit length |
@@ -69,17 +71,18 @@ flowchart LR
 | The operator's machine holding secrets and payload bytes | Disk encryption, restricted access, rotation on handover |
 
 - Intake rejects missing, invalid, and oversized requests.
-- Delivery identifiers may support short-term deduplication, but correctness never rests on a cache.
-- The executor checks expected state immediately before writing.
-- Refusal comments are independently limited, and may degrade to a reaction or to silence.
+- Delivery identifiers are durably deduplicated in `seen_delivery`; correctness does not rest on a cache.
+- A future executor must check expected state immediately before writing.
+- Future refusal output must be independently limited, and may degrade to a reaction or to silence.
 - Measured ceilings (experiment 6.4): 5,000 requests per hour per installation, uniform pricing.
 - Conditional 304 reads are free; a content-creation secondary limit sits near 80 writes per minute.
 - That secondary limit arrives with no `retry-after` header, so per-actor budgets sit inside it.
 - Untrusted text includes mentions, HTML comments, Markdown links, and fake markers.
 - A marker is never treated as managed unless the App authored the object.
 - A pull request may also try to enable a destructive action, not only zero a warning period.
-- Configuration validation checks permissions and reports the effective change during review.
-- Fork content: a fork pull request adds or edits a file under `.github/`.
+- Configuration validation rejects unsafe document shapes today. Live permission-readiness checks and a
+  pull-request effective-change report are required before `active`; neither is built.
+- Fork content: a fork pull request adds or edits repository content, including `automations.yml`.
 - The base repository's Contents API then serves that file at the pull-request head commit.
 - Observed directly in the sandbox (experiment 6.6, `FINDING(fork-content-via-base-api)`).
 - A configuration or policy fetch never honors a ref or commit a pull request can influence.
@@ -87,15 +90,17 @@ flowchart LR
 - A later inheritance design must restrict sources, pin revisions, detect loops and deletion, and
   fail closed before activation.
 - Capabilities receive normalized observations and narrow services, never raw tokens.
-- Every intent names installation, repository, item, config revision and effect; the executor
-  rechecks all of them.
+- An intent names capability, repository, item, operation, causal observation, expected state, and stable
+  effect identity. The shell's durable report separately records the configuration revision. A future
+  executor must bind and recheck both before a write; there is no installation field on `Intent` today.
 - Fair scheduling prevents one partition from taking every worker.
 - Reconciliation repairs dropped event work; the service sheds load before memory is exhausted.
 - The adapter reserves capacity for recovery and security actions.
-- The executor records or reconstructs a halted operation, and reports a partial result otherwise.
+- A future executor must record or reconstruct a halted operation, and report a partial result otherwise.
 - Operators can inspect redacted poison-item metadata without executing the item again.
 - Amplification is limited by permission ceilings, reviewable configuration, and anomaly alerts.
-- Organization and repository kill switches stop writes; deployments and secret access are guarded.
+- Process, repository, capability, and item-level stops have code paths. Installation-wide suspension,
+  deployment controls, and secret-access policy remain operator work.
 - The dependency set stays small and builds produce provenance where practical.
 - Secret access is unavailable to untrusted pull request code.
 - Stored data also gets redacted logs and defined deletion and retention rules.
@@ -116,7 +121,8 @@ flowchart LR
 ## 4. Permission design
 
 - Permissions are derived from concrete effects, never from an imagined final product.
-- A capability declaration lists its required read and write permissions.
+- The platform catalogue derives a write permission from each concrete intent operation. Candidate guides
+  separately analyze read-permission impact; declarations do not carry a permissions block (D62).
 - Installation checks show which enabled capabilities the granted permissions cannot support.
 - A missing permission causes a visible, safe no-op, never repeated blind retries.
 - The first sandbox capability avoids code writes, merges, releases, secrets, org admin, workflows.
@@ -166,7 +172,8 @@ flowchart LR
 ## 9. Open decisions
 
 - The maximum webhook body size and rejection telemetry need measurement.
-- The retention period for delivery identifiers depends on the storage decision.
+- The retention period for delivery identifiers and canonical reports is an operations decision; the
+  SQLite storage boundary itself is selected and built.
 - Some ordering evidence requires timeline reads or operational versions.
 - Per-actor command budgets must be set within the measured ceilings.
 - Projection templates need focused abuse tests.
@@ -177,15 +184,17 @@ flowchart LR
 - The useful tenant partition level needs load testing.
 - The reconciliation interval depends on rate limits and capability needs.
 - The rate reservation policy needs operational evidence.
-- The minimum durable record for a partial effect remains an architectural decision.
-- The queue technology has not been selected.
+- The effect journal/claim schema is selected and built, but the future executor still needs an overlap and
+  recovery contract for how it uses that record.
+- The first shell uses the SQLite `seen_delivery` table as durable intake. Production hosting must decide
+  whether that single-writer shape remains the queue boundary.
 - A compromised maintainer account is a risk the App cannot remove.
 - Hosting and key custody have not been selected.
 - The exact build and deployment platform remains open.
-- Storage fields and retention cannot be finalized before recovery design.
+- Storage schema version 4 and its five tables are built; retention, backup, access, and deletion remain open.
 - No off-GitHub integration belongs in the first platform milestone.
 - Whether custom callbacks are ever needed remains open.
-- Still to choose: hosting · queue · storage boundary · retention period · key custody.
-- Still to choose: tenant partition · permission strategy · operator roles.
+- Still to choose: hosting · whether production keeps the SQLite intake shape · retention · backup · key custody.
+- Still to choose: tenant partition · final installation permission ceiling · operator roles.
 - Those choices must update this document.
 - This draft lists required properties, not evidence that the implementation has them.

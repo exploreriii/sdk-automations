@@ -14,8 +14,8 @@ prefer GitHub's own assignee with no gate. So this is a configurable capability,
 | `observations` | `issueUpdated` | the issue's projection. The draft also wanted a command observation and an actor observation; neither is in the closed catalogue, and today's payload carries no assignee, comment body, or actor — this capability is **not buildable on the catalogue as it stands** (D61, §8) |
 | `resolvers` | `isAutomationActor` | never treat a bot as a claimant. The draft's `mayPerform` and `eligibleForAssignment` are not in the catalogue; the eligibility one also crosses the repository boundary (§8) |
 | `intents` | `applyMappedLabel`, `postManagedComment`, `unassign` | the catalogue has `unassign` and **no assign operation**, so the headline write — adding an assignee — is an extension by review (§8). The draft's remove-label intent is deleted (D80) |
-| `permissions.repository` | `issues:read`, `issues:write`, `metadata:read` | read assignees, labels, command authors and repository roles; adding or removing an assignee and writing a comment are all `issues:write` |
-| `permissions.organization` | none | at the ceiling. A limit counted across repositories would need organization-wide reads and leave it (§8) |
+| Permission impact — repository | `issues:read`, `issues:write`, `metadata:read` | proposed reads plus the catalogued comment/unassign operations; assignment itself is not yet catalogued |
+| Permission impact — organization | none | a limit counted across repositories would require new organization-wide reads (§8) |
 | `operationalNeeds` | `schedule: false`, `durableState: "candidate"`, `crossItemCoordination: true`, `externalDelivery: false` | §6 |
 
 Defaults to disabled (P2). A repository may configure the exact assign and unassign commands, the
@@ -50,7 +50,7 @@ which is why the `issues.assigned` trigger exists and produces no counter-write.
 
 | Meaning | Reads | Writes |
 |---|---|---|
-| `ready` | from the projection — a claim is only legal from here | `lastContributorUnassigned`, `inProgress → ready` on a release. This is the draft's `assignmentAvailable`, and one of three writers of `ready`, with `intake` and `inactivity` — A1's shape (`design/audit/lessons-learned.md`) |
+| `ready` | from the projection — a claim is only legal from here | `lastContributorUnassigned`, `inProgress → ready` on a release. This is the draft's `assignmentAvailable`, and one of two current candidate writers of `ready`, with `intake`; inactivity has no mapped-position intent (D116) |
 | `inProgress` | from the projection — a second claim on claimed work is refused, not queued | `contributorAssigned`, `ready → inProgress`. This is the draft's `assignmentActive` |
 | `awaitingTriage` | from the projection — an untriaged issue is explained, not claimed | never; `awaitingTriage → inProgress` is not a documented edge |
 | `blocked` | from the projection | never (D79) |
@@ -114,7 +114,7 @@ immediately and removes no existing assignee.
 |---|---|
 | Is assignment self-service? Does native assignment bypass policy? Are several assignees allowed? | maintainer conversation |
 | Do limits cross repositories, and is skill eligibility useful at all? | maintainer conversation (Q3) |
-| `ready` has three writers, of which this is one — who owns it, and what is assignment's documented edge? | maintainer conversation, against `intake` and `inactivity` §3 |
+| `ready` has two current candidate writers, assignment and intake — who owns it, and what is assignment's documented edge? Inactivity joins only if a later catalogue review gives it a mapped-position operation (D116) | maintainer conversation against `intake` §3 |
 | Does an assign operation enter the closed catalogue? Without one there is no claim write, only a release | catalogue review (D61) |
 | Do a command observation, an actor observation, and a `mayPerform` resolver enter the catalogue? The current `issueUpdated` payload carries none of the facts a command needs | catalogue review (D61) |
 | Does an `eligibleForAssignment` resolver enter it, and what is its privacy boundary and cost when the limit spans repositories? | catalogue review, then App experiment |

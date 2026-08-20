@@ -6,7 +6,7 @@
 > design is `design/guides/testing.md`.
 >
 > **One-line finding:** testability splits two ways. Unit/handler testing is strong (**A**); seam and
-> integration testing is weak (**D**) — the same two-band fault line as `audit/principles-review-cpp.md`,
+> integration testing is weak (**D**) — the same two-band fault line as `design/audit/principles-review-cpp.md`,
 > visible in the suite itself.
 
 ## The setup, briefly

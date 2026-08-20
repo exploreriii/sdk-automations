@@ -1,149 +1,123 @@
 # inactivity — warn about stalled work, then release it
 
-> **Candidate — not ranked, not built.** Status changes here when the register does (Q2).
+> **Candidate — not ranked and not buildable on the current boundary.** The disposable probe constructs
+> warning and unassignment intents, but the engine refuses both from an unprojected sweep. Automatic
+> unassignment also cannot reach the clock-triggered destructive gate; §2 records both blockers.
 
-C++ and Python both reap stale work and both are marked 🟢 (`design/audit/services.md` §2 group 4); the
-C++ reaper warns at 5 days and acts at 7, the one built-in safety pattern the audit found worth
-generalising (`design/audit/lessons-learned.md`). Every timer and the final action are repository
-policy, because the same behaviour annoys an active contributor the moment it misreads activity.
+C++ and Python both reap stale work (`design/audit/services.md` §2 group 4). The C++ reaper's warn-at-five,
+act-at-seven pattern is the audit's strongest safety precedent. That evidence supports investigating the
+capability; it does not authorize the current probe to act.
 
-## 1. Declaration
+## 1. Current probe declaration
 
-| Field | Value | Why |
+| Field | Current value | Consequence |
 |---|---|---|
-| `triggers` | `schedule` (the stale sweep), plus `issues`, `issue_comment`, `pull_request` for activity | the sweep finds work; the events are what stop the clock. Neither alone is enough |
-| `observations` | `staleItemsDue`, `issueUpdated`, `pullRequestUpdated` | the sweep carries the item, its assignee, `lastHumanActivityAt` and `warnedAt`. It carries **no projection**, which is the whole of §5 |
-| `resolvers` | `isAutomationActor`, `linkedIssues` | never reclaim a bot's assignment; read the linked pull request before calling an issue stale. The draft's `mayPerform`, for `/working` authorization, is not in the catalogue (§8) |
-| `intents` | `postManagedComment`, `unassign` | the warning and the reclaim. The draft's close-item intent has no catalogue operation — closure is a reason read from GitHub, never written (D47) — so **close is not an available final action** (§8) |
-| `permissions.repository` | `issues:read`, `pull_requests:read`, `issues:write` | read timelines, assignees, labels, comments and reviews on both entities; the warning comment and the unassign are both `issues:write`. `pull_requests:write` is not requested, because no pull-request write exists in the catalogue |
-| `permissions.organization` | none | at the ceiling |
-| `operationalNeeds` | `schedule: true`, `durableState: "candidate"`, `crossItemCoordination: false`, `externalDelivery: false` | §6 |
+| `triggers` | one `schedule` | no webhook event currently resets a clock |
+| `observations` | `staleItemsDue` | carries item, assignee, activity time, and warning time; **no workflow projection** |
+| `resolvers` | `isAutomationActor` | a failed or bot lookup skips the item |
+| `intents` | `postManagedComment`, `unassign` | no close operation and no mapped-position write |
+| Permission impact — repository | `issues:write` for both operations | derived from `INTENT_OPERATIONS`, not declared by the capability |
+| Permission impact — organization | none | no organization operation exists |
+| `operationalNeeds` | schedule true, durable state required, no cross-item coordination, no external delivery | the warning must survive restarts |
 
-Defaults to disabled (P2). A repository configures which items are watched, how inactivity starts, which
-actors and events count as activity, the warning period, the grace period, an optional `/working`
-command, blocked behaviour, linked-pull-request behaviour, and the final action. Timing values need safe
-minimums — `MIN_GRACE_DAYS` is the floor the code enforces
-(`packages/core/src/safety/destructive.ts`) — and the final action is always explicit. Issue inactivity
-and pull-request inactivity are separate policy blocks, because a push, a review, a requested change, a
-comment and an assignment do not mean the same thing.
+The fuller product idea also needs activity events, linked-work evidence, authorization for a `/working`
+command, per-entity policy, and safe timer bounds. Those are requirements for a future declaration, not
+features of the probe above.
 
-## 2. Decision
+## 2. What happens today
 
-Two diagrams, because the two phases pass through **different gates**: the warn phase is an ordinary
-human-facing write, and the act phase is `clockTriggeredDestructive`, which
-`packages/core/src/safety/destructive.ts` judges before the general rules ever run (D52).
+The probe's direct unit tests prove only intent construction:
+
+1. A first stale entry returns a `postManagedComment` intent explaining the configured deadline.
+2. A later entry with `warnedAt` returns an `unassign` intent dated at the warning rather than the current
+   sweep.
+3. A bot assignee or an unavailable actor lookup returns no intent.
+
+Running those intents through the real engine changes the result:
 
 ```mermaid
 flowchart LR
-    O["staleItemsDue"] --> A{"assignee present?"}
-    A -->|no| N0["no intent"]
-    A -->|yes| B["resolve isAutomationActor"]
-    B -->|"ok: false, or a bot"| N1["no intent — explain()"]
-    B -->|"ok: true, human"| C{"past the warning boundary?"}
-    C -->|no| N2["no intent"]
-    C -->|yes| D{"already warned?"}
-    D -->|yes| E["act phase"]
-    D -->|no| I["postManagedComment — states the deadline and what cancels it"]
+    S["staleItemsDue"] --> P["projectionOf = null"]
+    P --> C["intent claims closed: false"]
+    C --> W["deriveWorld cannot verify the claim"]
+    W --> R["refuse preconditionStale"]
 ```
 
-```mermaid
-flowchart LR
-    W["recorded warning"] --> G{"grace fully elapsed?"}
-    G -->|no| X1["refused graceRunning"]
-    G -->|yes| Q{"qualifying activity since the warning?"}
-    Q -->|yes| X2["refused activityCancelled"]
-    Q -->|no| P{"authoritative position available?"}
-    P -->|no| X3["refused preconditionStale"]
-    P -->|yes| I["unassign, dated at warnedAt — then applyMappedLabel ready / reclaimCompleted"]
-```
+`packages/probes/test/engine-matrix.test.ts` pins that refusal. A capability-authored claim is not current
+state evidence, so neither the warning nor unassignment is approved.
 
-The act intent is dated at `warnedAt`, never at the sweep: redating it would restart the grace period
-(`packages/probes/test/inactivity.test.ts`). A valid `/working` command records a new activity fact and
-moves the deadline forward. A blocked item and an item with an active linked pull request follow
-explicit configuration, never a universal assumption.
+There is a second, independent blocker. `INTENT_OPERATIONS.unassign.actionClassFloor` is
+`reversibleStateChange`. The engine derives that class from the operation; the capability cannot elevate it
+to `clockTriggeredDestructive`. Consequently the warning/grace door in
+`packages/core/src/safety/destructive.ts` is never entered. The probe's `warnedAt` changes its idempotency
+occasion but grants no destructive authority.
 
-## 3. Meanings
+Finally, the declaration contains no `applyMappedLabel`. It can request unassignment only; it does **not**
+move `inProgress → ready`. Describing it as a writer of `ready` would hide the assignee/position split that
+the coupling audit explicitly warns against.
 
-| Meaning | Reads | Writes |
-|---|---|---|
-| `inProgress` | from the projection — claimed work is what the timer watches | never; the claim edge belongs to `assignment` |
-| `ready` | from the projection | `reclaimCompleted`, `inProgress → ready`. This is the draft's returned-to-queue meaning, and one of three writers of `ready`, with `intake` and `assignment` — A1's shape (`design/audit/lessons-learned.md`) |
-| `needsReview` | from the projection — a pull request waiting on a reviewer is the pull-request-side stale case | never |
-| `needsRevision` | from the projection — a pull request waiting on its author is the other one | never |
-| `readyToMerge` | — | never, either way: a pull request waiting to merge waits on a maintainer, not on the assignee |
-| `blocked` | from the projection, and configured explicitly — the draft names blocked behaviour as a setting | never (D79). `itemBlocked` refuses every capability write on a blocked item anyway (`packages/core/src/safety/rules.ts`) |
-| `awaitingTriage` | — | never — nothing unclaimed can go stale under an assignee |
+## 3. Safety requirements for a real capability
 
-The draft's watched and warned meanings are not positions and map to nothing here: "watched" is the
-timer's own predicate and "warned" is `warnedAt`, a durable fact (§6).
-
-## 4. Refuses
-
-| Never | Enforced by |
+| Requirement | Current standing |
 |---|---|
-| Close an item, on either entity | absent from `intents`; no closure operation exists, and closure is read from GitHub, never written (D47, D61) |
-| Act on its first stale observation | `evaluateDestructive` refuses `noWarning`; a warning is authority for one request, not a reusable timestamp (D60) |
-| Act inside the grace period, or after the person came back | `graceRunning` and `activityCancelled` |
-| Reuse one warning for a different item, change, capability, or occasion | the warning carries an immutable request snapshot; a mismatch refuses `warningRequestMismatch` |
-| Accept a zero-day or negative grace period | `graceBelowFloor` against `MIN_GRACE_DAYS` |
-| Treat a capability claim as current-state evidence — the sweep has no projection | `preconditionStale` on the shared door (`packages/probes/test/inactivity.test.ts`) |
-| Pause an item | `screenIntent` refuses a capability writing `blocked`, code `pauseNotCapabilityWritable` (D79) |
-| Reclaim a bot's assignment, or one whose actor could not be determined | the `ResolverAnswer` union: `!ok` and "is a bot" take the same branch, precisely where the next step is destructive |
-| Reset a linked issue as a side effect of acting on a pull request — C1 is the audit's instance | one intent names one item; a cross-entity write would need its own observation and its own capability |
-| Infer inactivity from the absence of an event when history was truncated | an unavailable read is a distinct value, never a default (D51, §5) |
-| Keep running when an operator pulls the brake | `killSwitch` is reported first, before every destructive gate (D39, D52) |
+| A current, authoritative view of open/closed state and any watched workflow position | missing from `staleItemsDue`; engine refuses closed |
+| First stale observation warns and never acts | product requirement; the direct probe constructs the warning, but the engine currently refuses it |
+| The warning identifies item, assignee, policy revision, deadline, cancellation, and reversal | warning persistence/shape still to design for this capability |
+| Qualifying activity cancels the pending action, including at the deadline | destructive gate supports the rule, but no operation reaches it |
+| A clock-triggered final action cannot travel through the ordinary reversible-write path | not representable with current operation facts |
+| A blocked item receives no capability write | built globally as `itemBlocked` in the shared safety rules |
+| Unknown actor, history, link, permission, or ordering evidence means no action | partially built; missing resolver/adapter facts remain |
+| Close, lock, or remove labels by prefix | impossible through the current catalogue |
+| Pull an operator kill switch | built as a process-level safety refusal |
 
-## 5. When evidence is unknown
+The safe first scope may be **report-only** until the two structural blockers are resolved. Adding automatic
+unassignment is a catalogue and safety design change, not a documentation toggle.
 
-`staleItemsDue` carries no projection, so there is no authoritative current position and every position
-write from the sweep refuses `preconditionStale` before any write policy runs — a capability's own claim
-is never evidence of current state (`packages/probes/test/inactivity.test.ts`). Missing history, a rate
-limit, an unknown `linkedIssues` answer, invalid configuration, or a newer human edit each produce no
-expiry action and one `explain()`; the linked-work answer in particular must report unknown rather than
-pretend no link exists, which is B2's failure — one question answered two ways
-(`design/audit/lessons-learned.md`). A failed read is never a default (D51). Warning comments are
-reversible; unassignment is not, so it additionally requires dry-run evidence, the full grace period,
-immediate re-observation, and a repository kill switch.
+## 4. Meanings and ownership
 
-## 6. Operational needs
+The current probe receives no projection and writes no meaning. It is therefore not a `ready` writer.
 
-`schedule: true`, `durableState: "candidate"`. Current GitHub history can compute the latest activity,
-but it does not reliably prove when the App first warned an item or which policy revision applied. An
-App-authored comment exposes some of that and is not automatically a safe database, so the feasibility
-experiment compares reconstruction cost and ambiguity against a narrow record holding the item, the
-policy revision, the warning time, the deadline, and the final outcome. `packages/probes/src/inactivity.ts`
-declares `durableState: "required"` for exactly that field — the probe is the shape of the answer, not
-the answer. How the schedule discovers work is §8's. Disabling stops schedules, warnings, and final
-actions; existing assignments remain, and managed warnings either get one update saying automation is
-off or stay unchanged, by explicit cleanup policy.
+A future integrated reclaim might want `inProgress → ready`, but that edge already belongs to the candidate
+assignment policy when the last contributor unassigns. If inactivity performs the same release, the design
+must choose one owner for the combined assignee-and-position outcome or define one explicit operation that
+keeps them atomic. Two independently toggled writers recreate audit lessons A1 and A3.
 
-## 7. Verification
+The current candidate writer question is therefore between `intake` and `assignment`; inactivity joins it
+only after it gains a reviewed mapped-position operation.
 
-| Scenario | Proves |
+## 5. Operational needs
+
+The warning time, item, assignee, policy/config revision, deadline, and final outcome require durable state.
+The SQLite store already supplies schedule and journal primitives, but no scheduler calls `decide()` and no
+effect executor applies a reclaim. GitHub comments may be user-facing receipts; they are not a substitute
+for pending-work state.
+
+Disabling the capability must stop new scheduling, warnings, and actions without silently changing existing
+assignments. A migration must ensure the old stale-work bot and this App never write the same assignee or
+position at the same time (Q7).
+
+## 6. Verification required before ranking
+
+| Scenario | What it must prove |
 |---|---|
-| Exact timer boundaries, time zones, a delayed schedule, a duplicate evaluation | the boundary is a comparison, not a count of sweeps |
-| Activity arriving exactly at the deadline | `activityCancelled` wins; ties go to the person |
-| Second sweep after a warning | the act intent is dated at `warnedAt`, not at the sweep — redating restarts the grace period (`packages/probes/test/inactivity.test.ts`) |
-| A bot assignee, and an assignee whose actor lookup fails | both skipped, precisely where the next step is destructive |
-| A blocked item; an item with an open linked pull request; a truncated timeline | configured behaviour, and unknown history never reads as inactivity |
-| `/working` from an authorized and an unauthorized actor; an edited comment | the deadline moves once, from the right person |
-| Partial final action — comment written, unassign lost | recovery from the record, not from the resulting shape |
-| Sandbox: compressed time over the same transitions, then a real multi-day observation period | no automatic unassignment ships on simulated clocks alone |
+| First observation, second observation, duplicate sweep, delayed sweep | warning and occasion identities converge |
+| Activity immediately before, at, and after the deadline | ties and cancellation favor the person |
+| Bot assignee and unavailable actor lookup | both skip without a destructive default |
+| Missing projection, conflicted labels, closed item, blocked item | every case refuses with the truthful code |
+| Warning survives restart and config revision changes | old authority cannot act under new policy |
+| Lost comment or unassign response | read-back and journal recovery do not duplicate |
+| Existing assignment automation still installed | migration prevents two writers |
+| Compressed sandbox clock followed by a real multi-day soak | simulation alone never authorizes rollout |
 
-`packages/probes/src/inactivity.ts` is a boundary probe chosen for contract diversity, deliberately not
-for likelihood of being ranked first ([`probes/README.md`](../../../packages/probes/README.md)) — its
-test proves the dating and skip behaviour above, not that this capability is wanted.
+## 7. Open decisions
 
-## 8. Open
-
-| Question | Closed by |
-|---|---|
-| What counts as meaningful activity, and what are the warning and grace periods? | maintainer conversation |
-| What is blocked behaviour, and linked-pull-request behaviour? | maintainer conversation |
-| Which final action is allowed? Close is unavailable through the catalogue, so the choice today is warn, or warn then unassign | maintainer conversation |
-| `ready` has three writers, of which this is one — who owns it, and what is inactivity's documented edge? | maintainer conversation, against `intake` and `assignment` §3 |
-| Does a `mayPerform` resolver enter the closed catalogue, or does `/working` authorization stay out? | catalogue review (D61) |
-| Does a closure operation ever enter it, given D47? | catalogue review |
-| How do schedules discover work, and which warning facts require durable storage? | App experiment |
-| Is `MIN_GRACE_DAYS = 1` the right floor? The code encodes the weakest defensible reading so the question cannot be skipped | register decision — D30 is open on exactly this |
-| An older stale workflow must stop before this one performs final actions on the same items | per-repository migration plan (Q7) |
+- What counts as activity for issues and pull requests, and which facts can GitHub establish reliably?
+- Is the first capability report-only, warning-only, or allowed to unassign after a separately reviewed
+  destructive operation exists?
+- Does the catalogue add a clock-triggered unassignment operation, or can one operation carry context-sensitive
+  action classes without restoring capability-authored authority?
+- How does a scheduled observation acquire the authoritative projection and ordering evidence required at
+  decision and act time?
+- Who owns the combined unassign-and-position transition if a future capability writes `ready`?
+- Which warning facts map onto the existing store, and what scheduler/recovery interface is still missing?
+- Is `MIN_GRACE_DAYS = 1` the right platform floor (D30), and what longer repository minimum is acceptable?

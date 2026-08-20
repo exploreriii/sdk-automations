@@ -4,8 +4,9 @@
 
 ## 1. Declaration
 
-What the code will declare through the capability contract. This table becomes lockable against the
-real declaration the day the capability is built — that is its graduation into `contracts/`.
+The declaration rows become code when the capability is built. Permission impact is analysis derived from
+the proposed catalogue operations; permissions are platform-owned and deliberately not declaration fields
+(D62).
 
 | Field | Value | Why |
 |---|---|---|
@@ -13,8 +14,8 @@ real declaration the day the capability is built — that is its graduation into
 | `observations` | | |
 | `resolvers` | | |
 | `intents` | | |
-| `permissions.repository` | | derive each from a named operation |
-| `permissions.organization` | | empty unless justified to the ceiling |
+| Permission impact — repository | | derive each from a named operation in `INTENT_OPERATIONS` |
+| Permission impact — organization | | empty unless a reviewed catalogue operation requires it |
 | `operationalNeeds` | | every `candidate`/`required` explained in §6 |
 
 ## 2. Decision

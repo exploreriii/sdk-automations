@@ -1,8 +1,8 @@
 # Candidate Hiero Contribution Workflow Profile
 
-> **Built** — `packages/core/src/workflow/transitions.ts`. Every edge in the diagrams below is held
-> equal to `PROFILE_EDGES` by `packages/dev/checks/test/doc-drift.test.ts`, so this document cannot
-> drift silently.
+> **Implemented as the current candidate profile, not ratified as universal policy** —
+> `packages/core/src/workflow/transitions.ts`. Every edge in the diagrams below is held equal to
+> `PROFILE_EDGES` by `packages/dev/checks/test/doc-drift.test.ts`.
 
 > This document records one possible workflow profile derived from the current C++ and Python automation.
 > It is not the universal state model of the GitHub App. Maintainers must review the profile, and each
@@ -124,7 +124,8 @@ records them as D48.
 Closing is not a position and reopening is not a transition.
 
 Closing records **why** (§2: `merged`, `closedByHuman`, `completedByLinkedMerge`) and leaves every position
-label untouched, because the App does not clean up labels on close — see `manual-edits.md` §3 and the
+label untouched, because the App does not clean up labels on close — see
+[`../guides/manual-edits.md`](../guides/manual-edits.md) §3 and the
 `status:*` strip that the audit found removing human-set `status: blocked` labels as a side effect
 (`design/audit/labels-cpp.md`). Downstream policy needs the reason: contributor progression credits a merged
 linked pull request and not an abandoned one (`design/guides/capabilities/progression.md`), and the audited post-merge
@@ -134,9 +135,9 @@ Reopening therefore **clears the closure and restores nothing else** — the pos
 removed, so the item comes back exactly where it was. One invariant falls out of the reason: a **merged
 pull request can never reopen**, which GitHub enforces and the profile refuses rather than omits.
 
-An automation-initiated close (an inactivity capability retiring a stale pull request) has no cause of its
-own yet. It must not borrow `closedByHuman`; the cause belongs to that capability's specification, under the
-destructive-action gate in `safety.md` §3.
+An automation-initiated close has no cause or operation of its own yet. It must not borrow
+`closedByHuman`; adding such an operation requires its own catalogue and destructive-safety review. The
+current inactivity probe can only request a comment or unassignment and cannot close an item.
 
 ## 6. Issue and pull request links
 
@@ -155,7 +156,8 @@ precondition.
 
 The profile may provide coherence checks for repositories that want a single mapped position. Those checks
 must not touch unrelated labels or force a repository to adopt the full profile. The detailed candidate
-behavior is recorded in `manual-edits.md` and remains subject to profile ratification.
+behavior is recorded in [`../guides/manual-edits.md`](../guides/manual-edits.md) and remains subject to
+profile ratification.
 
 ## 8. Optional skill policy
 
@@ -187,16 +189,18 @@ an enabled profile requires and validates that namespace.
 ## 10. Questions that remain open
 
 - Maintainers must decide which repositories want this profile and which want smaller capability sets.
-- The project must decide which internal meanings belong in the first capability contracts.
-- The configuration design must define mapping validation and migration.
+- The current meanings are closed in core; stage-four review must decide whether a first real capability
+  justifies keeping all of them in the platform catalogue.
+- Syntactic and injective mapping validation is built. Required-meaning declarations, live label-existence
+  checks, and mapping migration remain open.
 - Assignment maintainers must decide the multiple-assignee behavior.
 - Review maintainers must decide whether `readyToMerge` is stored or derived. This is the largest open
   lever in §5: if it is derived from approval count, check status, and policy, it is a projection rather
   than a position, and most of §5's edges collapse into that derivation. The D48 corrections above assume
   it is stored, which is the weaker assumption — they are wasted work if the answer is "derived", not
   wrong work.
-- The first version has no cause for an automation-initiated close (§5.1); the inactivity capability's
-  specification must supply one.
+- The first version has no operation or cause for an automation-initiated close (§5.1); a future capability
+  must add both through catalogue and safety review.
 - Repositories that want a skill ladder must decide its scope and completion policy.
 - The first version requires repositories to provision mapped labels. A later explicit setup operation may
   be considered separately.

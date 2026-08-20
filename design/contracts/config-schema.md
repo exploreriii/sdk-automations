@@ -1,234 +1,140 @@
-# Repository Configuration Proposal
+# Repository Configuration Contract
 
-> **Built, except §11** — `packages/core/src/config/`, pinned by `packages/core/test/config/parse.test.ts`.
-> Migration and rollback (§11) are unwritten; the path is decided (D93).
+> **Built for the current shell** — `packages/core/src/config/` parses and validates the document;
+> `packages/shell/src/config.ts` fixes its repository path. The closed vocabularies below are locked by
+> `packages/dev/checks/test/spec-drift.test.ts`, and every rejection shape is exercised by the in-package
+> corpus in `packages/core/test/config/documents.ts`.
 
-> This document describes the first configuration requirements. The first version uses YAML with strict
-> schema validation. The exact file name and final schema still need validation against real repository
-> examples before they become stable.
+This is the contract the implementation satisfies today. Configuration reporting, per-capability setting
+schemas, mapped-label existence checks, permission-readiness checks, inheritance, and schema migration are
+future work; they are listed in §7 rather than written here as if they already ran.
 
-## 1. Purpose
+## 1. Source and authority
 
-Configuration records a repository's reviewed intent. It answers which capabilities may run and how those
-capabilities should fit the repository's workflow.
+- The repository file is **`automations.yml` at the repository root** (D93).
+- The future read adapter must fetch it from the repository's default branch. The runnable shell currently
+  reads an operator-maintained local copy through the same `ConfigSource` seam.
+- An absent file and an empty file both produce the no-configuration result: `observe`, no capabilities,
+  no mappings, and no principals.
+- A parsed configuration is stamped with the revision supplied by the caller. The revision is not a YAML
+  key and is persisted with the delivery report.
+- Configuration contains reviewed policy, never delivery, retry, effect, schedule, or audit state.
 
-Configuration does not store webhook deliveries, retries, pending API effects, audit logs, or other runtime
-state. Those concerns belong to the platform's operational components.
+## 2. Document boundary
 
-## 2. Required behavior
+`parseConfigDocument` accepts YAML text and always returns a value; a hostile document does not escape as
+an exception.
 
-The configuration system must follow these rules.
+- Duplicate YAML keys are rejected. Keeping the last value could turn an earlier `mode: observe` into an
+  effective `mode: active` without a visible validation error.
+- Alias expansion is capped at ten. Configuration has no legitimate need for a large alias graph.
+- The root and every named section that is documented as a mapping must actually be a mapping.
+- Syntax errors and semantic errors carry a machine-readable code, a maintainer-facing message, and a
+  dotted path where one exists.
+- One error anywhere rejects the whole document. The parser never salvages a valid-looking fragment from
+  an invalid file (D38).
 
-1. The App reads active configuration from the repository's default branch.
-2. No configuration causes no workflow-changing writes.
-3. A capability runs only when the repository explicitly enables it.
-4. Every user-facing capability is optional and defaults to disabled.
-5. A capability receives only its own validated configuration block and the shared values that its contract
-   declares.
-6. Invalid or outdated configuration fails closed and reports a clear error.
-7. Unknown keys are rejected so that misspellings do not silently change behavior.
-8. The App can report the active configuration revision and effective value of every setting.
-9. Configuration changes in a pull request do not become active until they reach the default branch.
-10. A repository can disable all writes without uninstalling the App.
-
-## 3. Candidate shape
-
-**The worked examples live in [`docs/examples/`](../../docs/examples/) and are parsed by the test
-suite** (D82). The blocks below show the concepts; the files there are the ones that cannot silently rot,
-including one per `ConfigErrorCode` demonstrating what each rejection looks like.
-
-The following YAML example shows the concepts that the first schema needs. It does not decide every
-capability key.
+## 3. Schema shape
 
 ```yaml
 schemaVersion: 1
 mode: observe
-
 capabilities:
-  prQuality:
-    enabled: true
-    settings:
-      checks:
-        dco: true
-        mergeConflict: true
-        linkedIssue: true
-        gpg: false
-
-  assignment:
+  intake:
     enabled: false
     settings:
-      maxOpenAssignments: 2
-      policyProfile: hiero-contributor-ladder
-
+      announce: true
 mappings:
   labels:
+    awaitingTriage: "status: awaiting triage"
     ready: "status: ready for dev"
-    inProgress: "status: in progress"
-    needsReview: "status: needs review"
-    needsRevision: "status: needs revision"
-
 principals:
-  maintainerTeam: hiero-sdk-cpp-maintainers
+  maintainerTeam: hiero-sdk-maintainers
 ```
 
-The smallest useful configuration is three lines — a repository that wants observation reports and nothing
-else:
+The accepted top-level keys are exactly:
 
-```yaml
-schemaVersion: 1
-mode: observe
-capabilities: {}
-```
+| Key | Current contract |
+|---|---|
+| `schemaVersion` | Required for a non-empty document and exactly `1`. |
+| `mode` | Optional; omission defaults to `observe`, while a present null or invalid value is rejected. |
+| `capabilities` | Optional mapping from an admitted capability name to an `enabled` boolean and an opaque `settings` mapping. |
+| `mappings` | Optional; currently contains only the `labels` mapping. |
+| `principals` | Optional string-to-string mapping. |
 
-The recommended adoption path is a sequence of small reviewed diffs up the mode ladder: `observe` (reports
-only) → `dry-run` (explains what would happen) → `active`, with each step's blast radius already visible in
-the previous step's reports. Keeping a capability's settings in the file with `enabled: false` is the
-supported way to stage the next step: the settings are validated and dormant, and enabling later is a
-one-line, pre-reviewed diff.
+Unknown keys are rejected at the top level, inside `mappings`, and inside each capability block.
+
+### Capability admission
+
+- Names use lower-camel configuration-key syntax: `/^[a-z][a-zA-Z0-9]*$/`.
+- Every configured name must appear in the caller's directly admitted `knownCapabilities` list, even when
+  `enabled: false`. Unknown and retired names are rejected with `capabilityUnknown`; there is no retirement
+  tombstone in the current direct-set model (D58's earlier registry design no longer exists).
+- Only the boolean value `true` enables a capability. Omission is false; strings and numbers are rejected.
+- `settings`, when present, must be a mapping but is otherwise opaque to the shared parser. A real
+  capability must add and own its setting validation before it ships.
+
+### Label mappings
+
+- A key must be one of the closed mappable meanings in [`catalogue.md`](catalogue.md).
+- A label is a non-empty string.
+- Mappings are fully injective after trimming and case folding, matching GitHub label-name uniqueness. Two
+  meanings therefore cannot map to spellings GitHub treats as the same label (D34, D55).
+- The parser does **not** currently call GitHub to confirm that a mapped label exists, and it does not know
+  which meanings a capability requires. Those are activation checks still to build.
 
 ## 4. Repository modes
 
-The schema should support the following repository modes.
-
-| Mode | Required behavior |
+| Mode | Current behavior |
 |---|---|
-| `disabled` | The App performs no capability reads or writes beyond the minimum work required to explain that it is disabled. |
-| `observe` | The App reads and evaluates current state but produces only operator-visible findings. |
-| `dry-run` | The App records the exact effects it would request but does not apply them. |
-| `active` | The App may apply effects for capabilities that are enabled and fully valid. |
+| `disabled` | Core still evaluates enabled capabilities and declared resolvers, then refuses every screened intent with `modeDisabled`; it approves no effect. |
+| `observe` | Core records findings and record-only intent explanations, never an effect to apply. This is the safe default. |
+| `dry-run` | Currently the same record-only decision path as `observe`; a distinct output/rollout treatment is deferred. |
+| `active` | A valid core mode, but the current shell intercepts it as `modeUnsupported` because no GitHub write path exists. |
 
-A global or installation-level kill switch always overrides repository mode.
+For modes that reach `decide()`, the process kill switch is the first safety verdict for each returned
+intent. It does not prevent capability or resolver evaluation, and the shell intercepts `active` before
+`decide()`. A true transport/evaluation stop is deferred (D117). Capability enablement remains a separate
+gate.
 
-## 5. Capability configuration
+## 5. Failure behavior
 
-Every capability schema must declare the following information.
+Invalid configuration returns no partial `RepositoryConfig`. In the runnable shell it becomes one durable
+`configRejected` record and the delivery completes: retrying the same webhook cannot repair the file, while
+a later commit containing a fix arrives as a new delivery.
 
-- The schema declares whether the capability is enabled. Omitted capabilities and capabilities with
-  `enabled: false` are off.
-- The schema declares every key that the capability may read.
-- The schema provides safe ranges for numbers and time periods.
-- The schema identifies required mappings and principals.
-- The schema rejects incompatible settings before activation.
-- The schema declares the capability version when migration may change behavior.
+The following mitigations named by D38 are **not built yet**:
 
-Settings live under the capability's `settings` key so that enablement is easy to distinguish from policy.
-Settings under a disabled capability are dormant: they may remain in the file, but the capability performs
-no capability-specific evaluation, read, or write. The validator still rejects malformed settings so that
-enabling the capability later cannot silently activate an invalid value.
+- a pull-request check annotating invalid `automations.yml` changes;
+- a repository-visible effective-configuration or health report;
+- permission diagnostics before capability evaluation.
 
-An empty capability block must not rely on surprising defaults. A profile or default may fill in settings,
-but it must never enable a capability. If a default can cause a workflow-changing write after enablement,
-the documentation must state it clearly.
+Until those exist, `active` remains unsupported by the shell.
 
-Schema validation alone cannot police capability names: capability keys are free-form and settings are
-contractually opaque to the shared validator, so a configuration enabling a misspelled or unshipped
-capability passes validation silently — observed directly in the sandbox (experiment 6.3,
-`FINDING(config-capability-registry-gap)`). The platform layer must therefore check every enabled
-capability against its registry of shipped capabilities at configuration load, and the effective-
-configuration report must name unknown capabilities and capabilities whose installation permissions are
-missing. This registry check is a platform requirement that complements, and cannot be replaced by, the
-schema in this document; it feeds the capability contract under D23. Its companion rule: registry names
-are never deleted — a retired capability is tombstoned, so configurations that enable it remain valid
-while the capability simply never activates and the effective-configuration report says so. Retirement must
-not be a breaking change; only names that never existed are validation errors.
+## 6. Rejection codes
 
-## 6. Stable meanings and repository mappings
+| Code | Meaning |
+|---|---|
+| `documentUnparseable` | YAML could not be safely converted, including excessive alias expansion. |
+| `duplicateKey` | The YAML repeats a key. |
+| `notAMapping` | The document or a mapping-shaped section has another type. |
+| `unknownKey` | A closed mapping contains an unsupported key. |
+| `schemaVersionUnsupported` | `schemaVersion` is absent, has the wrong type, or is not `1`. |
+| `modeInvalid` | `mode` is present but is not one of §4's values. |
+| `capabilityNameInvalid` | A capability name is not a valid configuration key. |
+| `capabilityEnabledNotBoolean` | `enabled` is present but is not a boolean. |
+| `capabilityUnknown` | The application did not directly admit the configured capability name. |
+| `meaningNotMappable` | A label mapping names a meaning outside the closed catalogue. |
+| `labelInvalid` | A mapped label is not a non-empty string. |
+| `labelNotInjective` | Two meanings map to one GitHub-equivalent label name. |
+| `principalNotAString` | A principal value is not a string. |
 
-The platform may use stable internal meanings while repositories keep their own labels and fields. For
-example, assignment may require internal meanings named `ready` and `inProgress`. The repository maps those
-meanings to its actual labels.
+## 7. Deliberately deferred
 
-The validator must check the following conditions before a capability becomes active.
-
-- Every required meaning has exactly one supported mapping.
-- Two incompatible meanings do not map to the same label or field. Sameness is judged the way GitHub
-  judges it — case-insensitively, ignoring surrounding space — so `status: ready` and `Status: Ready` are
-  one label and cannot carry two meanings (D55). The configured spelling is preserved for writes.
-- The configured label or field exists when the platform requires pre-provisioning.
-- The installation has permission to read or write the mapped representation.
-- A mapping change has a clear migration and rollback path when existing items still use the old value.
-
-The App removes only the configured value that belongs to the requested meaning. It never removes values by
-matching a namespace prefix.
-
-In the first version, maintainers create required labels before activation. The App validates each mapped
-label and reports a missing or renamed label. It does not create a replacement, guess which label was
-renamed, or continue label-changing work for the affected capability.
-
-## 7. Workflow profiles
-
-A workflow profile is a reviewed collection of settings, mappings, and compatibility rules. A profile may
-describe the current Hiero contribution workflow, including its suggested labels and skill policy.
-
-A profile does not automatically enable its capabilities. A repository still chooses the capabilities that
-it wants. Every user-facing capability remains optional.
-
-The skill ladder is an optional policy profile. A repository that does not enable it does not need skill
-labels, contribution history queries, or ladder thresholds.
-
-The Hiero contribution profile includes the internal `blocked` meaning and suggests `status: blocked` as its
-expected mapping. A repository may explicitly map the same meaning to an existing label, but it cannot
-replace `blocked` with a different meaning or ask the App to create an arbitrary new label during normal
-event processing.
-
-## 8. Effective configuration and later inheritance
-
-The first version does not inherit configuration from another repository or organization. Each repository's
-default-branch YAML file is its complete source of configuration truth.
-
-The App validates that file and computes an effective configuration in memory. An evaluation records the
-repository configuration revision and a hash of the validated effective configuration so that an operator
-can tell which configuration produced a decision. A cache may keep the validated result, but the cache is
-not the source of truth.
-
-Inheritance may be considered later if several repositories demonstrate a real need for shared settings.
-Any later design must pin inherited values to an immutable revision, reject missing sources and cycles,
-show the complete merge result, and never enable a capability through inherited defaults.
-
-## 9. Invalid configuration
-
-Invalid configuration must fail closed and must remain visible to repository maintainers.
-
-While a pull request edits configuration, the App reports validation through one configuration check on
-that pull request. If invalid configuration reaches the default branch, the App publishes or updates one
-repository configuration-health result for maintainers. The report names the path, rejected value, reason,
-and last behavior that remains safe.
-
-If missing permissions prevent repository reporting, the App sends the failure to its operator diagnostics.
-The sandbox experiment must confirm the exact GitHub check or health-report surface and the permission it
-requires.
-
-## 10. Permission mismatch
-
-Valid configuration is not enough to authorize a capability. The installation must also have every required
-GitHub permission.
-
-When a permission is missing, the capability remains inactive. The App reports the missing permission, the
-operations that are blocked, and the action an installation owner must take. The App does not repeatedly try
-an operation that the current installation cannot perform.
-
-## 11. Migration and rollback
-
-The schema must define how repositories move between versions.
-
-- The system must reject unsupported future versions.
-- The system must explain deprecated keys before removing support for them.
-- A missing or renamed mapped label disables label-changing work for the affected capability and produces a
-  maintainer-visible configuration error.
-- The App does not recreate the old label, guess the replacement, or migrate existing items during ordinary
-  event processing.
-- A mapping change must account for items that still use the previous label or field through an explicit
-  migration and rollback plan.
-- A repository must be able to return to `observe` or `disabled` mode before a risky migration.
-- Configuration rollback must not cause the App to reverse newer human changes.
-- An intent evaluated under an older configuration revision becomes invalid when the mapping changes.
-
-## 12. Questions that remain open
-
-The following questions require maintainer review and sandbox evidence.
-
-- The project must choose the final YAML path under `.github/`.
-- The project must choose the first workflow profile and its ownership rules.
-- The sandbox experiment must confirm the configuration check, repository health-report surface, and
-  permissions they require.
-- The project must define schema retention, migration, and rollback support.
+- Define and enforce each shipped capability's settings schema and required meanings.
+- Fetch the file from the default branch and bind the reported revision to that fetch.
+- Check mapped-label existence and live installation grants before activation.
+- Build the pull-request validation check and effective-configuration report required by D38.
+- Decide schema-version migration, deprecation, retention, and rollback policy (Q14).
+- Add inheritance only if repeated repository demand justifies it; version 1 has none.
+- Keep `active` unsupported until adapter writes, postcondition verification, recovery, and rollback exist.

@@ -29,7 +29,9 @@ import type {
 
 /** Kill switch and authoritative precondition run before either write door. */
 export function evaluatePreflight(context: WriteContext): SafetyVerdict | null {
-    // Before the observation short-circuit: "stop" stops reads too (D39).
+    // Before the observation-intent short-circuit: the brake refuses those
+    // requests too. `decide()` has already evaluated the capability and any
+    // resolver, so this is not a transport/read stop (D117).
     if (context.killSwitchActive) {
         return {
             outcome: "refuse",

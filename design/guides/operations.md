@@ -1,8 +1,9 @@
 # Operations
 
-> **Not built.** What production requires before the App can run for anyone else: an operator, stop
-> controls, an audit record, and a named audience for every failure. The runnable shell has none of
-> it. Measured answers live in [`../findings/`](../findings/); sequencing lives in
+> **Partly built, not production-ready.** The shell already verifies and durably accepts deliveries,
+> persists one canonical report, and exposes process/repository/capability/item stop controls. A production
+> operator, live adapter, alerting, backups, retention, reconciliation, and runbooks remain unbuilt. Measured
+> answers live in [`../findings/`](../findings/); sequencing lives in
 > [`../build-plan.md`](../build-plan.md).
 
 ## 1. The operator
@@ -84,13 +85,16 @@ Whoever takes the operator role must be able to:
 
 | Switch | Stops | Built |
 |---|---|---|
-| Global | all new processing | no |
+| Process/global | every returned intent after capability/resolver evaluation | `KILL_SWITCH=1`; intake still records and reports the refusal |
 | Installation | one organization or installation | no |
-| Repository mode | workflow-changing writes for one repository | `disabled`, `observe` |
-| Capability | one capability, leaving others alone | no |
-| Item-level pause | as a selected workflow profile defines | no |
+| Repository mode | one repository's approved effects | all four modes are core vocabulary; the current shell additionally rejects `active` |
+| Capability | one capability, leaving others alone | `capabilities.<name>.enabled: false` or omission |
+| Item-level pause | every capability write on an item | mapped `blocked` meaning → `itemBlocked` |
 
-- Five stop controls, of which only the third exists.
+- Four of the five levels have code paths today; installation-wide suspension is missing. The process
+  switch is an intent-level safety refusal, not a transport or evaluation shutdown; `active` is intercepted
+  even earlier as unsupported. The item pause is currently global to all capabilities rather than
+  profile-selective (D117).
 - The operator runbook must say what happens to queued and pending work when each switch activates.
 
 ## 8. Migration

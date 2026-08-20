@@ -17,8 +17,8 @@ of the rest matters.
 | `observations` | `pullRequestUpdated`, `issueUpdated` | merged and closed-unmerged are distinguished from the projection's closure reason, not from a label (D47, D59). The draft's contribution and actor observations do not exist (D61, §8) |
 | `resolvers` | `linkedIssues`, `isAutomationActor` | find the work a merge completed; exclude bot contributions. The draft's `contributionHistory` is not in the catalogue, and it is the one carrying the org-wide problem above (§8) |
 | `intents` | `postManagedComment` | guidance only. `applyMappedLabel` **cannot carry a level**: `skill:` labels are outside the seven `MAPPABLE_MEANINGS` (`packages/core/src/config/schema.ts`), so the draft's whole label output has no operation (§3, §8) |
-| `permissions.repository` | `issues:read`, `pull_requests:read`, `issues:write` | read merged pull requests, linked issues, authors, labels and reviews; write one guidance comment. It needs no content write, no merge, and no organization role |
-| `permissions.organization` | none for a repository-local ladder; `members:read` the moment it counts work org-wide | which is the ceiling problem stated above (D57) |
+| Permission impact — repository | `issues:read`, `pull_requests:read`, `issues:write` | proposed reads plus one catalogued guidance comment; no level-write operation exists |
+| Permission impact — organization | none for a repository-local ladder; `members:read` the moment it counts work org-wide | the ceiling problem stated above (D57) |
 | `operationalNeeds` | `schedule: false`, `durableState: "candidate"`, `crossItemCoordination: true`, `externalDelivery: false` | §6 |
 
 Defaults to disabled (P2), and the platform ships **no** hidden default ladder — a repository may enable

@@ -13,8 +13,8 @@ policy and combines signals; it never pretends to replace that enforcement.
 | `observations` | `pullRequestUpdated` | it needs the pull request's own projection and its closure; it reads no issue |
 | `resolvers` | `linkedIssues` | the one fact the event does not carry. Check-based signals would need a `requiredChecks` resolver the closed catalogue does not have — an extension by review (D61), §8 |
 | `intents` | `postManagedComment` | one deterministic App-authored comment. Label mode would add `applyMappedLabel`; there is no remove operation (D80) |
-| `permissions.repository` | `pull_requests:read`, `issues:write`, `contents:read` | read the pull request, its files and reviews; GitHub exposes pull request comments and labels through the issue API, so the comment costs `issues:write`; `contents:read` only for a check that inspects a repository file |
-| `permissions.organization` | none | at the ceiling. It needs no merge and no `contents:write` |
+| Permission impact — repository | `pull_requests:read`, `issues:write`, `contents:read` | proposed reads plus the catalogued comment operation; `contents:read` only for a check that inspects a repository file |
+| Permission impact — organization | none | no merge or `contents:write` operation is proposed |
 | `operationalNeeds` | `schedule: false`, `durableState: "none"`, `crossItemCoordination: false`, `externalDelivery: false` | §6 |
 
 ## 2. Decision

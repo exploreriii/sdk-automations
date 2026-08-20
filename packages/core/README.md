@@ -153,13 +153,13 @@ tidiness:
   `properties` compose several modules. Neither belongs to one file, and
   the absence of a directory is how they say so. Tests about the
   REPOSITORY rather than about core — docs, examples, design drift,
-  artifact invariants — live in the workspace's `checks/` package.
+  artifact invariants — live in the workspace's `packages/dev/checks/` package.
 
 So the rule reads in both directions: if you add a per-module test, it goes
 beside its module; if you cannot name the one module a test belongs to, it
 belongs at the root.
 
-The workspace's `checks/` package holds the invariants that are not about
+The workspace's `packages/dev/checks/` package holds the invariants that are not about
 behaviour at all — source files stay free of control characters, and every
 module matches Stryker's mutate glob. Both exist because a regression got
 through: a NUL-delimited key made `capability/intent.ts` a binary file to grep, and a
@@ -175,11 +175,9 @@ does *not* catch a module half-losing it, which is the weaker guarantee and is
 stated here rather than assumed. Today's score is 96.63.
 
 A line-coverage floor sits beneath the mutation gate: `vitest run --coverage`
-(`core`'s `test:coverage`) holds lines, branches, functions, and statements
-at 80 against `src/**`, excluding the `src/index.ts` barrel, and reports
-99.64% lines. It is a local floor, not a CI gate — only Stryker's break
-threshold fails the build — and is stated here because a number a contributor
-can re-run is the kind of evidence that stays honest.
+(`core`'s `test:coverage`) holds lines, branches, functions, and statements at 80 against `src/**`,
+excluding the `src/index.ts` barrel. CI runs this gate for every package that declares it; the current
+number belongs in the generated coverage output rather than in prose that immediately ages.
 
 ## What the tests prove — and what they do not
 
@@ -187,20 +185,15 @@ The invariant tests prove the *decision logic* is coherent: given true
 inputs, the rules compose the way the design says they should. They do not
 prove the safety property itself. Two debts remain for any future write path:
 
-- **Some inputs arrive by attestation.** `WriteContext` mixes facts the
-  core compares itself (`latestHumanChangeAt` against the request's
-  `causeObservedAt`; `capability` against the request's, since D53) with
-  attestations it must trust (`preconditionHolds` — the precondition's
-  shape is capability-specific, so the comparison cannot live in
-  capability-agnostic code). A shell that supplies a wrong attestation
-  gets a wrong verdict; adapter integration tests must own that boundary.
-  D51 narrows this further: the shell must now distinguish "no human change" from
-  "could not establish ordering", and reporting `null` for a failed
-  lookup silently restores the unsafe behaviour.
+- **External observations can still be wrong.** `DerivedWorld` makes precondition claims unforgeable inside
+  core, but the shell still supplies live installation grants and newer-human ordering. Until the adapter
+  replaces today's stubs, dry-run can overstate what would apply. D51 requires the adapter to distinguish
+  “no human change” from “could not establish ordering”; reporting `null` for a failed lookup silently
+  restores unsafe behavior.
 - **Verdicts are advisory until the write lands.** A future write path must
   recheck immediately before the GitHub write to close the usual
   time-of-check/time-of-use window
-  (safety.md rules 7–10: postcondition verification and unclear-outcome
+  ([`design/guides/effects.md`](../../design/guides/effects.md): postcondition verification and unclear-outcome
   reconciliation), not more pure logic.
 
 Green tests here mean the rules are consistent — not that the system is

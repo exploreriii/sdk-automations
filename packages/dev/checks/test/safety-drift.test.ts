@@ -1,16 +1,16 @@
 /**
  * `design/contracts/safety.md` is the engine's contract, and a contract nothing
- * reads is a proposal wearing one's name. Its refusal table is held to
- * `SafetyRefusalCode` in both directions: an undocumented code and an invented
- * row are the same defect seen from either side. No runtime array exists for
- * that union, so the catalogue is a mapped type — a new code fails to COMPILE
- * until the row follows (D76). One invariant per file (D89).
+ * reads is a proposal wearing one's name. Its refusal and record-only tables
+ * are held to their code unions in both directions: an undocumented code and
+ * an invented row are the same defect seen from either side. No runtime arrays
+ * exist for those unions, so each catalogue is a mapped type — a new code
+ * fails to COMPILE until the row follows (D76). One invariant per file (D89).
  */
 
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { SafetyRefusalCode } from "@hiero-hackers/automation-core";
+import type { RecordOnlyCode, SafetyRefusalCode } from "@hiero-hackers/automation-core";
 import { normalizeNewlines, repoRoot } from "./repository.js";
 
 const DOC = join(repoRoot, "design", "contracts", "safety.md");
@@ -19,7 +19,7 @@ const DOC = join(repoRoot, "design", "contracts", "safety.md");
 function tableCodes(markdown: string, heading: string): string[] {
     const section = markdown.split(/^## /m).find((s) => s.startsWith(heading));
     expect(section, `section "${heading}" exists`).toBeDefined();
-    return [...(section ?? "").matchAll(/^\|\s*`([a-zA-Z-]+)`\s*\|/gm)].map((m) => m[1]!);
+    return [...(section ?? "").matchAll(/^\|\s*`([^`\r\n]+)`\s*\|/gm)].map((m) => m[1]!);
 }
 
 const REFUSAL_CODES: { readonly [K in SafetyRefusalCode]: true } = {
@@ -43,12 +43,23 @@ const REFUSAL_CODES: { readonly [K in SafetyRefusalCode]: true } = {
     activityCancelled: true,
 };
 
+const RECORD_ONLY_CODES: { readonly [K in RecordOnlyCode]: true } = {
+    observation: true,
+    modeRecordsOnly: true,
+};
+
 describe("contracts/safety.md matches the safety engine's refusal vocabulary", () => {
     const doc = normalizeNewlines(readFileSync(DOC, "utf8"));
 
     it("its refusal table is the refusal catalogue, exactly", () => {
         expect(tableCodes(doc, "3. Refusal codes").sort()).toEqual(
             Object.keys(REFUSAL_CODES).sort(),
+        );
+    });
+
+    it("its record-only table is the record-only catalogue, exactly", () => {
+        expect(tableCodes(doc, "4. Record-only codes").sort()).toEqual(
+            Object.keys(RECORD_ONLY_CODES).sort(),
         );
     });
 
@@ -61,5 +72,11 @@ describe("contracts/safety.md matches the safety engine's refusal vocabulary", (
             Object.keys(REFUSAL_CODES).sort(),
         );
         expect(tableCodes(doc, "3. Refusal codes").length).toBeGreaterThan(10);
+        expect(
+            tableCodes(
+                "## 4. Record-only codes\n\n| Code |\n|---|\n| `observation` |\n| `invented_2` |",
+                "4. Record-only codes",
+            ),
+        ).not.toEqual(Object.keys(RECORD_ONLY_CODES));
     });
 });

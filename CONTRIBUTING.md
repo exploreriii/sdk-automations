@@ -52,10 +52,8 @@ at [developercertificate.org](https://developercertificate.org/).
 
 If you forget on your last commit: `git commit --amend -s --no-edit`.
 
-> Enforcement status, as investigated for issue #46: sign-offs are used but **not enforced by a bot**
-> — spot-checking recent commits on both this repository and `hiero-x402` shows a mix of signed and
-> unsigned. Turning on a DCO check is a maintainer-side setting and is not something a contributor
-> should attempt.
+The repository's DCO check enforces this on every pull request. `-s` is the required sign-off; GPG/SSH
+commit signing (`-S`) is a separate optional mechanism and is not required by this guide.
 
 ## Which issue to pick
 
@@ -116,7 +114,8 @@ than taking it on faith.
   or test that falsifies it.
 - [`design/decisions.md`](design/decisions.md) — the register: every non-obvious choice, its
   reasoning, its costs, and what would reopen it.
-- [`docs/`](docs/README.md) — user-facing configuration guide, with its tables locked to the code.
+- [`docs/`](docs/README.md) — user-facing configuration guide, with its closed code vocabularies
+  guarded by repository checks and its explanatory prose owned by review.
 
 Pull requests are reviewed by the maintainers listed in [`.github/CODEOWNERS`](.github/CODEOWNERS).
 By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).

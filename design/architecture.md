@@ -13,7 +13,7 @@ flowchart LR
     subgraph GitHub
         WH["Webhook deliveries"]
         REST["REST API"]
-        CFG["automations.yml on the default branch"]
+        CFG["automations.yml on the default branch — intended source"]
     end
     subgraph App["The App — one process, one disk"]
         SH["shell"]
@@ -21,26 +21,41 @@ flowchart LR
     end
     M["Maintainers"] -->|review and merge config| CFG
     WH -->|HTTP POST| SH
-    CFG -->|read| SH
+    CFG -.->|future fetch; current shell reads an operator copy| SH
     SH <--> DB
-    SH -.->|"no writes exist (P5, D46)"| REST
+    SH -.->|"future adapter; no repository writes exist (P5, D46)"| REST
 ```
 
-*Sources: `packages/shell/src/receiver.ts` · [`decisions.md`](decisions.md) P5, D46, D110.*
+*Sources: `packages/shell/src/receiver.ts`, `config.ts`, `main.ts` · [`decisions.md`](decisions.md)
+P5, D46, D93, D110. The default-branch fetch is an explicit missing seam, not current behavior.*
 
-### 2. Packages — the allowed edges, and only those
+### 2. Packages — runtime and development edges
 
 ```mermaid
 flowchart TD
-    shell["shell — transport"] --> core["core — pure logic"]
-    shell --> store["store — SQLite"]
-    shell --> probes["probes — capability stubs"]
-    store --> core
-    probes --> core
+    subgraph runtime ["runnable path"]
+        shell["shell — transport"] --> core["core — pure logic"]
+        shell --> store["store — SQLite"]
+        shell --> probes["probes — disposable capability stubs"]
+        store --> core
+        probes --> core
+    end
+    subgraph development ["development-only packages"]
+        checks["checks — repository invariants"]
+        lab["lab — GitHub experiments"]
+        testkit["testkit — fixtures and test support"]
+    end
+    checks -.-> core
+    checks -.-> testkit
+    lab -.-> core
+    core -. "tests" .-> testkit
+    store -. "tests" .-> testkit
+    shell -. "tests" .-> testkit
 ```
 
-*An edge not drawn is forbidden — enforced by `.dependency-cruiser.cjs` via
-`packages/dev/checks/test/architecture.test.ts`.*
+*Solid edges are runtime dependencies; dotted edges exist only in development/test packages. The exact
+layer policy, public-barrel rule, testkit test-only rule, and cycle ban are enforced by
+`.dependency-cruiser.cjs` via `packages/dev/checks/test/architecture.test.ts`.*
 
 ## Part 2 — Inside each package
 
@@ -62,17 +77,18 @@ Three steps: hand the text to core, intercept `active`, complete atomically what
 `disabled` is **not** intercepted — it runs through `decide()` and the `modeDisabled` gate refuses each
 intent, which is why it sits with `observe` and `dry-run` rather than with `active`.
 
-Every config outcome, which is data rather than flow:
+The outcome families, which are data rather than flow:
 
 | Configuration | Mode | Record |
 |---|---|---|
 | absent · empty document · no `mode` key | `observe` | `decision` |
 | `disabled` · `observe` · `dry-run` | as written | `decision` |
 | `active` | — | `modeUnsupported` |
-| unparseable · duplicate key · not a mapping · unknown key · unsupported `schemaVersion` · invalid mode | — | `configRejected` |
+| any YAML or semantic rejection — including capability, mapping, and principal errors | — | `configRejected` |
 
-Every rejection **fails closed and still completes** — no retry loop, and a redelivery produces no
-second record.
+Every rejection in `ConfigErrorCode` **fails closed and still completes** — no retry loop, and a redelivery
+produces no second record. [`contracts/config-schema.md`](contracts/config-schema.md) is the exhaustive code
+table; this architecture table deliberately groups it rather than copying it.
 
 *Sources: `packages/shell/src/processor.ts` · the parse outcomes are core's
 (`packages/core/src/config/parse.ts`, `sections.ts`) — pinned by

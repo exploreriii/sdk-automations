@@ -33,7 +33,7 @@ labels: "intermediate"
 
 ## How to work on this
 
-1. **Claim it:** comment /assign on the issue and wait to be assigned before opening a PR.
+1. **Claim it:** comment `/assign` on the issue and wait to be assigned before opening a PR.
 2. **Propose your approach as a comment before coding.** A paragraph is enough; early feedback here routinely saves days of rework.
 3. **Check the house invariants** in the [contributor guide](https://github.com/hiero-hackers/sdk-automations/blob/main/CONTRIBUTING.md#ground-rules-for-changes) — one fact, one place; every check gets a negative control; never weaken a mutation threshold — and the [signing requirements](https://github.com/hiero-ledger/sdk-collaboration-hub/blob/main/guides/issue-progression/for-developers/signing.md). AI assistance is welcome within the [AI policy](https://github.com/hiero-hackers/sdk-automations/blob/main/AI_POLICY.md); purely AI generated PRs are not accepted.
 
@@ -51,7 +51,7 @@ review than it saves to write, so read before you decide:
 - [ ] Tests cover the happy path, edge cases, and error handling
 - [ ] I reviewed my own diff line by line; scope is limited to this issue
 - [ ] The PR description links this issue with `Closes #<number>`
-- [ ] `pnpm -r test` and `pnpm lint` passes
-- [ ] My commits are signed: `git commit -S -s -m "fix: description"`
+- [ ] `pnpm -r test` and `pnpm lint` pass
+- [ ] My commits are signed off for DCO: `git commit -s -m "fix: description"`
 
 **Stuck?** Comment here with what you have tried. A maintainer will respond.

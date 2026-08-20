@@ -51,12 +51,15 @@ an individual is officially representing the community in public spaces.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported by either route below. 
+reported by either route below.
 
-- **The LFDT (Hyperledger) Discord**, <https://discord.com/invite/hyperledger> joining the Hiero section.
+- **The project maintainer**, [@exploreriii](https://github.com/exploreriii), by direct message on
+  GitHub, when they are an appropriate recipient.
+- **The LFDT (Hyperledger) Discord**, <https://discord.com/invite/hyperledger>, in the Hiero section,
+  when the maintainer is involved in the report, is unavailable, or is otherwise the wrong recipient.
 
 **What to expect.** An acknowledgement within **7 days** and an outcome or a status update within
-**30 days**. If the 7 days pass in silence, treat that as a reason to escalate.
+**30 days**. If the 7 days pass in silence, use the other route to escalate.
 
 All complaints will be reviewed and investigated promptly and fairly. All
 community leaders are obligated to respect the privacy and security of the

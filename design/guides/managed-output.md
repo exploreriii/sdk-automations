@@ -1,4 +1,4 @@
-# Managed Comments and Other Human-Facing Output
+# Managed Output and Reporting
 
 > **Not built — build guide.** No write path exists, so nothing here is implemented. This is the
 > working answer to Q9 (managed-comment marker and schema) and the spec for the first reversible
@@ -126,7 +126,7 @@ A safety warning must state all five facts.
 
 - The project must choose the marker and metadata schema after the sandbox experiment.
 - The project must decide which output types use comments, issues, checks, or operator-only records.
-- The storage experiment must decide whether command and safety progress belongs in comments or an
-  owned store.
+- SQLite is the owned operational store; the executor design must define the exact command and safety
+  progress records while comments remain user-facing receipts, not coordination state.
 - The project must decide how duplicate managed comments are repaired without deleting human content.
 - Maintainers must review the first real templates before a capability enters a pilot.

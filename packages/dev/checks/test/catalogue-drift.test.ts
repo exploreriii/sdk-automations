@@ -24,14 +24,14 @@ const DOC = join(repoRoot, "design", "contracts", "catalogue.md");
 export function rowNames(markdown: string, heading: string): string[] {
     const section = markdown.split(/^## /m).find((s) => s.startsWith(heading));
     expect(section, `section "${heading}" exists`).toBeDefined();
-    return [...(section ?? "").matchAll(/^\|\s*`([A-Za-z:]+)`\s*\|/gm)].map((m) => m[1]!);
+    return [...(section ?? "").matchAll(/^\|\s*`([^`\r\n]+)`\s*\|/gm)].map((m) => m[1]!);
 }
 
 /** Every backticked token in one row, so a row's facts can be checked. */
 function rowCells(markdown: string, operation: string): string[] {
     const row = markdown.split("\n").find((l) => l.startsWith(`| \`${operation}\``));
     expect(row, `row for ${operation}`).toBeDefined();
-    return [...(row ?? "").matchAll(/`([A-Za-z:]+)`/g)].map((m) => m[1]!);
+    return [...(row ?? "").matchAll(/`([^`\r\n]+)`/g)].map((m) => m[1]!);
 }
 
 describe("catalogue.md lists exactly what the code allows", () => {
@@ -63,7 +63,7 @@ describe("catalogue.md lists exactly what the code allows", () => {
     });
 
     it("proves the check can fail", () => {
-        const forged = "## Intents\n\n| Operation |\n|---|\n| `unassign` |\n";
+        const forged = "## Intents\n\n| Operation |\n|---|\n| `unassign` |\n| `invented_2` |\n";
         expect(rowNames(`# x\n\n${forged}`, "Intents")).not.toEqual(Object.keys(INTENT_OPERATIONS));
         expect(rowCells("| `unassign` | `login` | `idempotent` |", "unassign")).toEqual([
             "unassign",

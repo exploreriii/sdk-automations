@@ -21,8 +21,8 @@ capabilities, not one: different evidence, permissions, safety rules, and recove
 | `observations` | `pullRequestUpdated` | the managed configuration pull request, and nothing else. The draft's repository-policy and membership observations do not exist, so the capability **cannot see the facts it decides on** through today's catalogue (D61, §8) |
 | `resolvers` | `isAutomationActor` | distinguish a maintainer's edit from an App's. The draft's `mayPerform` and `organizationMembership` are not in the catalogue, and the second is the one the whole rotation rests on (§8) |
 | `intents` | `postManagedComment` | advisory output. The draft's propose-configuration-change intent has **no catalogue operation and is not an approved adapter operation** — that is the parking notice above, restated as a declaration |
-| `permissions.repository` | `contents:read`, `pull_requests:read`, `issues:write` | read the policy file at the current default-branch revision, read the proposal pull request, write one comment. `contents:write` is what a real proposal would cost, and is refused |
-| `permissions.organization` | `members:read`, only if an approved rule requires it | **exceeds the ceiling**; membership visibility and team access need direct App tests before the declaration can even be accepted |
+| Permission impact — repository | `contents:read`, `pull_requests:read`, `issues:write` | proposed reads plus the catalogued comment operation. `contents:write` is what a real proposal would cost, and is refused |
+| Permission impact — organization | `members:read`, only if an approved rule requires it | **exceeds the ceiling**; membership visibility and team access need direct App tests before a supporting operation can be admitted |
 | `operationalNeeds` | `schedule: true`, `durableState: "candidate"`, `crossItemCoordination: true`, `externalDelivery: false` | §6 |
 
 Defaults to disabled (P2). A selected rule names its policy file, the eligible people or teams, the
@@ -77,7 +77,7 @@ boundary, and possibly a separate GitHub App.
 | Force-push or delete a human-modified branch | there is no branch operation; if one is ever approved, this is the first rule it must carry |
 | Open a second proposal for the same rule | the effect key is derived from capability, item, operation and cause, so one occasion is one effect (`packages/core/src/capability/intent.ts`) |
 | Overwrite a newer maintainer change to the policy | the `newerHumanChange` rule, ties to the human (`packages/core/src/safety/rules.ts`); the policy is re-read at the latest revision before every proposal |
-| Enable or reconfigure another capability | P3, and a capability cannot enable itself either (contract.md §6) |
+| Enable or reconfigure another capability | P3 and the runtime isolation boundary (contract.md §2, §4); no configuration-write operation exists |
 | Expose a private reason for an exclusion or a denylist entry in a public explanation | the structured explanation is built from configured fields, and visibility is a configured policy |
 | Bundle rotation and denylist behind one trigger and one permission block — D1 is the audit's instance | they are separate capabilities after discovery (`design/audit/lessons-learned.md`) |
 

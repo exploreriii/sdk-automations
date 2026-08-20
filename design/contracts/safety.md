@@ -1,15 +1,17 @@
 # Safety Engine Contract
 
-> **Built** — `packages/core/src/safety/`, locked by `packages/dev/checks/test/safety-drift.test.ts`.
-> The unbuilt write-path rules and the clock-triggered destructive policy are
-> [`../guides/effects.md`](../guides/effects.md).
+> **Built as policy logic** — `packages/core/src/safety/`, with both verdict vocabularies locked by
+> `packages/dev/checks/test/safety-drift.test.ts`. Repository effect application, postcondition
+> verification, recovery, and rollback are unbuilt and live in [`../guides/effects.md`](../guides/effects.md).
+> The destructive door exists, but no catalogued operation reaches it today.
 
 What the engine enforces today: two entry points, one shared rule list, and a closed vocabulary of
 verdict codes. A capability never decides whether its own write may happen.
 
 ## 1. Action classes
 
-The class a request declares chooses its door. Nothing else does.
+The engine derives a request's class from the operation facts in `INTENT_OPERATIONS`; a capability cannot
+declare or elevate it. That platform-owned class chooses the door.
 
 | Class | Door | Today's treatment |
 |---|---|---|
@@ -41,7 +43,7 @@ table, not this document's.
 
 | Code | Raised by | Meaning |
 |---|---|---|
-| `killSwitch` | preflight | An operator pulled the brake; reads stop too. |
+| `killSwitch` | intent preflight | An operator pulled the brake; every returned intent is refused, including observation-class intents. Capability and resolver evaluation has already occurred (D117). |
 | `wrongEntryPoint` | `write.ts` | A clock-triggered destructive request arrived at the general door. |
 | `preventiveGateUnavailable` | `write.ts` | The immediate-preventive class has no gate yet. |
 | `capabilityDisabled` | general rules | The repository did not enable this capability. |

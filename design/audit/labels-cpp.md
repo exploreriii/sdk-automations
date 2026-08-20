@@ -4,7 +4,7 @@
 > [`hiero-ledger/hiero-sdk-cpp`](https://github.com/hiero-ledger/hiero-sdk-cpp) reads or writes, and
 > which service touches it.
 > **Source state:** `main` at `a898153` (2026-05-14).
-> **Phase:** 2 (Labels and flows). It builds on the Phase 1 service inventory in `audit/services-cpp.md`.
+> **Phase:** 2 (Labels and flows). It builds on the Phase 1 service inventory in `design/audit/services-cpp.md`.
 > **Left out on purpose:** the CI, build, lint, and test workflows (`zxc-*`, `flow-pull-request-checks`,
 > `on-schedule-builds`). They were checked and they touch no labels at all (see Appendix C).
 
@@ -173,7 +173,7 @@ is a property of the current design worth recording (Appendix D has the concrete
 
 There are none. There is no `createLabel`, `ensureLabel`, `labels.create`, or `gh label create` anywhere
 in `.github/scripts/`. All 14 labels have to already exist in the repository. (Python is different here:
-it auto-creates its queue labels. See `audit/labels-python.md`.)
+it auto-creates its queue labels. See `design/audit/labels-python.md`.)
 
 ## Differences from Phase 1 and from the source
 

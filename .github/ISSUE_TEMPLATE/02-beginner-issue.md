@@ -30,7 +30,7 @@ labels: "beginner"
 
 ## How to work on this
 
-1. **Claim it:** comment /assign on the issue and wait to be assigned before opening a PR.
+1. **Claim it:** comment `/assign` on the issue and wait to be assigned before opening a PR.
 2. **Get oriented:** read [ground rules](https://github.com/hiero-hackers/sdk-automations/blob/main/CONTRIBUTING.md#ground-rules-for-changes) and [signing requirements](https://github.com/hiero-ledger/sdk-collaboration-hub/blob/main/guides/issue-progression/for-developers/signing.md)
 3. **Research, design, then solve it:** read the files above and their tests, work out the approach yourself, then follow the formatting and test requirements in the [contributor guide](https://github.com/hiero-hackers/sdk-automations/blob/main/CONTRIBUTING.md). AI assistance is welcome within the [AI policy](https://github.com/hiero-hackers/sdk-automations/blob/main/AI_POLICY.md); purely AI generated PRs are not accepted.
 
@@ -42,7 +42,7 @@ labels: "beginner"
 - [ ] I added tests for what I changed, following the package's existing test layout
 - [ ] My changes stay within the scope of this issue
 - [ ] The PR description links this issue with `Closes #<number>`
-- [ ] `pnpm -r test` and `pnpm lint` passes
-- [ ] My commits are signed: `git commit -S -s -m "fix: description"`
+- [ ] `pnpm -r test` and `pnpm lint` pass
+- [ ] My commits are signed off for DCO: `git commit -s -m "fix: description"`
 
 **Stuck?** Comment here with what you have tried. A maintainer will respond.

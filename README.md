@@ -41,7 +41,7 @@
 </table>
 
 <p align="center">
-  <strong>Early development · observe and dry-run only</strong><br>
+  <strong>Early development · non-writing modes only</strong><br>
   <sub>The App is not installable yet. Active GitHub writes remain disabled until one real effect has durable recovery.</sub>
 </p>
 
@@ -64,9 +64,9 @@ GitHub webhook  →  verify  →  persist  →  decide  →  persist report  →
                        exact bytes       pure logic      SQLite transaction
 ```
 
-The runnable application verifies and stores webhook deliveries, evaluates repository configuration
-in `observe` or `dry-run` mode, and persists a canonical report. Unsupported active configuration is
-rejected before a decision can claim that GitHub was changed.
+The runnable application verifies and stores webhook deliveries, evaluates `disabled`, `observe`, or
+`dry-run` configuration from an operator-maintained local copy, and persists a canonical report.
+Unsupported active configuration is rejected before a decision can claim that GitHub was changed.
 
 > [!NOTE]
 > This boundary is intentional. The first active capability will return only with a real GitHub

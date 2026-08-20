@@ -3,9 +3,9 @@
 > **What this covers:** the coupling failure modes found in the two existing SDK automation systems — what
 > to avoid, and why. Every entry is an audit finding, not a new investigation.
 >
-> **Source:** the Phase 1–3 audits (`audit/services-cpp.md`, `audit/labels-cpp.md`,
-> `audit/labels-python.md`, `audit/services-python.md`, `audit/coupling-cpp.md`) and `audit/services.md`.
-> Section references (`§2.1` etc.) point into `audit/coupling-cpp.md` unless noted.
+> **Source:** the Phase 1–3 audits (`design/audit/services-cpp.md`, `design/audit/labels-cpp.md`,
+> `design/audit/labels-python.md`, `design/audit/services-python.md`, `design/audit/coupling-cpp.md`) and `design/audit/services.md`.
+> Section references (`§2.1` etc.) point into `design/audit/coupling-cpp.md` unless noted.
 >
 > **Scope:** this records the anti-patterns only. What to build instead is `design/architecture.md`.
 
@@ -15,7 +15,7 @@ Neither existing system can simply be copied — each is good at what the other 
 coupling (one config file, no hand-typed labels, zero drift) but high deployment coupling (services share
 a few workflow files, so disabling one means editing a shared file). Python is the reverse: ~40 small
 workflows that are easy to delete individually, but messy shared data — four label-drift sets, labels
-created at runtime, exact-string CI matching. (§7, `audit/labels-python.md`)
+created at runtime, exact-string CI matching. (§7, `design/audit/labels-python.md`)
 
 Every entry below is a specific instance of one of those two coupling kinds.
 
@@ -26,17 +26,17 @@ failures. They are why C++ has zero label drift and why its code is the cleaner 
 
 **One config file, zero drift.** Every label string, limit, team, and prerequisite lives in
 `hiero-automation.json`, schema-validated and exposed as frozen constants — no handler types a label by
-hand. This is exactly the property Python lacks (the four drift sets, E1). (`audit/services-cpp.md`
+hand. This is exactly the property Python lacks (the four drift sets, E1). (`design/audit/services-cpp.md`
 Appendix B, §2.4)
 
 **A single shared helper barrel.** Every handler imports one `helpers/index.js`
 (`api`, `checks`, `comments`, `constants`, `logger`, `validation`); shared logic is written once, not
-copy-pasted across workflows. (`audit/services-cpp.md`)
+copy-pasted across workflows. (`design/audit/services-cpp.md`)
 
 **Fork-safe by construction.** Workflows check out the default branch only, never PR-branch code, and the
 PR-review relay captures the event to an artifact so a fork event never runs untrusted code with a write
 token. Keep this safety — note that the *exact-string* link it relies on is the weakness in B1, so the
-pattern to keep is the fork safety, not the literal-name coupling. (`audit/services-cpp.md`)
+pattern to keep is the fork safety, not the literal-name coupling. (`design/audit/services-cpp.md`)
 
 **Destructive actions already carry a grace period.** The Inactivity Reaper warns at 5 days and acts at 7
 — the one built-in safety pattern across either SDK, and the model worth generalising. (§5.1)
@@ -66,7 +66,7 @@ pair inconsistent. (§2.3)
 the same failure: the C++ artifact relay fires on `workflow_run` keyed to the exact producer name
 `"Bot - On PR Review"`, and the Python notifier matches 7 CI workflows by their exact display names. Rename
 either end and the link silently stops — no error, nothing to surface the gap. (§2.6, §5.5;
-`audit/labels-python.md` notifier section)
+`design/audit/labels-python.md` notifier section)
 
 **B2. Avoid answering the same question two different ways.** "What issue is linked to this PR?" is
 resolved by GraphQL closing-reference fields in the merge and assign paths, but by a body-text regex in the
@@ -95,7 +95,7 @@ events. (§2.6, §5.6)
 ## E. Config
 
 **E1. Avoid both config extremes — hand-copied constants and a monolithic shared file.** Python's drift
-(four sets, A–D in `audit/services.md` §4) comes from the same label idea typed by hand in scattered places.
+(four sets, A–D in `design/audit/services.md` §4) comes from the same label idea typed by hand in scattered places.
 C++ cures that with one `hiero-automation.json` — but that single file is then read by nine of ten
 services, and its schema lets any service read any key, so the config becomes a dependency everything
 shares in full. (§2.4, §5.7)

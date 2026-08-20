@@ -22,57 +22,132 @@ const INSTRUCTING = ["CONTRIBUTING.md", "README.md"];
 const COMMAND = /pnpm[ \t]+([^\n`]*)/g;
 
 /** Flags that swallow the token after them, so it is never the script name. */
-const TAKES_VALUE = new Set(["--filter", "-F", "--dir", "-C", "--workspace-root"]);
+const TAKES_VALUE = new Set(["--dir", "-C"]);
 
 /** pnpm's own subcommands, which need no script to exist. */
-const BUILTIN = new Set([
-    "install",
-    "add",
-    "remove",
-    "why",
-    "dlx",
-    "exec",
-    "run",
-    "store",
-    "audit",
-]);
+const BUILTIN = new Set(["install", "add", "remove", "why", "dlx", "exec", "store", "audit"]);
 
-/** The first token that is neither a flag nor a flag's value. */
-function scriptName(invocation: string): string | null {
-    const tokens = invocation.trim().split(/\s+/);
+interface Manifest {
+    readonly path: string;
+    readonly name: string;
+    readonly scripts: ReadonlySet<string>;
+}
+
+type CommandScope =
+    | { readonly kind: "root" }
+    | { readonly kind: "recursive" }
+    | { readonly kind: "filter"; readonly selector: string };
+
+interface PnpmInvocation {
+    readonly raw: string;
+    readonly script: string | null;
+    readonly scope: CommandScope;
+}
+
+/** Parse the script and the package scope that pnpm will resolve it against. */
+export function parseInvocation(invocation: string): PnpmInvocation | null {
+    // Keep a GitHub expression with internal spaces attached to the filter
+    // token around it, e.g. `automation-${{ matrix.package }}` in CI.
+    const tokens = invocation.trim().match(/\S*\$\{\{.*?\}\}\S*|\S+/g) ?? [];
+    let recursive = false;
+    let selector: string | null = null;
+    let explicitRun = false;
+
+    const scope = (): CommandScope =>
+        selector !== null
+            ? { kind: "filter", selector }
+            : recursive
+              ? { kind: "recursive" }
+              : { kind: "root" };
+
     for (let i = 0; i < tokens.length; i++) {
         const token = tokens[i]!;
+        if (token === "-r" || token === "--recursive") {
+            recursive = true;
+            continue;
+        }
+        if (token === "--filter" || token === "-F") {
+            selector = tokens[++i] ?? "";
+            continue;
+        }
+        if (token.startsWith("--filter=")) {
+            selector = token.slice("--filter=".length);
+            continue;
+        }
         if (TAKES_VALUE.has(token)) {
             i++;
             continue;
         }
         if (token.startsWith("-")) continue;
-        return /^[a-z][a-z:-]*$/.test(token) ? token : null;
+        if (token === "run") {
+            explicitRun = true;
+            continue;
+        }
+        if (!explicitRun && BUILTIN.has(token)) {
+            return { raw: invocation.trim(), script: null, scope: scope() };
+        }
+        return { raw: invocation.trim(), script: token, scope: scope() };
     }
     return null;
 }
 
-function scriptsOf(manifest: string): Set<string> {
+function manifestAt(path: string): Manifest {
+    const manifest = `${path}/package.json`.replace(/^\.\//, "");
     const json = JSON.parse(readFileSync(join(repoRoot, manifest), "utf8")) as {
+        name?: string;
         scripts?: Record<string, unknown>;
     };
-    return new Set(Object.keys(json.scripts ?? {}));
+    return {
+        path,
+        name: json.name ?? path,
+        scripts: new Set(Object.keys(json.scripts ?? {})),
+    };
 }
 
-/** Every script name declared anywhere in the workspace, root included. */
-function allScripts(): Set<string> {
-    const manifests = ["package.json", ...workspacePackages().map((p) => `${p}/package.json`)];
-    return new Set(manifests.flatMap((m) => [...scriptsOf(m)]));
+function commandProblem(
+    command: PnpmInvocation,
+    root: Manifest,
+    workspace: readonly Manifest[],
+): string | null {
+    if (command.script === null) return null;
+    const { script } = command;
+
+    if (command.scope.kind === "root") {
+        return root.scripts.has(script) ? null : `root has no script "${script}"`;
+    }
+    if (command.scope.kind === "recursive") {
+        const missing = workspace
+            .filter(({ scripts }) => !scripts.has(script))
+            .map(({ name }) => name);
+        return missing.length === 0
+            ? null
+            : `recursive script "${script}" is missing from ${missing.join(", ")}`;
+    }
+
+    const { selector } = command.scope;
+    const selected = workspace.filter(({ name }) => name === selector);
+    if (selected.length === 0) return `filter "${selector}" matches no workspace package`;
+    const missing = selected.filter(({ scripts }) => !scripts.has(script)).map(({ name }) => name);
+    return missing.length === 0
+        ? null
+        : `filtered script "${script}" is missing from ${missing.join(", ")}`;
+}
+
+function invocations(text: string): PnpmInvocation[] {
+    return [...text.matchAll(COMMAND)]
+        .map((match) => parseInvocation(match[1]!))
+        .filter((command): command is PnpmInvocation => command !== null);
 }
 
 export function documentedCommands(text: string): string[] {
-    return [...text.matchAll(COMMAND)]
-        .map((m) => scriptName(m[1]!))
-        .filter((name): name is string => name !== null && !BUILTIN.has(name));
+    return invocations(text)
+        .map(({ script }) => script)
+        .filter((script): script is string => script !== null);
 }
 
 describe("every documented pnpm command exists", () => {
-    const scripts = allScripts();
+    const root = manifestAt(".");
+    const workspace = workspacePackages().map(manifestAt);
     const docs = INSTRUCTING.filter((d) => trackedFiles().includes(d)).map((doc) => ({
         doc,
         text: readFileSync(join(repoRoot, doc), "utf8"),
@@ -86,8 +161,9 @@ describe("every documented pnpm command exists", () => {
     it("every pnpm command in an instructing document is a real script", () => {
         const unknown: string[] = [];
         for (const { doc, text } of docs) {
-            for (const name of documentedCommands(text)) {
-                if (!scripts.has(name)) unknown.push(`${doc} -> pnpm ${name}`);
+            for (const command of invocations(text)) {
+                const problem = commandProblem(command, root, workspace);
+                if (problem !== null) unknown.push(`${doc} -> pnpm ${command.raw}: ${problem}`);
             }
         }
         expect([...new Set(unknown)]).toEqual([]);
@@ -113,7 +189,53 @@ describe("every documented pnpm command exists", () => {
         ]);
         expect(documentedCommands("`pnpm install --frozen-lockfile`")).toEqual([]);
         expect(documentedCommands("cache: pnpm\n      - run: pnpm lint")).toEqual(["lint"]);
-        expect(allScripts().has("format:check")).toBe(true);
-        expect(allScripts().has("no-such-script")).toBe(false);
+        expect(commandProblem(parseInvocation("format:check")!, root, workspace)).toBeNull();
+        expect(commandProblem(parseInvocation("no-such-script")!, root, workspace)).toContain(
+            "root has no script",
+        );
+        expect(commandProblem(parseInvocation("run no_such.2")!, root, workspace)).toContain(
+            "root has no script",
+        );
+
+        expect(
+            commandProblem(
+                parseInvocation("--filter @hiero-hackers/automation-core test:coverage")!,
+                root,
+                workspace,
+            ),
+        ).toBeNull();
+        expect(
+            commandProblem(
+                parseInvocation("--filter @hiero-hackers/automation-checks test:coverage")!,
+                root,
+                workspace,
+            ),
+        ).toContain("filtered script");
+        expect(
+            parseInvocation(
+                "--filter @hiero-hackers/automation-${{ matrix.package }} test:coverage",
+            ),
+        ).toMatchObject({
+            script: "test:coverage",
+            scope: {
+                kind: "filter",
+                selector: "@hiero-hackers/automation-${{ matrix.package }}",
+            },
+        });
+        expect(
+            commandProblem(
+                parseInvocation("--filter @hiero-hackers/no-such-package test")!,
+                root,
+                workspace,
+            ),
+        ).toContain("matches no workspace package");
+
+        expect(commandProblem(parseInvocation("-r test")!, root, workspace)).toBeNull();
+        const oneMissingTest = workspace.map((manifest, index) =>
+            index === 0 ? { ...manifest, scripts: new Set<string>() } : manifest,
+        );
+        expect(commandProblem(parseInvocation("-r test")!, root, oneMissingTest)).toContain(
+            "recursive script",
+        );
     });
 });

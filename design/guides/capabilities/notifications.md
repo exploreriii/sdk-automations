@@ -16,9 +16,9 @@ delivery are separate adapters behind one condition evaluator, because their sec
 | `observations` | `pullRequestUpdated` | the only catalogue member a subscription can stand on. The draft's repository and workflow observations do not exist, and `staleItemsDue` is about stale assignments, not conditions — the workflow-failure subscription has **no observation** today (D61, §8) |
 | `resolvers` | `isAutomationActor` | so a bot's own activity does not page a human. The draft's `notificationAudience` and `requiredChecks` are not in the catalogue; `requiredChecks` is the same gap `pr-quality` names (§8) |
 | `intents` | `postManagedComment` | the in-repository channel. The draft's external-delivery intent has **no catalogue operation**, so off-GitHub delivery cannot be expressed at all yet — which is the safest possible default for an unrecallable send (§8) |
-| `permissions.repository` | `metadata:read`, `pull_requests:read`, `actions:read` for a workflow subscription, `issues:write` only when comments are enabled | narrowed per subscription. An installation must not receive `actions:read` because a different repository wants a workflow notification |
-| `permissions.organization` | none | but `actions:read` already **exceeds the ceiling** (`design/findings/endpoint-permission-matrix.md`, "The ceiling"), as does any off-GitHub destination |
-| `operationalNeeds` | `schedule: true`, `durableState: "required"`, `crossItemCoordination: false`, `externalDelivery: true` | §6 — the only candidate declaring `required` |
+| Permission impact — repository | `metadata:read`, `pull_requests:read`, `actions:read` for a workflow subscription, `issues:write` only for catalogued comments | narrowed per subscription; none of the missing notification operations is admitted yet |
+| Permission impact — organization | none | `actions:read` already **exceeds the ceiling** (`design/findings/endpoint-permission-matrix.md`, "The ceiling"), as does any off-GitHub destination |
+| `operationalNeeds` | `schedule: true`, `durableState: "required"`, `crossItemCoordination: false`, `externalDelivery: true` | §6 — durable deduplication and retry state are intrinsic to this candidate |
 
 Defaults to disabled (P2). Each subscription names its condition, its repositories, its audience, its
 delivery channel, its quiet period, its repeat policy, and its recovery message. Workflow and check
@@ -70,9 +70,9 @@ a notification that moved an item would be a workflow capability wearing a notif
 | Be enabled as a side effect of another capability | P2 and P3 — no capability can subscribe a repository, and none may name a sibling |
 | Require a sibling capability to run in order to evaluate its condition | P3; a subscription reads shared normalized facts, never another capability's output |
 | Read another capability's rendered comment prose, or own its marker | its own configured marker; A2 is the audit's instance (`design/audit/lessons-learned.md`) |
-| Blindly retry an unknown delivery | `unknown` is a distinct executor result from `forbidden` and `retryLater` (contract.md §4); retrying it duplicates a page |
+| Blindly retry an unknown delivery | no executor or external-delivery result type exists yet; the future adapter must represent unknown separately from forbidden and retry-later because retrying it can duplicate a page |
 | Send a destination URL taken from repository content | destinations are configuration with stored secrets, never observed data |
-| Keep delivering after the brake is pulled | `killSwitch` refuses before every other rule, reads included (D39) |
+| Keep delivering after the brake is pulled | `killSwitch` refuses every requested write before the other safety rules (D39); the future queue must also cancel work that has not begun |
 | Bundle several subscriptions behind one trigger and one permission block — D1 is the audit's instance | each subscription is separately configurable and separately disableable (P3) |
 
 ## 5. When evidence is unknown

@@ -57,7 +57,7 @@ export const MEANING_FACTS = {
 
 /**
  * Capability names double as configuration keys (`capabilities.<name>`,
- * schema.md §3). One shape covers both ends: `declaration.ts` checks shipped
+ * config-schema.md §3). One shape covers both ends: `declaration.ts` checks shipped
  * names, `validate.ts` checks the keys it reads from a document.
  */
 export const CAPABILITY_NAME_PATTERN = /^[a-z][a-zA-Z0-9]*$/;

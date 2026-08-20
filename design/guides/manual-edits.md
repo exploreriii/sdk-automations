@@ -1,7 +1,8 @@
 # Candidate Rules for Human Workflow Edits
 
-> **Partly built** — the human-precedence rule is in `packages/core/src/workflow/project.ts`. The five
-> incoherence classes are proposals (D8, `replaced`).
+> **Partly built.** `packages/core/src/workflow/project.ts` projects mapped labels and preserves conflicts;
+> `packages/core/src/safety/rules.ts` enforces unknown/newer-human ordering as a refusal. Applying,
+> verifying, recovering, and explaining a GitHub write remain future work.
 
 ```mermaid
 flowchart TB
@@ -70,7 +71,8 @@ all four facts.
 - Example: an assignment adds an assignee, then fails before updating the mapped position.
 - Without enough operational state to prove these facts, the platform must not guess.
 - It reports the partial result and waits for a person or a later safe reconciliation.
-- This requirement is one reason the storage decision remains open.
+- The SQLite journal and delivery store are chosen and built. The missing part is the executor that binds a
+  saved effect to fresh GitHub state and either resumes or surfaces it without guessing.
 
 ## 5. A blocked item requires an explicit policy
 
@@ -78,9 +80,9 @@ all four facts.
 - Its expected label is `status: blocked`.
 - A repository may map that meaning to an existing label instead.
 - Normal event processing never invents or creates a new blocking label.
-- The profile must state whether blocking pauses every capability or only named ones.
-- The platform must not silently assume one behavior fits every repository.
-- Under a complete pause the App performs no item-level writes while the block is present.
+- The current platform rule pauses **every capability write** while `blocked` is present (`itemBlocked`).
+- Stage-four review may reject that universal rule, but a profile cannot currently select named capabilities.
+- Under the implemented pause the App performs no item-level capability writes while the block is present.
 - That includes conflict repairs and managed-comment updates.
 - Operator alerts and security controls may still run: they protect the installation, not the item.
 
@@ -130,10 +132,10 @@ The conformance suite for a position-writing capability must cover at least thes
 
 ## 10. Open decisions
 
-- Whether the Hiero profile pauses all or only named capabilities while blocked.
-- The cost of timeline reads.
-- The evidence used to order edits.
-- The operational state required for multi-call recovery.
+- Whether stage four ratifies the implemented all-capability pause or introduces a narrower policy.
+- Which adapter observations supply reliable ordering evidence; timeline cost itself was measured by
+  protocol 6.4 and recorded in D9.
+- How the future executor uses the built journal and GitHub re-read to recover multi-call effects.
 - Automatic conflict repair stays deferred until a selected capability demonstrates a need.
 - Detailed conflict categories can be added later on the same evidence.
 - These decisions should be tested in a Hiero Hackers sandbox first.

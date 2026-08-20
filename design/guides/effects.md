@@ -128,7 +128,8 @@ Candidate policy from the audited automation, for repositories that ask — neve
 
 - Maintainers must decide which destructive capabilities they want.
 - The configuration design must decide safe timing floors and cancellation commands.
-- The storage experiment must decide where warning and pending-effect records live.
+- SQLite is the selected operational store; the warning and pending-effect row schema and executor
+  integration remain to be designed.
 - The effect executor must define rollback when GitHub returns an unclear result.
 - Each profile must decide how a mapped pause affects clocks.
 - The earlier proposal preferred a reset on unpause; maintainers have not ratified that policy.

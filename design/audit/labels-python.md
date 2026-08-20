@@ -5,7 +5,7 @@
 > which service touches it, and the catalog of label spellings that have drifted apart.
 > **Source state:** `main` at `cbb41d9` (it moved on from Phase 1's `5df93b7`; any differences are noted
 > inline).
-> **Phase:** 2 (Labels and flows). It builds on `audit/services-python.md`.
+> **Phase:** 2 (Labels and flows). It builds on `design/audit/services-python.md`.
 > **Left out on purpose:** the CI, build, security, and release workflows (`pr-check-primary-*`,
 > `pr-check-secondary-*`, `pre-commit`, `publish`, `release-pr-coderabbit-gate`, `clusterfuzzlite`,
 > `test-*`). They touch no labels and are a project non-goal, so they are excluded from the flow analysis
@@ -63,7 +63,7 @@ service that writes them.
 
 > One cross-SDK clash to flag: `status: ready-to-merge` lives in the `status:` namespace but it belongs to
 > Python's review queue, while C++'s `status:` namespace is its issue and PR review machine. The
-> normalized taxonomy has to reconcile the two (see `audit/services.md`).
+> normalized taxonomy has to reconcile the two (see `design/audit/services.md`).
 
 ### Lifecycle and moderation
 
@@ -216,7 +216,7 @@ which is the structural root of the drift: `pending-review`, `approved`, `discus
 `notes: spam-list-update`, `notes: mentor-duty`, `priority: critical`, `Priority: Critical`, and the bare
 `beginner`. That is about nine labels with no single place to rename or validate them.
 
-## Archive note (this feeds the "retired" column in `audit/services.md`)
+## Archive note (this feeds the "retired" column in `design/audit/services.md`)
 
 The 10 archived workflows in `.github/workflows/archive/` reference no archive-only labels. The only label
 they touch, `Good First Issue`, is still active. `bot-mentor-assignment.yml` is archived because its logic

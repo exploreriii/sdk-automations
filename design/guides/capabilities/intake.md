@@ -15,7 +15,7 @@ invent one.
 | `observations` | `issueUpdated` |
 | `resolvers` | `isAutomationActor` |
 | `intents` | `applyMappedLabel`, `postManagedComment` |
-| `permissions` | `issues:read`, `issues:write` — at the ceiling, no organization grant |
+| Permission impact — derived from operations | `issues:read`, `issues:write`; no organization grant |
 | `operationalNeeds` | none |
 
 The `issue_comment` trigger exists only for the optional finalization command; without that setting
@@ -50,7 +50,7 @@ collapse into the same comment; the promotion edge is the one a maintainer has t
 | Meaning | Reads | Writes |
 |---|---|---|
 | `awaitingTriage` | from the projection — the entry gate is "no position", and this is where an untriaged issue lands | `intakeObserved`, `[*] → awaitingTriage` |
-| `ready` | from the projection — a triaged issue is left alone | label mode only: `triageCompleted`, `awaitingTriage → ready`. This is the draft's `intakeReady`, and one of three writers of `ready`, with `assignment` and `inactivity` — A1's shape (`design/audit/lessons-learned.md`) |
+| `ready` | from the projection — a triaged issue is left alone | label mode only: `triageCompleted`, `awaitingTriage → ready`. This is the draft's `intakeReady`, and one of two current candidate writers of `ready`, with `assignment`; inactivity has no mapped-position intent (D116) |
 | `inProgress` | from the projection — claimed work is never re-triaged | never; the claim edge belongs to `assignment` |
 | `blocked` | from the projection | never (D79) |
 | `needsReview`, `needsRevision`, `readyToMerge` | — | never — it observes no pull request |
@@ -66,9 +66,9 @@ sentence, not a position: the item stays in `awaitingTriage` while the comment s
 | Pause an item | `screenIntent` refuses a capability writing `blocked`, code `pauseNotCapabilityWritable` (D79) |
 | Move an issue that already holds a later position | `screenIntent`'s `transitionNotOnMap` — `ready → awaitingTriage` is not a documented edge (D78) |
 | Act on a double-labelled issue | `screenIntent` returns `positionConflict`; a conflict is reported, never repaired (D35) |
-| Take a position off without replacing it, or create and delete labels by prefix — A1's bulk strip | `removeMappedLabel` is deleted from the catalogue (D80), and the capability never sees a label string (contract.md §6) |
+| Take a position off without replacing it, or create and delete labels by prefix — A1's bulk strip | `removeMappedLabel` is deleted from the catalogue (D80), and the capability never sees a label string (contract.md §2) |
 | Undo a newer human label decision because a late validation event arrived | the `newerHumanChange` rule, ties to the human (`packages/core/src/safety/rules.ts`) |
-| Use a meaning the repository has not mapped | only mapped meanings reach the capability (contract.md §6); `packages/probes/test/intake.test.ts` proves the sweep explains and skips |
+| Use a meaning the repository has not mapped | only mapped meanings reach the capability (contract.md §2); `packages/probes/test/intake.test.ts` proves the sweep explains and skips |
 | Execute an edited comment as a new command | the declared trigger is `issue_comment` **created**; an `edited` action is not subscribed, so the capability is never called |
 
 ## 5. When evidence is unknown
@@ -116,7 +116,7 @@ proves the mapping and entry-gate behaviour above, not that this capability is w
 |---|---|
 | Is the wanted outcome validation, moderation, finalization, or a smaller combination? Are comments enough, or is the position write wanted too? | maintainer conversation |
 | Who may finalize an issue, and which labels are repository-owned? | maintainer conversation |
-| `ready` has three writers, of which this is one — which capability owns it, and what is intake's documented edge? | maintainer conversation, against `assignment` and `inactivity` §3 |
+| `ready` has two current candidate writers, intake and assignment — which capability owns it, and what is intake's documented edge? | maintainer conversation against `assignment` §3 (D116) |
 | Does any lock, close, or reopen behaviour belong in scope? Each needs its own permission and safety review | maintainer conversation, then security review |
 | Do a command observation and a `mayPerform` resolver enter the closed catalogue, or does the finalization slice stay out? | catalogue review (D61) |
 | Is command and warning history reconstructable from App-authored comments, or does it need a durable record with stated retention? | App experiment |

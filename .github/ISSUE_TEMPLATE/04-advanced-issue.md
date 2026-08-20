@@ -7,7 +7,7 @@ labels: "advanced"
 <!-- Everything outside "The task" is boilerplate — leave it, or trim what doesn't apply. -->
 
 > 🧑‍🔬 **Advanced Issue** — the most complex work in this project: architectural, multi-module, or core-logic changes where the solution itself may need discovering.
-> **Time:** ~30+ hours · **Prerequisites:** a proven track record here with detailed undertanding of context (≥5 completed [intermediate issue](https://github.com/hiero-hackers/sdk-automations/issues?q=is%3Aissue+state%3Aopen+no%3Aassignee+label%3Aintermediate); demonstrated CI/CD proficiency substitutes for workflow-focused issues).
+> **Time:** ~30+ hours · **Prerequisites:** a proven track record here with detailed understanding of context (≥5 completed [intermediate issues](https://github.com/hiero-hackers/sdk-automations/issues?q=is%3Aissue+state%3Aopen+no%3Aassignee+label%3Aintermediate); demonstrated CI/CD proficiency substitutes for workflow-focused issues).
 > The bar is production-ready: safe, maintainable, architecturally sound.
 
 ## The task
@@ -27,7 +27,7 @@ labels: "advanced"
 
 ## How to work on this
 
-1. **Claim it:** comment /assign on the issue and wait to be assigned before opening a PR.
+1. **Claim it:** comment `/assign` on the issue and wait to be assigned before opening a PR.
 2. **Propose your design as a comment before building.** Cover the approach, the alternatives you rejected, and the system-wide impact. For large changes, say how you will split the work into reviewable PRs.
 3. **Re-read the architecture, contracts, guides, and decision records** in [design/](https://github.com/hiero-hackers/sdk-automations/tree/main/design) before locking a design, and the [signing requirements](https://github.com/hiero-ledger/sdk-collaboration-hub/blob/main/guides/issue-progression/for-developers/signing.md). AI assistance is welcome within the [AI policy](https://github.com/hiero-hackers/sdk-automations/blob/main/AI_POLICY.md); purely AI generated PRs are not accepted.
 
@@ -45,7 +45,7 @@ code — it is carefully considering what we have and building from it, or if ne
 - [ ] Testing is comprehensive, including deliberate invariant updates where the behavior changes
 - [ ] I reviewed my own diff as if it were someone else's
 - [ ] The PR description links this issue with `Closes #<number>`
-- [ ] `pnpm -r test` and `pnpm lint` passes
-- [ ] My commits are signed: `git commit -S -s -m "fix: description"`
+- [ ] `pnpm -r test` and `pnpm lint` pass
+- [ ] My commits are signed off for DCO: `git commit -s -m "fix: description"`
 
 **Review expectations:** advanced PRs get probing questions and may take longer than a day — that is the level working as intended. **Stuck or want a design sounding board?** Comment here with what you have tried.

@@ -2,7 +2,9 @@
 
 Everything a capability may ever observe, ask, or do. Closed on purpose: a capability cannot reach
 past these lists, so the boundary is enforced by the type system rather than by review (P3, P4).
-Every table below is locked to the code by `packages/dev/checks/test/catalogue-drift.test.ts`.
+`packages/dev/checks/test/catalogue-drift.test.ts` locks each table's first-column identifiers to code,
+plus the permission, idempotency and action-class facts for each intent. Payload descriptions, resolver
+I/O prose, desired-value descriptions and meaning metadata remain review-owned.
 
 ## Observations — what wakes a capability
 

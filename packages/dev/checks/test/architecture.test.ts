@@ -403,6 +403,7 @@ describe("source imports follow the layer policy, checked by dependency-cruiser"
             ),
         );
         expect([...fired].sort()).toEqual([
+            "adapter-imported-at-shell-main-only",
             "adapter-imports-core-only",
             "core-imports-no-internal-package",
             "no-circular",
@@ -414,6 +415,21 @@ describe("source imports follow the layer policy, checked by dependency-cruiser"
             "testkit-imports-no-internal-package",
             "testkit-is-test-only",
         ]);
+    });
+
+    it("allows only the shell composition root to import the adapter", async () => {
+        const fixtureRoot = join(repoRoot, "packages/dev/checks", FIXTURES);
+        const violations = await cruiseViolations(["packages"], fixtureRoot);
+        expect(
+            violations
+                .filter((message) => message.startsWith("adapter-imported-at-shell-main-only:"))
+                .sort(),
+        ).toEqual(
+            [
+                "adapter-imported-at-shell-main-only: packages/core/src/imports-adapter.ts -> packages/adapter/src/index.ts",
+                "adapter-imported-at-shell-main-only: packages/shell/src/imports-adapter.ts -> packages/adapter/src/index.ts",
+            ].sort(),
+        );
     });
 
     it("keeps the fixture tree out of the real cruise", async () => {

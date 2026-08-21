@@ -63,6 +63,9 @@ export type MintInstallationToken = (
  */
 export const REFRESH_SKEW_SECONDS = 300;
 
+/** A failed mint may be tried again after this pause. */
+export const MINT_RETRY_COOLDOWN_SECONDS = 60;
+
 /**
  * Was this token already past its own expiry when it was used?
  *
@@ -121,52 +124,105 @@ export interface TokenSource {
 }
 
 export function createTokenSource({ credentials, mint, clock }: TokenSourceOptions): TokenSource {
-    let cached: InstallationToken | null = null;
+    let cached: { readonly token: InstallationToken; readonly mintedAt: Date } | null = null;
     let pending: Promise<TokenOutcome> | null = null;
-    /** When `cached` was minted, on OUR clock — the floor's only input. */
-    let mintedAt: Date | null = null;
+    let retry: { readonly notBefore: Date; readonly failure: TokenOutcome & { ok: false } } | null =
+        null;
 
     /** One clock for both instants, so skew cannot distort the interval. */
-    const withinMintFloor = (): boolean =>
-        mintedAt !== null && clock().getTime() - mintedAt.getTime() < MINT_FLOOR_SECONDS * 1000;
+    const withinMintFloor = (mintedAt: Date, now: Date): boolean =>
+        now.getTime() - mintedAt.getTime() < MINT_FLOOR_SECONDS * 1000;
+
+    /**
+     * Signing is local but still fallible, and an injected implementation can
+     * break its no-throw promise. Neither failure may escape this seam.
+     */
+    const mintSafely = async (): Promise<TokenOutcome> => {
+        let assertion: string;
+        try {
+            assertion = signAppAssertion(credentials, clock());
+        } catch {
+            return { ok: false, failure: { kind: "badCredentials" } };
+        }
+        try {
+            return await mint(assertion, credentials);
+        } catch {
+            return { ok: false, failure: { kind: "transient" } };
+        }
+    };
 
     /**
      * A failed EARLY refresh must not close the window the skew holds open:
-     * the token we have is still usable, so serve it and retry next call.
+     * the token we have is still usable, so serve it and retry after a pause.
      *
      * `cached` is read here rather than captured before the mint, so an
      * `invalidate()` landing mid-flight is honoured.
      */
-    const heldTokenOrFailure = (outcome: TokenOutcome): TokenOutcome =>
-        !outcome.ok && cached !== null && !isPastExpiry(cached, clock())
-            ? { ok: true, token: cached }
-            : outcome;
+    const heldTokenOrFailure = (outcome: TokenOutcome): TokenOutcome => {
+        const now = clock();
+        if (outcome.ok) return outcome;
+
+        if (cached === null || isPastExpiry(cached.token, now)) {
+            retry = {
+                notBefore: new Date(now.getTime() + MINT_RETRY_COOLDOWN_SECONDS * 1000),
+                failure: outcome,
+            };
+            return outcome;
+        }
+
+        // A secondary limit carries no safe retry signal, so do not try again
+        // while the held token works. Other failures get a bounded pause,
+        // capped at expiry so an unusable token can never suppress a mint.
+        retry = {
+            notBefore:
+                outcome.failure.kind === "secondaryLimit"
+                    ? cached.token.expiresAt
+                    : new Date(
+                          Math.min(
+                              cached.token.expiresAt.getTime(),
+                              now.getTime() + MINT_RETRY_COOLDOWN_SECONDS * 1000,
+                          ),
+                      ),
+            failure: outcome,
+        };
+        return { ok: true, token: cached.token };
+    };
 
     return {
         current(): Promise<TokenOutcome> {
-            if (cached !== null && (!isDueForRefresh(cached, clock()) || withinMintFloor())) {
-                return Promise.resolve({ ok: true, token: cached });
+            const now = clock();
+            if (
+                cached !== null &&
+                (withinMintFloor(cached.mintedAt, now) ||
+                    (!isPastExpiry(cached.token, now) &&
+                        (!isDueForRefresh(cached.token, now) ||
+                            (retry !== null && now.getTime() < retry.notBefore.getTime()))))
+            ) {
+                return Promise.resolve({ ok: true, token: cached.token });
             }
-            // Concurrent callers share one mint. Only the PROMISE is
-            // shared, never a failure: the next caller retries.
-            pending ??= mint(signAppAssertion(credentials, clock()), credentials)
+            if (retry !== null && now.getTime() < retry.notBefore.getTime()) {
+                return Promise.resolve(retry.failure);
+            }
+            // Concurrent callers share one mint. A proactive failure may
+            // leave a retry pause above, but the promise itself never sticks.
+            pending ??= mintSafely()
                 .then((outcome) => {
                     if (outcome.ok) {
-                        cached = outcome.token;
-                        mintedAt = clock();
+                        cached = { token: outcome.token, mintedAt: clock() };
+                        retry = null;
                     }
-                    return outcome;
+                    return heldTokenOrFailure(outcome);
                 })
                 .finally(() => {
                     pending = null;
                 });
-            return pending.then(heldTokenOrFailure);
+            return pending;
         },
         invalidate(token: InstallationToken): void {
             // Clearing the cache is what bypasses the floor.
-            if (cached?.value === token.value) {
+            if (cached?.token.value === token.value) {
                 cached = null;
-                mintedAt = null;
+                retry = null;
             }
         },
     };

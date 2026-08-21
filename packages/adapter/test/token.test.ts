@@ -14,6 +14,7 @@ import {
     isDueForRefresh,
     isPastExpiry,
     MINT_FLOOR_SECONDS,
+    MINT_RETRY_COOLDOWN_SECONDS,
     REFRESH_SKEW_SECONDS,
     type InstallationToken,
     type TokenOutcome,
@@ -79,6 +80,34 @@ describe("the token source", () => {
         expect(assertions).toHaveLength(1);
     });
 
+    it("returns a typed failure when the private key cannot sign", async () => {
+        const source = createTokenSource({
+            credentials: { ...credentials(), privateKeyPem: "not a private key" },
+            clock: () => START,
+            mint: () => {
+                throw new Error("signing should fail before minting");
+            },
+        });
+
+        expect(await source.current()).toEqual({
+            ok: false,
+            failure: { kind: "badCredentials" },
+        });
+    });
+
+    it("contains a rejected mint as a transient failure", async () => {
+        const source = createTokenSource({
+            credentials: credentials(),
+            clock: () => START,
+            mint: () => Promise.reject(new Error("network escaped its boundary")),
+        });
+
+        expect(await source.current()).toEqual({
+            ok: false,
+            failure: { kind: "transient" },
+        });
+    });
+
     it("serves a live token from cache instead of minting again", async () => {
         const { source, assertions, advance } = harness([
             minted("t1", new Date(START.getTime() + HOUR_MS)),
@@ -129,13 +158,16 @@ describe("the token source", () => {
         expect(second).toEqual(third);
     });
 
-    it("does not cache a failed mint", async () => {
-        const { source, assertions } = harness([
+    it("pauses before retrying a failed initial mint", async () => {
+        const { source, assertions, advance } = harness([
             { ok: false, failure: { kind: "transient" } },
             minted("t1", new Date(START.getTime() + HOUR_MS)),
         ]);
         const failed = await source.current();
         expect(failed).toEqual({ ok: false, failure: { kind: "transient" } });
+        expect(await source.current()).toEqual(failed);
+        expect(assertions).toHaveLength(1);
+        advance(MINT_RETRY_COOLDOWN_SECONDS * 1000);
         const retried = await source.current();
         expect(retried.ok && retried.token.value).toBe("t1");
         expect(assertions).toHaveLength(2);
@@ -164,6 +196,72 @@ describe("the token source", () => {
         expect(outcome.ok && outcome.token.value).toBe("t1");
         // The refresh WAS attempted — serving stale does not stop retrying.
         expect(assertions).toHaveLength(2);
+    });
+
+    it("pauses before retrying a failed early refresh", async () => {
+        const expiry = new Date(START.getTime() + HOUR_MS);
+        const { source, assertions, advance } = harness([
+            minted("t1", expiry),
+            { ok: false, failure: { kind: "transient" } },
+            minted("t2", new Date(expiry.getTime() + HOUR_MS)),
+        ]);
+        await source.current();
+        advance(HOUR_MS - REFRESH_SKEW_SECONDS * 1000 + 1000);
+        expect((await source.current()).ok).toBe(true);
+
+        advance(MINT_RETRY_COOLDOWN_SECONDS * 1000 - 1);
+        expect((await source.current()).ok).toBe(true);
+        expect(assertions).toHaveLength(2);
+
+        advance(1);
+        const refreshed = await source.current();
+        expect(refreshed.ok && refreshed.token.value).toBe("t2");
+        expect(assertions).toHaveLength(3);
+    });
+
+    it("does not retry a secondary limit while the held token works", async () => {
+        const expiry = new Date(START.getTime() + HOUR_MS);
+        const { source, assertions, advance } = harness([
+            minted("t1", expiry),
+            { ok: false, failure: { kind: "secondaryLimit" } },
+            minted("t2", new Date(expiry.getTime() + HOUR_MS)),
+        ]);
+        await source.current();
+        advance(HOUR_MS - REFRESH_SKEW_SECONDS * 1000 + 1000);
+        expect((await source.current()).ok).toBe(true);
+
+        advance(MINT_RETRY_COOLDOWN_SECONDS * 1000);
+        expect((await source.current()).ok).toBe(true);
+        expect(assertions).toHaveLength(2);
+
+        advance(REFRESH_SKEW_SECONDS * 1000);
+        const refreshed = await source.current();
+        expect(refreshed.ok && refreshed.token.value).toBe("t2");
+        expect(assertions).toHaveLength(3);
+    });
+
+    it("pauses repeated failures after the held token expires", async () => {
+        const expiry = new Date(START.getTime() + HOUR_MS);
+        const limited: TokenOutcome = { ok: false, failure: { kind: "secondaryLimit" } };
+        const { source, assertions, advance } = harness([
+            minted("t1", expiry),
+            limited,
+            limited,
+            minted("t2", new Date(expiry.getTime() + HOUR_MS)),
+        ]);
+        await source.current();
+        advance(HOUR_MS - REFRESH_SKEW_SECONDS * 1000 + 1000);
+        expect((await source.current()).ok).toBe(true);
+
+        advance(REFRESH_SKEW_SECONDS * 1000 - 1000);
+        expect(await source.current()).toEqual(limited);
+        expect(await source.current()).toEqual(limited);
+        expect(assertions).toHaveLength(3);
+
+        advance(MINT_RETRY_COOLDOWN_SECONDS * 1000);
+        const refreshed = await source.current();
+        expect(refreshed.ok && refreshed.token.value).toBe("t2");
+        expect(assertions).toHaveLength(4);
     });
 
     it("propagates the failure once the held token is actually past expiry", async () => {
@@ -213,6 +311,13 @@ describe("the token source", () => {
         await source.current();
         expect(assertions).toHaveLength(1);
     });
+
+    it("ignores invalidation before any token is cached", async () => {
+        const { source, assertions } = harness([minted("t1", new Date(START.getTime() + HOUR_MS))]);
+        source.invalidate(token("not-cached", new Date(START.getTime() + HOUR_MS)));
+        expect((await source.current()).ok).toBe(true);
+        expect(assertions).toHaveLength(1);
+    });
 });
 
 describe("reading a token's age", () => {
@@ -240,9 +345,10 @@ describe("the mint floor", () => {
     }
 
     it("serves a just-minted token that a fast clock reads as expired", async () => {
-        const { source, assertions } = skewedHarness();
+        const { source, assertions, advance } = skewedHarness();
         const first = await source.current();
         expect(first.ok && first.token.value).toBe("t1");
+        advance(1000);
         const second = await source.current();
         expect(second.ok && second.token.value).toBe("t1");
         // Without the floor this would be 2, and 3, and 4 — one per call.

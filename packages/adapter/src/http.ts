@@ -11,7 +11,12 @@
  */
 
 import { classifyFailure, type FailureClass } from "@hiero-hackers/automation-core";
-import { isPastExpiry, type InstallationToken, type TokenSource } from "./token.js";
+import {
+    isPastExpiry,
+    type InstallationToken,
+    type TokenOutcome,
+    type TokenSource,
+} from "./token.js";
 
 // ─── The chosen bounds ───────────────────────────────────────────────
 
@@ -35,6 +40,9 @@ export const DEFAULT_ETAG_CACHE_ENTRY_BYTES = 512 * 1024;
 
 const DEFAULT_ACCEPT = "application/vnd.github+json";
 const USER_AGENT = "hiero-hackers-sdk-automations";
+
+/** Attempts per request: the first, then at most one retry on a fresh token. */
+const REQUEST_ATTEMPTS = 2;
 
 // ─── The contract ────────────────────────────────────────────────────
 
@@ -160,6 +168,68 @@ function isRetriable(failure: GitHubHttpFailureClass): boolean {
     return failure.kind === "tokenExpired" || failure.kind === "transient";
 }
 
+/**
+ * Did the token source keep `token.ts`'s contract at runtime?
+ *
+ * The source is injected, and a malformed outcome accepted here would
+ * surface later as a garbled Authorization header on a live request.
+ */
+function isWellFormedTokenOutcome(outcome: TokenOutcome): boolean {
+    if (typeof outcome !== "object" || outcome === null || typeof outcome.ok !== "boolean") {
+        return false;
+    }
+    if (!outcome.ok) {
+        return (
+            typeof outcome.failure === "object" &&
+            outcome.failure !== null &&
+            typeof outcome.failure.kind === "string"
+        );
+    }
+    const token = outcome.token;
+    return (
+        typeof token === "object" &&
+        token !== null &&
+        typeof token.value === "string" &&
+        token.expiresAt instanceof Date &&
+        Number.isFinite(token.expiresAt.getTime()) &&
+        Array.isArray(token.grants)
+    );
+}
+
+/** Ready-to-send headers and the variant they select, or the refusal. */
+type PreparedHeaders =
+    | { readonly ok: true; readonly headers: Headers; readonly variant: string }
+    | { readonly ok: false; readonly refused: NotSentReason };
+
+/**
+ * The operation's headers with the controlled fields installed.
+ *
+ * Controlled fields never select a representation: caller values for them
+ * are deleted before the variant is derived, then ours are installed.
+ */
+function prepareHeaders(request: GitHubRequest, token: InstallationToken): PreparedHeaders {
+    let headers: Headers;
+    try {
+        headers = new Headers(request.headers);
+    } catch {
+        return { ok: false, refused: "invalidHeaders" };
+    }
+    headers.set("accept", headers.get("accept") ?? DEFAULT_ACCEPT);
+    headers.delete("authorization");
+    headers.delete("if-none-match");
+    headers.delete("user-agent");
+    headers.delete("x-github-api-version");
+    const variant = JSON.stringify(headersToRecord(headers));
+    try {
+        headers.set("authorization", `Bearer ${token.value}`);
+        headers.set("user-agent", USER_AGENT);
+        headers.set("x-github-api-version", GITHUB_API_VERSION);
+    } catch {
+        return { ok: false, refused: "brokenSeam" };
+    }
+    return { ok: true, headers, variant };
+}
+
 // ─── The client ──────────────────────────────────────────────────────
 
 export function createGitHubHttpClient({
@@ -205,28 +275,9 @@ export function createGitHubHttpClient({
         request: GitHubRequest,
         token: InstallationToken,
     ): Promise<GitHubOutcome> => {
-        let headers: Headers;
-        try {
-            headers = new Headers(request.headers);
-        } catch {
-            return notSentFailure("invalidHeaders");
-        }
-        const accept = headers.get("accept") ?? DEFAULT_ACCEPT;
-        headers.set("accept", accept);
-        // Controlled fields never select a representation. Delete any caller
-        // values before deriving the variant, then install our own below.
-        headers.delete("authorization");
-        headers.delete("if-none-match");
-        headers.delete("user-agent");
-        headers.delete("x-github-api-version");
-        const variant = JSON.stringify(headersToRecord(headers));
-        try {
-            headers.set("authorization", `Bearer ${token.value}`);
-            headers.set("user-agent", USER_AGENT);
-            headers.set("x-github-api-version", GITHUB_API_VERSION);
-        } catch {
-            return notSentFailure("brokenSeam");
-        }
+        const prepared = prepareHeaders(request, token);
+        if (!prepared.ok) return notSentFailure(prepared.refused);
+        const { headers, variant } = prepared;
 
         const cached = cache.get(request.url);
         if (cached !== undefined && cached.variant === variant) {
@@ -348,26 +399,11 @@ export function createGitHubHttpClient({
             const parsed = githubApiUrl(request.url);
             if (!parsed.ok) return notSentFailure(parsed.refused);
             const safeRequest = { ...request, url: parsed.url };
-            let attempt = 0;
-            while (true) {
-                let tokenOutcome;
+            for (let attempt = 1; ; attempt += 1) {
+                let tokenOutcome: TokenOutcome;
                 try {
                     tokenOutcome = await tokenSource.current();
-                    if (
-                        typeof tokenOutcome !== "object" ||
-                        tokenOutcome === null ||
-                        typeof tokenOutcome.ok !== "boolean" ||
-                        (tokenOutcome.ok
-                            ? typeof tokenOutcome.token !== "object" ||
-                              tokenOutcome.token === null ||
-                              typeof tokenOutcome.token.value !== "string" ||
-                              !(tokenOutcome.token.expiresAt instanceof Date) ||
-                              !Number.isFinite(tokenOutcome.token.expiresAt.getTime()) ||
-                              !Array.isArray(tokenOutcome.token.grants)
-                            : typeof tokenOutcome.failure !== "object" ||
-                              tokenOutcome.failure === null ||
-                              typeof tokenOutcome.failure.kind !== "string")
-                    ) {
+                    if (!isWellFormedTokenOutcome(tokenOutcome)) {
                         return notSentFailure("brokenSeam");
                     }
                 } catch {
@@ -385,6 +421,8 @@ export function createGitHubHttpClient({
                     return notSentFailure("brokenSeam");
                 }
                 if (outcome.ok || !isRetriable(outcome.failure)) return outcome;
+                // A rejected token is dropped even on the final attempt, so
+                // the next `request()` starts on a fresh mint.
                 if (outcome.failure.kind === "tokenExpired") {
                     try {
                         tokenSource.invalidate(tokenOutcome.token);
@@ -392,8 +430,7 @@ export function createGitHubHttpClient({
                         return notSentFailure("brokenSeam");
                     }
                 }
-                if (attempt === 1) return outcome;
-                attempt += 1;
+                if (attempt === REQUEST_ATTEMPTS) return outcome;
             }
         },
         latestRateLimit(): RateLimitSnapshot | null {

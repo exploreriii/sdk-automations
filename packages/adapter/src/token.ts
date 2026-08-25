@@ -40,6 +40,35 @@ export type TokenOutcome =
     | { readonly ok: false; readonly failure: FailureClass };
 
 /**
+ * Did a `TokenSource` keep this contract at runtime?
+ *
+ * A source is an injected implementation, so the HTTP client checks each
+ * outcome here before trusting it with a live request — a malformed one
+ * accepted would surface later as a garbled Authorization header.
+ */
+export function isWellFormedTokenOutcome(outcome: TokenOutcome): boolean {
+    if (typeof outcome !== "object" || outcome === null || typeof outcome.ok !== "boolean") {
+        return false;
+    }
+    if (!outcome.ok) {
+        return (
+            typeof outcome.failure === "object" &&
+            outcome.failure !== null &&
+            typeof outcome.failure.kind === "string"
+        );
+    }
+    const token = outcome.token;
+    return (
+        typeof token === "object" &&
+        token !== null &&
+        typeof token.value === "string" &&
+        token.expiresAt instanceof Date &&
+        Number.isFinite(token.expiresAt.getTime()) &&
+        Array.isArray(token.grants)
+    );
+}
+
+/**
  * The mint call itself, injected.
  *
  * Credentials are a parameter, not something an implementation closes over:

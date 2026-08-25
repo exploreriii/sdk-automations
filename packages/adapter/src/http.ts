@@ -13,6 +13,7 @@
 import { classifyFailure, type FailureClass } from "@hiero-hackers/automation-core";
 import {
     isPastExpiry,
+    isWellFormedTokenOutcome,
     type InstallationToken,
     type TokenOutcome,
     type TokenSource,
@@ -166,34 +167,6 @@ function notSentFailure(reason: NotSentReason): GitHubFailure {
 
 function isRetriable(failure: GitHubHttpFailureClass): boolean {
     return failure.kind === "tokenExpired" || failure.kind === "transient";
-}
-
-/**
- * Did the token source keep `token.ts`'s contract at runtime?
- *
- * The source is injected, and a malformed outcome accepted here would
- * surface later as a garbled Authorization header on a live request.
- */
-function isWellFormedTokenOutcome(outcome: TokenOutcome): boolean {
-    if (typeof outcome !== "object" || outcome === null || typeof outcome.ok !== "boolean") {
-        return false;
-    }
-    if (!outcome.ok) {
-        return (
-            typeof outcome.failure === "object" &&
-            outcome.failure !== null &&
-            typeof outcome.failure.kind === "string"
-        );
-    }
-    const token = outcome.token;
-    return (
-        typeof token === "object" &&
-        token !== null &&
-        typeof token.value === "string" &&
-        token.expiresAt instanceof Date &&
-        Number.isFinite(token.expiresAt.getTime()) &&
-        Array.isArray(token.grants)
-    );
 }
 
 /** Ready-to-send headers and the variant they select, or the refusal. */

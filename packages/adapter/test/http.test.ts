@@ -145,7 +145,7 @@ describe("request shaping", () => {
 
         expect(await client.request(request())).toEqual({
             ok: false,
-            failure: { kind: "notSent", reason: "brokenSeam" },
+            failure: { kind: "notSent", reason: "brokenSeam", seam: "tokenSource" },
         });
         expect(scripted.calls).toHaveLength(0);
     });
@@ -170,7 +170,7 @@ describe("request shaping", () => {
 
         expect(await client.request(request())).toEqual({
             ok: false,
-            failure: { kind: "notSent", reason: "brokenSeam" },
+            failure: { kind: "notSent", reason: "brokenSeam", seam: "tokenSource" },
         });
         expect(scripted.calls).toHaveLength(0);
     });
@@ -197,7 +197,7 @@ describe("request shaping", () => {
 
         expect(await client.request(request())).toEqual({
             ok: false,
-            failure: { kind: "notSent", reason: "brokenSeam" },
+            failure: { kind: "notSent", reason: "brokenSeam", seam: "clock" },
         });
         expect(tokens.calls()).toBe(1);
         expect(scripted.calls).toHaveLength(0);
@@ -210,7 +210,7 @@ describe("request shaping", () => {
 
         expect(await client.request(request())).toEqual({
             ok: false,
-            failure: { kind: "notSent", reason: "brokenSeam" },
+            failure: { kind: "notSent", reason: "brokenSeam", seam: "tokenValue" },
         });
         expect(tokens.calls()).toBe(1);
         expect(scripted.calls).toHaveLength(0);
@@ -228,7 +228,7 @@ describe("request shaping", () => {
 
         expect(await client.request(request())).toEqual({
             ok: false,
-            failure: { kind: "notSent", reason: "brokenSeam" },
+            failure: { kind: "notSent", reason: "brokenSeam", seam: "response" },
         });
         expect(scripted.calls).toHaveLength(1);
     });
@@ -581,6 +581,11 @@ describe("conditional reads", () => {
 });
 
 describe("classification and bounded retry", () => {
+    /**
+     * Deliberately overlaps core's own classification suite: these rows
+     * prove the WIRING — a real response, through the real client, lands on
+     * the expected catalogue row — not the classification logic itself.
+     */
     const catalogue: ReadonlyArray<{
         readonly name: string;
         readonly response: Response;
@@ -721,7 +726,7 @@ describe("classification and bounded retry", () => {
 
         expect(await client.request(request())).toEqual({
             ok: false,
-            failure: { kind: "notSent", reason: "brokenSeam" },
+            failure: { kind: "notSent", reason: "brokenSeam", seam: "invalidate" },
         });
         expect(scripted.calls).toHaveLength(1);
     });
@@ -774,7 +779,7 @@ describe("classification and bounded retry", () => {
 
         expect(await client.request(request())).toEqual({
             ok: false,
-            failure: { kind: "notSent", reason: "brokenSeam" },
+            failure: { kind: "notSent", reason: "brokenSeam", seam: "timeoutSignal" },
         });
         expect(scripted.calls).toHaveLength(0);
     });

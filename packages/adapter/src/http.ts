@@ -76,9 +76,20 @@ export interface GitHubFailure {
 export type NotSentReason =
     "disallowedMethod" | "disallowedOrigin" | "malformedUrl" | "invalidHeaders" | "brokenSeam";
 
+/**
+ * The injected seam a `brokenSeam` refusal names as the one that failed.
+ *
+ * A seam failure is rare and hard to reproduce, so the one report an
+ * operator gets must say which piece of wiring broke.
+ */
+export type BrokenSeam =
+    "tokenSource" | "clock" | "timeoutSignal" | "tokenValue" | "invalidate" | "response";
+
 /** Core owns response classes; the adapter adds only its pre-response refusal. */
 export type GitHubHttpFailureClass =
-    FailureClass | { readonly kind: "notSent"; readonly reason: NotSentReason };
+    | FailureClass
+    | { readonly kind: "notSent"; readonly reason: Exclude<NotSentReason, "brokenSeam"> }
+    | { readonly kind: "notSent"; readonly reason: "brokenSeam"; readonly seam: BrokenSeam };
 
 /** What one call to `request()` resolves to — it never throws. */
 export type GitHubOutcome = GitHubSuccess | GitHubFailure;
@@ -161,8 +172,13 @@ function transportFailure(): GitHubFailure {
 }
 
 /** The request never left the process; retrying cannot help. */
-function notSentFailure(reason: NotSentReason): GitHubFailure {
+function notSentFailure(reason: Exclude<NotSentReason, "brokenSeam">): GitHubFailure {
     return { ok: false, failure: { kind: "notSent", reason } };
+}
+
+/** A wiring defect in the named injected seam — never weather, never retried. */
+function brokenSeamFailure(seam: BrokenSeam): GitHubFailure {
+    return { ok: false, failure: { kind: "notSent", reason: "brokenSeam", seam } };
 }
 
 function isRetriable(failure: GitHubHttpFailureClass): boolean {
@@ -172,7 +188,7 @@ function isRetriable(failure: GitHubHttpFailureClass): boolean {
 /** Ready-to-send headers and the variant they select, or the refusal. */
 type PreparedHeaders =
     | { readonly ok: true; readonly headers: Headers; readonly variant: string }
-    | { readonly ok: false; readonly refused: NotSentReason };
+    | { readonly ok: false; readonly refusal: GitHubFailure };
 
 /**
  * The operation's headers with the controlled fields installed.
@@ -185,7 +201,7 @@ function prepareHeaders(request: GitHubRequest, token: InstallationToken): Prepa
     try {
         headers = new Headers(request.headers);
     } catch {
-        return { ok: false, refused: "invalidHeaders" };
+        return { ok: false, refusal: notSentFailure("invalidHeaders") };
     }
     headers.set("accept", headers.get("accept") ?? DEFAULT_ACCEPT);
     headers.delete("authorization");
@@ -198,7 +214,9 @@ function prepareHeaders(request: GitHubRequest, token: InstallationToken): Prepa
         headers.set("user-agent", USER_AGENT);
         headers.set("x-github-api-version", GITHUB_API_VERSION);
     } catch {
-        return { ok: false, refused: "brokenSeam" };
+        // Our two constants are known-good header values; only the token
+        // value can make this throw.
+        return { ok: false, refusal: brokenSeamFailure("tokenValue") };
     }
     return { ok: true, headers, variant };
 }
@@ -277,7 +295,7 @@ export function createGitHubHttpClient({
         token: InstallationToken,
     ): Promise<GitHubOutcome> => {
         const prepared = prepareHeaders(request, token);
-        if (!prepared.ok) return notSentFailure(prepared.refused);
+        if (!prepared.ok) return prepared.refusal;
         const { headers, variant } = prepared;
 
         const cached = cache.lookup(request.url, variant);
@@ -289,14 +307,14 @@ export function createGitHubHttpClient({
         try {
             tokenPastExpiry = isPastExpiry(token, clock());
         } catch {
-            return notSentFailure("brokenSeam");
+            return brokenSeamFailure("clock");
         }
         // A throwing timeout factory is a wiring defect, not retriable weather.
         let signal: AbortSignal;
         try {
             signal = timeoutSignal(timeoutMs);
         } catch {
-            return notSentFailure("brokenSeam");
+            return brokenSeamFailure("timeoutSignal");
         }
         const init: RequestInit = {
             method: "GET",
@@ -402,11 +420,11 @@ export function createGitHubHttpClient({
                 try {
                     tokenOutcome = await tokenSource.current();
                     if (!isWellFormedTokenOutcome(tokenOutcome)) {
-                        return notSentFailure("brokenSeam");
+                        return brokenSeamFailure("tokenSource");
                     }
                 } catch {
                     // `current()` promises not to throw.
-                    return notSentFailure("brokenSeam");
+                    return brokenSeamFailure("tokenSource");
                 }
                 if (!tokenOutcome.ok) return tokenOutcome;
 
@@ -414,9 +432,9 @@ export function createGitHubHttpClient({
                 try {
                     outcome = await sendOnce(safeRequest, tokenOutcome.token);
                 } catch {
-                    // `sendOnce()` contains expected transport failures itself.
-                    // Anything escaping it is a broken local seam, never weather.
-                    return notSentFailure("brokenSeam");
+                    // `sendOnce()` contains expected transport failures itself;
+                    // what escapes it is a response object that broke mid-read.
+                    return brokenSeamFailure("response");
                 }
                 if (outcome.ok || !isRetriable(outcome.failure)) return outcome;
                 // A rejected token is dropped even on the final attempt, so
@@ -425,7 +443,7 @@ export function createGitHubHttpClient({
                     try {
                         tokenSource.invalidate(tokenOutcome.token);
                     } catch {
-                        return notSentFailure("brokenSeam");
+                        return brokenSeamFailure("invalidate");
                     }
                 }
                 if (attempt === REQUEST_ATTEMPTS) return outcome;

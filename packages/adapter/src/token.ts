@@ -162,6 +162,19 @@ export function createTokenSource({ credentials, mint, clock }: TokenSourceOptio
     const withinMintFloor = (mintedAt: Date, now: Date): boolean =>
         now.getTime() - mintedAt.getTime() < MINT_FLOOR_SECONDS * 1000;
 
+    /** A failed mint left a pause that has not elapsed yet. */
+    const retryPaused = (now: Date): boolean =>
+        retry !== null && now.getTime() < retry.notBefore.getTime();
+
+    /**
+     * The header's three ages, in decision order: too new to doubt serves
+     * unconditionally; otherwise the token must be usable, and is served
+     * only while no refresh is due or the refresh pause is still running.
+     */
+    const mayServeHeldToken = (held: InstallationToken, mintedAt: Date, now: Date): boolean =>
+        withinMintFloor(mintedAt, now) ||
+        (!isPastExpiry(held, now) && (!isDueForRefresh(held, now) || retryPaused(now)));
+
     /**
      * Signing is local but still fallible, and an injected implementation can
      * break its no-throw promise. Neither failure may escape this seam.
@@ -220,16 +233,10 @@ export function createTokenSource({ credentials, mint, clock }: TokenSourceOptio
     return {
         current(): Promise<TokenOutcome> {
             const now = clock();
-            if (
-                cached !== null &&
-                (withinMintFloor(cached.mintedAt, now) ||
-                    (!isPastExpiry(cached.token, now) &&
-                        (!isDueForRefresh(cached.token, now) ||
-                            (retry !== null && now.getTime() < retry.notBefore.getTime()))))
-            ) {
+            if (cached !== null && mayServeHeldToken(cached.token, cached.mintedAt, now)) {
                 return Promise.resolve({ ok: true, token: cached.token });
             }
-            if (retry !== null && now.getTime() < retry.notBefore.getTime()) {
+            if (retry !== null && retryPaused(now)) {
                 return Promise.resolve(retry.failure);
             }
             // Concurrent callers share one mint. A proactive failure may

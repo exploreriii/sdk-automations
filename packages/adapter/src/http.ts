@@ -7,7 +7,7 @@
  * failure classes. Core owns the vocabulary for GitHub responses; this file
  * adds only the typed `notSent` result for a request refused locally. Which
  * token to send is `token.ts`. In order below: the chosen bounds, the
- * contract, the local judgements, the client.
+ * contract, the local judgements, the representation cache, the client.
  */
 
 import { classifyFailure, type FailureClass } from "@hiero-hackers/automation-core";
@@ -230,6 +230,55 @@ function prepareHeaders(request: GitHubRequest, token: InstallationToken): Prepa
     return { ok: true, headers, variant };
 }
 
+// ─── The representation cache ────────────────────────────────────────
+
+/** The bounded, least-recently-used store of reusable representations. */
+interface RepresentationCache {
+    /** The entry for this URL under this variant, made newest by the read. */
+    lookup(url: string, variant: string): CachedRepresentation | undefined;
+    store(url: string, entry: CachedRepresentation): void;
+    remove(url: string): void;
+}
+
+function createRepresentationCache(): RepresentationCache {
+    const entries = new Map<string, CachedRepresentation>();
+    let retainedBytes = 0;
+
+    const remove = (url: string): void => {
+        const entry = entries.get(url);
+        if (entry !== undefined) {
+            retainedBytes -= entry.body.length;
+            entries.delete(url);
+        }
+    };
+
+    return {
+        lookup(url: string, variant: string): CachedRepresentation | undefined {
+            const entry = entries.get(url);
+            if (entry === undefined || entry.variant !== variant) return undefined;
+            // Reading an entry makes it newest in the bounded LRU.
+            entries.delete(url);
+            entries.set(url, entry);
+            return entry;
+        },
+        /** Insert as newest, then evict oldest-first until under both bounds. */
+        store(url: string, entry: CachedRepresentation): void {
+            remove(url);
+            entries.set(url, entry);
+            retainedBytes += entry.body.length;
+            while (
+                entries.size > DEFAULT_ETAG_CACHE_ENTRIES ||
+                retainedBytes > DEFAULT_ETAG_CACHE_BYTES
+            ) {
+                // `size > a non-negative limit` proves an entry exists, and the
+                // per-entry byte cap proves a one-entry cache is under the total.
+                remove(entries.keys().next().value as string);
+            }
+        },
+        remove,
+    };
+}
+
 // ─── The client ──────────────────────────────────────────────────────
 
 export function createGitHubHttpClient({
@@ -239,29 +288,8 @@ export function createGitHubHttpClient({
     timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
     timeoutSignal = AbortSignal.timeout,
 }: GitHubHttpClientOptions): GitHubHttpClient {
-    const cache = new Map<string, CachedRepresentation>();
-    let cacheBytes = 0;
+    const cache = createRepresentationCache();
     let latestRateLimit: RateLimitSnapshot | null = null;
-
-    const removeEntry = (url: string): void => {
-        const entry = cache.get(url);
-        if (entry !== undefined) {
-            cacheBytes -= entry.body.length;
-            cache.delete(url);
-        }
-    };
-
-    /** Insert as newest, then evict oldest-first until under both bounds. */
-    const storeEntry = (url: string, entry: CachedRepresentation): void => {
-        removeEntry(url);
-        cache.set(url, entry);
-        cacheBytes += entry.body.length;
-        while (cache.size > DEFAULT_ETAG_CACHE_ENTRIES || cacheBytes > DEFAULT_ETAG_CACHE_BYTES) {
-            // `size > a non-negative limit` proves an entry exists, and the
-            // per-entry byte cap proves a one-entry cache is under the total.
-            removeEntry(cache.keys().next().value as string);
-        }
-    };
 
     const rememberRateLimit = (
         url: string,
@@ -279,13 +307,8 @@ export function createGitHubHttpClient({
         if (!prepared.ok) return notSentFailure(prepared.refused);
         const { headers, variant } = prepared;
 
-        const cached = cache.get(request.url);
-        if (cached !== undefined && cached.variant === variant) {
-            // Reading an entry makes it newest in the bounded LRU.
-            cache.delete(request.url);
-            cache.set(request.url, cached);
-            headers.set("if-none-match", cached.etag);
-        }
+        const cached = cache.lookup(request.url, variant);
+        if (cached !== undefined) headers.set("if-none-match", cached.etag);
 
         // Capture the local age at send time. A later clock read could turn a
         // live request into a false `tokenExpired` diagnosis.
@@ -323,7 +346,9 @@ export function createGitHubHttpClient({
         rememberRateLimit(request.url, response.status, responseHeaders);
 
         if (response.status === 304) {
-            if (cached === undefined || cached.variant !== variant) {
+            // A 304 with nothing to reuse: the entry was evicted mid-flight,
+            // or the server misbehaved. Either way a full re-read fixes it.
+            if (cached === undefined) {
                 return {
                     ok: false,
                     status: response.status,
@@ -359,7 +384,7 @@ export function createGitHubHttpClient({
             if (response.status === 200) {
                 const etag = response.headers.get("etag");
                 if (etag !== null && body.length <= DEFAULT_ETAG_CACHE_ENTRY_BYTES) {
-                    storeEntry(request.url, {
+                    cache.store(request.url, {
                         etag,
                         variant,
                         body,
@@ -367,7 +392,7 @@ export function createGitHubHttpClient({
                     });
                 } else {
                     // A 200 with no retainable validator leaves any kept entry stale.
-                    removeEntry(request.url);
+                    cache.remove(request.url);
                 }
             }
             return {

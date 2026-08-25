@@ -441,6 +441,39 @@ describe("conditional reads", () => {
         expect(new Headers(scripted.calls[1]!.init.headers).get("if-none-match")).toBeNull();
     });
 
+    it("derives one variant regardless of header casing and order", async () => {
+        // A quiet failure mode: a normalization change that splits the cache
+        // raises rate usage on unchanged reads without failing anything.
+        const { client, scripted } = harness([
+            success("ranged", { etag: '"range"' }),
+            new Response(null, { status: 304 }),
+        ]);
+
+        await client.request(request({ headers: { "X-Custom": "1", Range: "bytes=0-99" } }));
+        const cached = await client.request(
+            request({ headers: { range: "bytes=0-99", "x-custom": "1" } }),
+        );
+
+        expect(new Headers(scripted.calls[1]!.init.headers).get("if-none-match")).toBe('"range"');
+        expect(cached).toMatchObject({ ok: true, fromCache: true, body: "ranged" });
+    });
+
+    it("normalizes the URL, so a spelled-out default port shares the entry", async () => {
+        const { client, scripted } = harness([
+            success("issue", { etag: '"v1"' }),
+            new Response(null, { status: 304 }),
+        ]);
+
+        await client.request(request({ url: "https://api.github.com:443/repos/o/r/issues/1" }));
+        const cached = await client.request(
+            request({ url: "https://api.github.com/repos/o/r/issues/1" }),
+        );
+
+        expect(scripted.calls[0]!.url).toBe("https://api.github.com/repos/o/r/issues/1");
+        expect(new Headers(scripted.calls[1]!.init.headers).get("if-none-match")).toBe('"v1"');
+        expect(cached).toMatchObject({ ok: true, fromCache: true, body: "issue" });
+    });
+
     it("keys representations by caller headers, not only URL and Accept", async () => {
         const { client, scripted } = harness([
             success("ranged", { etag: '"range"' }),
@@ -561,6 +594,48 @@ describe("conditional reads", () => {
             '"0"',
         );
         expect(oldest).toMatchObject({ ok: true, fromCache: true, body });
+    });
+
+    it("keeps the cache and rate snapshot coherent across overlapping requests", async () => {
+        const deferred: Array<(response: Response) => void> = [];
+        const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+        const fetch: FetchLike = (input, init) => {
+            calls.push({ url: String(input), init: init ?? {} });
+            return new Promise((resolve) => deferred.push(resolve));
+        };
+        const client = createGitHubHttpClient({
+            tokenSource: tokenSource([{ ok: true, token: token("t") }]).source,
+            fetch,
+            clock: () => NOW,
+            timeoutSignal: () => new AbortController().signal,
+        });
+        const settle = () => new Promise((resolve) => setTimeout(resolve));
+
+        const first = client.request(request());
+        const second = client.request(request());
+        await settle();
+
+        // Both miss the cache; neither claims the other's in-flight validator.
+        expect(calls).toHaveLength(2);
+        expect(new Headers(calls[0]!.init.headers).get("if-none-match")).toBeNull();
+        expect(new Headers(calls[1]!.init.headers).get("if-none-match")).toBeNull();
+
+        // Completion out of order: the later start resolves first.
+        deferred[1]!(success("second", { etag: '"second"', "x-ratelimit-used": "2" }));
+        expect(await second).toMatchObject({ ok: true, body: "second", fromCache: false });
+        deferred[0]!(success("first", { etag: '"first"', "x-ratelimit-used": "1" }));
+        expect(await first).toMatchObject({ ok: true, body: "first", fromCache: false });
+
+        // The last response to ARRIVE owns both the entry and the snapshot.
+        expect(client.latestRateLimit()).toMatchObject({
+            headers: { "x-ratelimit-used": "1" },
+        });
+        const third = client.request(request());
+        await settle();
+        expect(calls).toHaveLength(3);
+        expect(new Headers(calls[2]!.init.headers).get("if-none-match")).toBe('"first"');
+        deferred[2]!(new Response(null, { status: 304 }));
+        expect(await third).toMatchObject({ ok: true, fromCache: true, body: "first" });
     });
 
     it("treats an impossible cacheless 304 as transient and still bounds the retry", async () => {

@@ -7,7 +7,12 @@
 
 import { describe, expect, it } from "vitest";
 import type { ItemRef } from "@hiero-hackers/automation-core";
-import { installationGrants, orderingEvidenceSource } from "../src/externals.js";
+import {
+    causeFingerprintOf,
+    installationGrants,
+    liveExternalsForDelivery,
+    orderingEvidenceSource,
+} from "../src/externals.js";
 import {
     failure,
     httpHarness as harness,
@@ -257,5 +262,111 @@ describe("ordering evidence", () => {
 
         expect(await lookup(ITEM)).toBeNull();
         expect(scripted.calls).toHaveLength(3);
+    });
+});
+
+describe("the cause fingerprint", () => {
+    it("reads the sender and the item's updated_at, the normalizer's field", () => {
+        expect(
+            causeFingerprintOf({
+                sender: { login: "maintainer" },
+                issue: { number: 7, updated_at: "2026-08-20T10:00:00Z" },
+            }),
+        ).toEqual({ actorLogin: "maintainer", observedAt: new Date("2026-08-20T10:00:00Z") });
+    });
+
+    it("falls back to the pull request when the payload carries no issue", () => {
+        expect(
+            causeFingerprintOf({
+                sender: { login: "maintainer" },
+                pull_request: { number: 8, updated_at: "2026-08-20T11:00:00Z" },
+            }),
+        ).toEqual({ actorLogin: "maintainer", observedAt: new Date("2026-08-20T11:00:00Z") });
+    });
+
+    it.each([
+        ["a non-object payload", undefined],
+        ["a missing sender", { issue: { updated_at: "2026-08-20T10:00:00Z" } }],
+        [
+            "a non-string login",
+            { sender: { login: 7 }, issue: { updated_at: "2026-08-20T10:00:00Z" } },
+        ],
+        ["a missing updated_at", { sender: { login: "m" }, issue: {} }],
+        ["an unreadable updated_at", { sender: { login: "m" }, issue: { updated_at: "later" } }],
+    ])("answers nothing to exclude for %s", (_label, payload) => {
+        expect(causeFingerprintOf(payload)).toBeUndefined();
+    });
+});
+
+describe("live externals for one delivery", () => {
+    const PAYLOAD = {
+        sender: { login: "maintainer" },
+        issue: { number: 7, updated_at: "2026-08-20T10:00:00Z" },
+    };
+
+    it("propagates a grants failure instead of deciding without them", async () => {
+        const tokens = tokenSource([{ ok: false, failure: { kind: "transient" } }]);
+        const built = harness([page([])]);
+
+        expect(
+            await liveExternalsForDelivery(
+                { tokenSource: tokens.source, http: built.client, repository: REPOSITORY },
+                PAYLOAD,
+            ),
+        ).toEqual({ ok: false, failure: { kind: "transient" } });
+        expect(built.scripted.calls).toHaveLength(0);
+    });
+
+    it("supplies live grants and ordering that excludes the delivery's cause", async () => {
+        const tokens = tokenSource([{ ok: true, token: token("t") }]);
+        const built = harness([page([entry("labeled", "maintainer", "2026-08-20T10:00:00Z")])]);
+
+        const outcome = await liveExternalsForDelivery(
+            { tokenSource: tokens.source, http: built.client, repository: REPOSITORY },
+            PAYLOAD,
+        );
+
+        expect(outcome.ok).toBe(true);
+        if (outcome.ok) {
+            expect(outcome.facts.installationGrants).toEqual(["issues:write"]);
+            // The only timeline entry is the causing event: excluded.
+            expect(await outcome.facts.latestHumanChangeAt(ITEM)).toBeNull();
+        }
+        expect(built.scripted.calls[0]!.url).toBe(`${TIMELINE_URL}?per_page=100&page=1`);
+    });
+
+    it("applies no exclusion when the payload names no cause", async () => {
+        const tokens = tokenSource([{ ok: true, token: token("t") }]);
+        const built = harness([page([entry("labeled", "maintainer", "2026-08-20T10:00:00Z")])]);
+
+        const outcome = await liveExternalsForDelivery(
+            { tokenSource: tokens.source, http: built.client, repository: REPOSITORY },
+            {},
+        );
+
+        if (outcome.ok) {
+            expect(await outcome.facts.latestHumanChangeAt(ITEM)).toEqual(
+                new Date("2026-08-20T10:00:00Z"),
+            );
+        }
+        expect(outcome.ok).toBe(true);
+    });
+
+    it("binds a fresh ordering memo to every delivery", async () => {
+        const tokens = tokenSource([{ ok: true, token: token("t") }]);
+        const built = harness([() => page([])]);
+        const options = {
+            tokenSource: tokens.source,
+            http: built.client,
+            repository: REPOSITORY,
+        };
+
+        const first = await liveExternalsForDelivery(options, PAYLOAD);
+        const second = await liveExternalsForDelivery(options, PAYLOAD);
+        if (first.ok) await first.facts.latestHumanChangeAt(ITEM);
+        if (second.ok) await second.facts.latestHumanChangeAt(ITEM);
+
+        // Two deliveries, one item: two reads — nothing crosses a delivery.
+        expect(built.scripted.calls).toHaveLength(2);
     });
 });

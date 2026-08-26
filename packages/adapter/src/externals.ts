@@ -187,6 +187,27 @@ async function readOrdering(
 }
 
 /**
+ * The causing action as the timeline will record it, read from the raw
+ * payload.
+ *
+ * `observedAt` reads the item's `updated_at` — the SAME field core's
+ * normalizer stamps on the cause — so the same-second exclusion here and
+ * safety's `causeObservedAt` describe one instant; a different field would
+ * quietly miss the exclusion and self-conflict every reaction. `undefined`
+ * when the payload names no sender or no dated item: nothing to exclude,
+ * which only ever errs toward refusing a write.
+ */
+export function causeFingerprintOf(payload: unknown): CauseFingerprint | undefined {
+    const login = field(field(payload, "sender"), "login");
+    const item = field(payload, "issue") ?? field(payload, "pull_request");
+    const updatedAt = field(item, "updated_at");
+    if (typeof login !== "string" || typeof updatedAt !== "string") return undefined;
+    const observedAt = new Date(updatedAt);
+    if (!Number.isFinite(observedAt.getTime())) return undefined;
+    return { actorLogin: login, observedAt };
+}
+
+/**
  * Ordering evidence for one delivery: each item read once, concurrent
  * intents sharing the in-flight read, nothing kept across deliveries — the
  * object's lifetime IS the freshness rule. The ETag cache below this makes
@@ -205,5 +226,48 @@ export function orderingEvidenceSource(
             memo.set(key, pending);
         }
         return pending;
+    };
+}
+
+/** The two facts the live fill supplies; the shell adds its own. */
+export interface LiveExternalFacts {
+    readonly installationGrants: readonly PermissionGrant[];
+    readonly latestHumanChangeAt: (item: ItemRef) => Promise<HumanChangeOrdering>;
+}
+
+/** One delivery's live facts, or the classified reason there are none. */
+export type LiveExternalsOutcome =
+    | { readonly ok: true; readonly facts: LiveExternalFacts }
+    | { readonly ok: false; readonly failure: FailureClass };
+
+/** Everything the live fill composes over; built once at the composition root. */
+export interface LiveExternalsOptions {
+    readonly tokenSource: TokenSource;
+    readonly http: GitHubHttpClient;
+    readonly repository: RepositoryRef;
+}
+
+/**
+ * One delivery's live externals: grants resolved now — they gate every
+ * intent — and ordering evidence read per item on demand. Call once per
+ * delivery: the ordering memo inside must not outlive it.
+ */
+export async function liveExternalsForDelivery(
+    { tokenSource, http, repository }: LiveExternalsOptions,
+    payload: unknown,
+): Promise<LiveExternalsOutcome> {
+    const grants = await installationGrants(tokenSource);
+    if (!grants.ok) return grants;
+    const cause = causeFingerprintOf(payload);
+    return {
+        ok: true,
+        facts: {
+            installationGrants: grants.grants,
+            latestHumanChangeAt: orderingEvidenceSource({
+                http,
+                repository,
+                ...(cause === undefined ? {} : { cause }),
+            }),
+        },
     };
 }

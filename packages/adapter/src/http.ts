@@ -39,8 +39,10 @@ export const DEFAULT_ETAG_CACHE_BYTES = 20 * 1024 * 1024;
 /** A body larger than this is not worth retaining for a conditional re-read. */
 export const DEFAULT_ETAG_CACHE_ENTRY_BYTES = 512 * 1024;
 
+/** Sent on every request this package makes, the mint's POST included. */
+export const USER_AGENT = "hiero-hackers-sdk-automations";
+
 const DEFAULT_ACCEPT = "application/vnd.github+json";
-const USER_AGENT = "hiero-hackers-sdk-automations";
 
 /** Attempts per request: the first, then at most one retry on a fresh token. */
 const REQUEST_ATTEMPTS = 2;
@@ -131,7 +133,8 @@ interface CachedRepresentation {
 
 // ─── Local judgements ────────────────────────────────────────────────
 
-function headersToRecord(headers: Headers): Record<string, string> {
+/** Lower-cased header record, the shape core's classifier reads. */
+export function headersToRecord(headers: Headers): Record<string, string> {
     const record: Record<string, string> = {};
     headers.forEach((value, name) => {
         record[name.toLowerCase()] = value;

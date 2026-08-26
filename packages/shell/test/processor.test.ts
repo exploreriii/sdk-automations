@@ -53,7 +53,7 @@ function processor(capability: EngineCapability, firstTickMs = 1_000) {
         store,
         capabilities: [capability],
         configSource,
-        externals: stubbedExternals(),
+        externals: () => stubbedExternals(),
         repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
         worker: "test-worker",
         clock: () => new Date(BASE.getTime() + firstTickMs + 1000 * tick++),

@@ -10,14 +10,20 @@
  *   WEBHOOK_SECRET=… REPO_OWNER=… REPO_NAME=… pnpm --filter @hiero-hackers/automation-shell start
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { toEngine } from "@hiero-hackers/automation-core";
 import { Store } from "@hiero-hackers/automation-store";
 import { inactivity, intake, prQuality } from "@hiero-hackers/automation-probes";
+import {
+    createGitHubHttpClient,
+    createTokenSource,
+    githubMintInstallationToken,
+    liveExternalsForDelivery,
+} from "@hiero-hackers/automation-adapter";
 import { createShell } from "./shell.js";
 import { CONFIG_PATH, fileConfigSource } from "./config.js";
-import { stubbedExternals } from "./externals.js";
+import { stubbedExternals, type ExternalsForDelivery } from "./externals.js";
 
 const env = process.env;
 const secret = env["WEBHOOK_SECRET"];
@@ -40,6 +46,35 @@ const port = Number(env["PORT"] ?? 8790);
 // A test or a sandbox names the loopback.
 const host = env["HOST"];
 
+const killSwitchActive = env["KILL_SWITCH"] === "1";
+const repository = { owner, repo };
+
+// THE one conditional D93 promised: App credentials present composes the
+// live externals, their absence composes the stubs. CI never holds a
+// credential, so CI runs the stub path permanently.
+const appId = env["APP_ID"];
+const installationId = env["INSTALLATION_ID"];
+const privateKeyFile = env["PRIVATE_KEY_FILE"];
+let externals: ExternalsForDelivery;
+if (appId && installationId && privateKeyFile) {
+    const tokenSource = createTokenSource({
+        credentials: { appId, installationId, privateKeyPem: readFileSync(privateKeyFile, "utf8") },
+        mint: githubMintInstallationToken(),
+        clock: () => new Date(),
+    });
+    const http = createGitHubHttpClient({ tokenSource });
+    externals = async ({ payload }) => {
+        const outcome = await liveExternalsForDelivery({ tokenSource, http, repository }, payload);
+        if (!outcome.ok) {
+            // Rejecting releases the processor's claim; the delivery retries.
+            throw new Error(`live externals unavailable: ${outcome.failure.kind}`);
+        }
+        return { killSwitchActive, ...outcome.facts };
+    };
+} else {
+    externals = () => stubbedExternals({ killSwitchActive });
+}
+
 const shell = createShell({
     secret,
     store: new Store(storeFile),
@@ -47,10 +82,8 @@ const shell = createShell({
     // An operator-maintained copy of the repository's CONFIG_PATH file;
     // the read-only adapter later fetches the live one behind this seam.
     configSource: fileConfigSource(configFile),
-    externals: stubbedExternals({
-        killSwitchActive: env["KILL_SWITCH"] === "1",
-    }),
-    repository: { owner, repo },
+    externals,
+    repository,
 });
 
 // Start recovering anything a previous run left pending before listening.

@@ -33,19 +33,21 @@ automation platform, not GitHub, and everywhere else in the design GitHub is an 
 
 ## Every stub is a named hole the read-only adapter fills
 
-The first slice runs with stubs that have the shape of the truth ([`src/externals.ts`](src/externals.ts)).
-The read-only adapter work packet replaces each behind its existing seam — the shell does not change:
+The stubs have the shape of the truth ([`src/externals.ts`](src/externals.ts)), and the adapter fills
+each behind its existing seam. With App credentials in the environment (`APP_ID`,
+`INSTALLATION_ID`, `PRIVATE_KEY_FILE`), `main.ts` composes the live fill — one conditional, the one
+D93 promised; without them the stubs run, which is CI's permanent path.
 
-| Stub today | Becomes | Seam |
+| Named hole | Live fill | Status |
 |---|---|---|
-| `fileConfigSource` (operator's local copy) | fetch `automations.yml` at the default branch | `ConfigSource` |
-| `installationGrants: ["issues:write"]` | the installation's live grant list | `DecideExternals` |
-| `latestHumanChangeAt: () => null` | timeline evidence per item | `DecideExternals` |
-| no `resolve` | `linkedIssues` / `isAutomationActor` lookups | `DecideExternals.resolve` |
+| `fileConfigSource` (operator's local copy) | fetch `automations.yml` at the default branch | still a stub |
+| `installationGrants: ["issues:write"]` | the installation's live grant list, riding the mint response | **filled** (#134) |
+| `latestHumanChangeAt: () => null` | timeline evidence per item (D119) | **filled** (#134) |
+| no `resolve` | `linkedIssues` / `isAutomationActor` lookups | still a stub |
 
-`() => null` and not `() => "unknown"` deliberately: `"unknown"` is a safe conflict and would refuse
-every write, burying dry-run's real findings under a uniform refusal. Until the adapter lands,
-dry-run reports **overstate** what would apply.
+The stub's `() => null` and not `() => "unknown"` deliberately: `"unknown"` is a safe conflict and
+would refuse every write, burying dry-run's real findings under a uniform refusal. On the
+credential-free path, dry-run reports **overstate** what would apply.
 
 ## Running against the sandbox
 

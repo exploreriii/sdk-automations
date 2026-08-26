@@ -125,6 +125,38 @@ describe("ordering evidence", () => {
         expect(await lookup(ITEM)).toBeNull();
     });
 
+    it.each(["labeled", "unlabeled", "assigned", "unassigned", "closed", "reopened"])(
+        "counts a lone %s event as a human change",
+        async (kind) => {
+            const { lookup } = source([page([entry(kind, "maintainer", "2026-08-20T10:00:00Z")])]);
+            expect(await lookup(ITEM)).toEqual(new Date("2026-08-20T10:00:00Z"));
+        },
+    );
+
+    it("counts every one of the six kinds, and takes the newest even out of order", async () => {
+        // GitHub pages ascend, but the reader must not depend on it.
+        const { lookup } = source([
+            page([
+                entry("assigned", "maintainer", "2026-08-20T14:00:00Z"),
+                entry("unlabeled", "maintainer", "2026-08-20T11:00:00Z"),
+            ]),
+        ]);
+        expect(await lookup(ITEM)).toEqual(new Date("2026-08-20T14:00:00Z"));
+    });
+
+    it("answers unknown for a counted event whose created_at is not text", async () => {
+        const { lookup } = source([
+            page([{ event: "labeled", actor: { login: "m", type: "User" }, created_at: 12345 }]),
+        ]);
+        expect(await lookup(ITEM)).toBe("unknown");
+    });
+
+    it("does not read a failed response's body, even when it parses", async () => {
+        // A 500 whose body happens to be a JSON array must stay a failure.
+        const failing = source([failure(500, "[]"), failure(500, "[]")]);
+        expect(await failing.lookup(ITEM)).toBe("unknown");
+    });
+
     it("excludes the causing event: same actor and second only", async () => {
         const cause = { actorLogin: "maintainer", observedAt: new Date("2026-08-20T10:00:00Z") };
         const causeOnly = source(
@@ -293,6 +325,7 @@ describe("the cause fingerprint", () => {
         ],
         ["a missing updated_at", { sender: { login: "m" }, issue: {} }],
         ["an unreadable updated_at", { sender: { login: "m" }, issue: { updated_at: "later" } }],
+        ["a numeric updated_at", { sender: { login: "m" }, issue: { updated_at: 12345 } }],
     ])("answers nothing to exclude for %s", (_label, payload) => {
         expect(causeFingerprintOf(payload)).toBeUndefined();
     });

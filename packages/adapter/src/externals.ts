@@ -93,6 +93,7 @@ const sameSecond = (a: Date, b: Date): boolean =>
  */
 function humanChangeAt(entry: unknown, cause?: CauseFingerprint): Date | null | "unparsable" {
     const kind = field(entry, "event");
+    // Stryker disable next-line ConditionalExpression: Set.has answers false for any non-string already; the typeof arm is for readers.
     if (typeof kind !== "string" || !HUMAN_CHANGE_EVENTS.has(kind)) return null;
     const actor = field(entry, "actor");
     if (field(actor, "type") !== "User") return null;
@@ -116,6 +117,7 @@ function newestIn(events: readonly unknown[], cause?: CauseFingerprint): HumanCh
     for (const entry of events) {
         const at = humanChangeAt(entry, cause);
         if (at === "unparsable") return "unknown";
+        // Stryker disable next-line EqualityOperator: at an exact tie the kept and the replacing Date are equal values — the mutant is equivalent.
         if (at !== null && (newest === null || at.getTime() > newest.getTime())) newest = at;
     }
     return newest;
@@ -158,6 +160,7 @@ async function readOrdering(
     const first = await read(1);
     if (first === "unknown") return "unknown";
     const lastPage = first.lastPage ?? 1;
+    // Stryker disable next-line ConditionalExpression: the general path below answers a one-page timeline identically; the early return is for readers.
     if (lastPage === 1) return newestIn(first.events, cause);
 
     const descending: number[] = [];
@@ -168,7 +171,7 @@ async function readOrdering(
         const outcome = await read(page);
         if (outcome === "unknown") return "unknown";
         const newest = newestIn(outcome.events, cause);
-        if (newest === "unknown") return "unknown";
+        // "unknown" flows out through the same return as a Date.
         if (newest !== null) return newest;
     }
     // Nothing in the newest block; only complete coverage may answer null.
@@ -255,6 +258,7 @@ export async function liveExternalsForDelivery(
             latestHumanChangeAt: orderingEvidenceSource({
                 http,
                 repository,
+                // Stryker disable next-line ConditionalExpression: spreading { cause: undefined } is runtime-identical; the guard serves exactOptionalPropertyTypes.
                 ...(cause === undefined ? {} : { cause }),
             }),
         },

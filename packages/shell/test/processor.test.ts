@@ -95,7 +95,7 @@ describe("a crash releases the claim", () => {
         // The live path derives its cause fingerprint from this argument;
         // a processor that stopped passing it would break exclusion quietly.
         const seen: unknown[] = [];
-        const observing = new Processor({
+        const observing = createProcessor({
             store,
             capabilities: [toEngine(intake)],
             configSource,

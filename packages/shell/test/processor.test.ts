@@ -10,7 +10,7 @@ import { asDeliveryGuid, toEngine, type EngineCapability } from "@hiero-hackers/
 import { Store } from "@hiero-hackers/automation-store";
 import { intake, intakeDeclaration } from "@hiero-hackers/automation-probes";
 import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
-import { Processor } from "../src/processor.js";
+import { createProcessor } from "../src/processor.js";
 import { stubbedExternals } from "../src/externals.js";
 import type { ConfigSource } from "../src/config.js";
 
@@ -49,7 +49,7 @@ afterEach(() => {
 
 function processor(capability: EngineCapability, firstTickMs = 1_000) {
     let tick = 0;
-    return new Processor({
+    return createProcessor({
         store,
         capabilities: [capability],
         configSource,

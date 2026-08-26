@@ -88,78 +88,82 @@ function parsePayload(bytes: Uint8Array): unknown {
     }
 }
 
-export class Processor {
-    private draining: Promise<void> | null = null;
+/** What the worker exposes: one pass, or pump until the queue is empty. */
+export interface Processor {
+    processOnce(): Promise<boolean>;
+    drain(): Promise<void>;
+}
 
-    constructor(private readonly options: ProcessorOptions) {}
+export function createProcessor(options: ProcessorOptions): Processor {
+    const { store, capabilities, configSource, externals, repository, worker, clock } = options;
+    let draining: Promise<void> | null = null;
 
-    /**
-     * Station 3 onward: claim, decide, then atomically persist-and-complete.
-     * Failures before canonical completion release the claim.
-     */
-    async processOnce(): Promise<boolean> {
-        const claimed = this.claimNext();
-        if (claimed === undefined) return false;
-        try {
-            const record = await this.recordFor(claimed);
-            const completion = this.options.store.completeDeliveryWithReport({
-                deliveryId: claimed.deliveryId,
-                eventName: claimed.eventName,
-                payloadDigest: claimed.payloadDigest,
-                claimToken: claimed.claimToken,
-                reportJson: JSON.stringify(record),
-                completedAt: this.options.clock().toISOString(),
-            });
-            if (completion.outcome !== "completed") {
-                throw new Error(`delivery report was not committed: ${completion.outcome}`);
-            }
-            return true;
-        } catch (error) {
-            this.options.store.releaseDelivery(claimed.deliveryId, claimed.claimToken);
-            throw error;
-        }
-    }
-
-    /** Process until the queue is empty. Overlapping calls share one loop. */
-    drain(): Promise<void> {
-        this.draining ??= (async () => {
-            try {
-                while (await this.processOnce());
-            } finally {
-                this.draining = null;
-            }
-        })();
-        return this.draining;
-    }
-
-    private claimNext(): ClaimedDelivery | undefined {
-        const now = this.options.clock();
+    const claimNext = (): ClaimedDelivery | undefined => {
+        const now = clock();
         const staleBefore = new Date(now.getTime() - STALE_CLAIM_MINUTES * 60_000);
-        return this.options.store.claimNextDelivery(
-            this.options.worker,
-            now.toISOString(),
-            staleBefore.toISOString(),
+        return store.claimNextDelivery(worker, now.toISOString(), staleBefore.toISOString());
+    };
+
+    /** Station 4: fetch the text, parse it. Every rejection is a value —
+     * nothing downstream ever sees a half-read configuration. */
+    const loadConfig = async (): Promise<{
+        readonly revision: string;
+        readonly result: ConfigResult;
+    }> => {
+        const document = await configSource.load();
+        return {
+            revision: document.revision,
+            result: parseConfigDocument(document.text, {
+                revision: document.revision,
+                knownCapabilities: capabilities.map((c) => c.declaration.name),
+            }),
+        };
+    };
+
+    const identify = (
+        claimed: ClaimedDelivery,
+        configRevision: string,
+        decidedAt: Date,
+    ): RecordIdentity => ({
+        // The branded GUID becomes plain text here: records are JSON.
+        deliveryId: String(claimed.deliveryId),
+        event: claimed.eventName,
+        receivedAt: claimed.receivedAt,
+        decidedAt: decidedAt.toISOString(),
+        configRevision,
+    });
+
+    /** Stations 5–10 live behind this one call: normalize, evaluate,
+     * screen, derive the world, gate. The shell's contribution ends at
+     * the parenthesis. */
+    const decideOn = async (
+        claimed: ClaimedDelivery,
+        config: RepositoryConfig,
+    ): Promise<Decision> => {
+        const payload = parsePayload(claimed.payload);
+        // Built per delivery: the live path binds its ordering-evidence
+        // memo to exactly this delivery. A rejection here releases the
+        // claim like any pre-completion failure, and the delivery retries.
+        return decide(
+            { kind: "delivery", repository, event: claimed.eventName, payload },
+            config,
+            capabilities,
+            await externals({ payload }),
         );
-    }
+    };
 
     /** Build one delivery's canonical record, stations ③ to ⑤ in reading order. */
-    private async recordFor(claimed: ClaimedDelivery): Promise<ShellRecord> {
-        const config = await this.loadConfig();
+    const recordFor = async (claimed: ClaimedDelivery): Promise<ShellRecord> => {
+        const config = await loadConfig();
         // One instant serves as the record's `decidedAt` AND the gates'
         // clock, so the journal never disagrees with the decision it holds.
-        const decidedAt = this.options.clock();
-        const identity = this.identify(claimed, config.revision, decidedAt);
+        const identity = identify(claimed, config.revision, clock());
 
         if (!config.result.ok) {
             // Fail closed and COMPLETE: redelivering cannot fix a broken
             // config — the fixed file arrives as its own future delivery.
-            return {
-                kind: "configRejected",
-                ...identity,
-                errors: config.result.errors,
-            };
+            return { kind: "configRejected", ...identity, errors: config.result.errors };
         }
-
         if (config.result.config.mode === "active") {
             return {
                 kind: "modeUnsupported",
@@ -167,65 +171,49 @@ export class Processor {
                 reason: "active mode is unsupported by the runnable shell",
             };
         }
+        const decision = await decideOn(claimed, config.result.config);
+        return { kind: "decision", ...identity, report: decision.report };
+    };
 
-        const decision = await this.decideOn(claimed, config.result.config);
-        return {
-            kind: "decision",
-            ...identity,
-            report: decision.report,
-        };
-    }
+    /**
+     * Station 3 onward: claim, decide, then atomically persist-and-complete.
+     * Failures before canonical completion release the claim.
+     */
+    const processOnce = async (): Promise<boolean> => {
+        const claimed = claimNext();
+        if (claimed === undefined) return false;
+        try {
+            const record = await recordFor(claimed);
+            const completion = store.completeDeliveryWithReport({
+                deliveryId: claimed.deliveryId,
+                eventName: claimed.eventName,
+                payloadDigest: claimed.payloadDigest,
+                claimToken: claimed.claimToken,
+                reportJson: JSON.stringify(record),
+                completedAt: clock().toISOString(),
+            });
+            if (completion.outcome !== "completed") {
+                throw new Error(`delivery report was not committed: ${completion.outcome}`);
+            }
+            return true;
+        } catch (error) {
+            store.releaseDelivery(claimed.deliveryId, claimed.claimToken);
+            throw error;
+        }
+    };
 
-    /** Station 4: fetch the text, parse it. Every rejection is a value —
-     * nothing downstream ever sees a half-read configuration. */
-    private async loadConfig(): Promise<{
-        readonly revision: string;
-        readonly result: ConfigResult;
-    }> {
-        const document = await this.options.configSource.load();
-        return {
-            revision: document.revision,
-            result: parseConfigDocument(document.text, {
-                revision: document.revision,
-                knownCapabilities: this.options.capabilities.map((c) => c.declaration.name),
-            }),
-        };
-    }
-
-    private identify(
-        claimed: ClaimedDelivery,
-        configRevision: string,
-        decidedAt: Date,
-    ): RecordIdentity {
-        return {
-            // The branded GUID becomes plain text here: records are JSON.
-            deliveryId: String(claimed.deliveryId),
-            event: claimed.eventName,
-            receivedAt: claimed.receivedAt,
-            decidedAt: decidedAt.toISOString(),
-            configRevision,
-        };
-    }
-
-    /** Stations 5–10 live behind this one call: normalize, evaluate,
-     * screen, derive the world, gate. The shell's contribution ends at
-     * the parenthesis. */
-    private async decideOn(claimed: ClaimedDelivery, config: RepositoryConfig): Promise<Decision> {
-        const payload = parsePayload(claimed.payload);
-        // Built per delivery: the live path binds its ordering-evidence
-        // memo to exactly this delivery. A rejection here releases the
-        // claim like any pre-completion failure, and the delivery retries.
-        const externals = await this.options.externals({ payload });
-        return decide(
-            {
-                kind: "delivery",
-                repository: this.options.repository,
-                event: claimed.eventName,
-                payload,
-            },
-            config,
-            this.options.capabilities,
-            externals,
-        );
-    }
+    return {
+        processOnce,
+        /** Process until the queue is empty. Overlapping calls share one loop. */
+        drain(): Promise<void> {
+            draining ??= (async () => {
+                try {
+                    while (await processOnce());
+                } finally {
+                    draining = null;
+                }
+            })();
+            return draining;
+        },
+    };
 }

@@ -3,7 +3,13 @@
  * mode or call the one verb, then commit the outcome with completion. The
  * receiver acknowledged long ago; GitHub never observes retries here.
  *
- * `process` below is stations ③ to ⑤ of this package's README table,
+ * The reading key: a claimed delivery always ends as exactly ONE of three
+ * records — `configRejected`, `modeUnsupported`, or a decision — and there
+ * is no fourth exit. The try/catch in `processOnce` is routing, not
+ * handling: any throw releases the claim, and retry-by-reclaim IS the
+ * recovery logic, which is why none lives here.
+ *
+ * `recordFor` below is stations ③ to ⑤ of this package's README table,
  * one named step per station.
  */
 
@@ -68,6 +74,20 @@ type ShellRecord =
           readonly reason: string;
       });
 
+/**
+ * Invalid JSON flows onward as an unreadable payload — the normalizer's
+ * `payloadNotObject` names it in the report; the shell has no opinion.
+ */
+function parsePayload(bytes: Uint8Array): unknown {
+    try {
+        return JSON.parse(Buffer.from(bytes).toString("utf8"));
+        // Stryker disable next-line BlockStatement: an emptied catch falls
+        // through to the same implicit undefined — the mutant is equivalent.
+    } catch {
+        return undefined;
+    }
+}
+
 export class Processor {
     private draining: Promise<void> | null = null;
 
@@ -81,7 +101,7 @@ export class Processor {
         const claimed = this.claimNext();
         if (claimed === undefined) return false;
         try {
-            const record = await this.process(claimed);
+            const record = await this.recordFor(claimed);
             const completion = this.options.store.completeDeliveryWithReport({
                 deliveryId: claimed.deliveryId,
                 eventName: claimed.eventName,
@@ -112,8 +132,18 @@ export class Processor {
         return this.draining;
     }
 
+    private claimNext(): ClaimedDelivery | undefined {
+        const now = this.options.clock();
+        const staleBefore = new Date(now.getTime() - STALE_CLAIM_MINUTES * 60_000);
+        return this.options.store.claimNextDelivery(
+            this.options.worker,
+            now.toISOString(),
+            staleBefore.toISOString(),
+        );
+    }
+
     /** Build one delivery's canonical record, stations ③ to ⑤ in reading order. */
-    private async process(claimed: ClaimedDelivery): Promise<ShellRecord> {
+    private async recordFor(claimed: ClaimedDelivery): Promise<ShellRecord> {
         const config = await this.loadConfig();
         // One instant serves as the record's `decidedAt` AND the gates'
         // clock, so the journal never disagrees with the decision it holds.
@@ -146,16 +176,6 @@ export class Processor {
         };
     }
 
-    private claimNext(): ClaimedDelivery | undefined {
-        const now = this.options.clock();
-        const staleBefore = new Date(now.getTime() - STALE_CLAIM_MINUTES * 60_000);
-        return this.options.store.claimNextDelivery(
-            this.options.worker,
-            now.toISOString(),
-            staleBefore.toISOString(),
-        );
-    }
-
     /** Station 4: fetch the text, parse it. Every rejection is a value —
      * nothing downstream ever sees a half-read configuration. */
     private async loadConfig(): Promise<{
@@ -178,7 +198,8 @@ export class Processor {
         decidedAt: Date,
     ): RecordIdentity {
         return {
-            deliveryId: claimed.deliveryId as string,
+            // The branded GUID becomes plain text here: records are JSON.
+            deliveryId: String(claimed.deliveryId),
             event: claimed.eventName,
             receivedAt: claimed.receivedAt,
             decidedAt: decidedAt.toISOString(),
@@ -206,19 +227,5 @@ export class Processor {
             this.options.capabilities,
             externals,
         );
-    }
-}
-
-/**
- * Invalid JSON flows onward as an unreadable payload — the normalizer's
- * `payloadNotObject` names it in the report; the shell has no opinion.
- */
-function parsePayload(bytes: Uint8Array): unknown {
-    try {
-        return JSON.parse(Buffer.from(bytes).toString("utf8"));
-        // Stryker disable next-line BlockStatement: an emptied catch falls
-        // through to the same implicit undefined — the mutant is equivalent.
-    } catch {
-        return undefined;
     }
 }

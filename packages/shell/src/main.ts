@@ -56,18 +56,23 @@ const repository = { owner, repo };
 // THE one conditional D93 promised: App credentials present composes the
 // live externals, their absence composes the stubs. CI never holds a
 // credential, so CI runs the stub path permanently.
-const appId = env["APP_ID"];
-const installationId = env["INSTALLATION_ID"];
-const privateKeyFile = env["PRIVATE_KEY_FILE"];
-let externals: ExternalsForDelivery;
-if (appId && installationId && privateKeyFile) {
+/** The credentialed path: adapter-composed facts, per delivery. */
+function liveExternals(credentials: {
+    appId: string;
+    installationId: string;
+    privateKeyFile: string;
+}): ExternalsForDelivery {
     const tokenSource = createTokenSource({
-        credentials: { appId, installationId, privateKeyPem: readFileSync(privateKeyFile, "utf8") },
+        credentials: {
+            appId: credentials.appId,
+            installationId: credentials.installationId,
+            privateKeyPem: readFileSync(credentials.privateKeyFile, "utf8"),
+        },
         mint: githubMintInstallationToken(),
         clock: () => new Date(),
     });
     const http = createGitHubHttpClient({ tokenSource });
-    externals = async ({ payload }) => {
+    return async ({ payload }) => {
         const outcome = await liveExternalsForDelivery({ tokenSource, http, repository }, payload);
         if (!outcome.ok) {
             // Rejecting releases the processor's claim; the delivery retries.
@@ -75,9 +80,15 @@ if (appId && installationId && privateKeyFile) {
         }
         return { killSwitchActive, ...outcome.facts };
     };
-} else {
-    externals = () => stubbedExternals({ killSwitchActive });
 }
+
+const appId = env["APP_ID"];
+const installationId = env["INSTALLATION_ID"];
+const privateKeyFile = env["PRIVATE_KEY_FILE"];
+const externals: ExternalsForDelivery =
+    appId && installationId && privateKeyFile
+        ? liveExternals({ appId, installationId, privateKeyFile })
+        : () => stubbedExternals({ killSwitchActive });
 
 const shell = createShell({
     secret,

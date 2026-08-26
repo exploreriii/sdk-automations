@@ -155,6 +155,8 @@ function acceptThenAck(
         return;
     }
     if (options.onAccepted !== undefined) {
+        // The pump starts only after the ack is on the wire, so processing
+        // latency can never delay the 202 GitHub is waiting for.
         response.once("finish", options.onAccepted);
     }
     response.writeHead(202).end();

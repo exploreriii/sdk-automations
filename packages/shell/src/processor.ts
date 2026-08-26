@@ -120,7 +120,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
         };
     };
 
-    const identify = (
+    const identityFor = (
         claimed: ClaimedDelivery,
         configRevision: string,
         decidedAt: Date,
@@ -157,7 +157,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
         const config = await loadConfig();
         // One instant serves as the record's `decidedAt` AND the gates'
         // clock, so the journal never disagrees with the decision it holds.
-        const identity = identify(claimed, config.revision, clock());
+        const identity = identityFor(claimed, config.revision, clock());
 
         if (!config.result.ok) {
             // Fail closed and COMPLETE: redelivering cannot fix a broken

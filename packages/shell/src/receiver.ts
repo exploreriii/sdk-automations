@@ -70,7 +70,7 @@ async function handle(
     }
     const body = await readBody(request, response);
     if (body === null) return;
-    if (!verifiedDelivery(request, body, options.secret)) {
+    if (!isVerifiedDelivery(request, body, options.secret)) {
         response.writeHead(401).end();
         return;
     }
@@ -111,7 +111,7 @@ async function readBody(
 
 /** Station 1's gate: the HMAC of the raw bytes, checked before anything
  * else is even read. Total — a missing header is `false`, never a throw. */
-function verifiedDelivery(request: IncomingMessage, body: Buffer, secret: string): boolean {
+function isVerifiedDelivery(request: IncomingMessage, body: Buffer, secret: string): boolean {
     const signature = request.headers[SIGNATURE_HEADER];
     return verifyBody(secret, body, typeof signature === "string" ? signature : undefined);
 }

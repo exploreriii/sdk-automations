@@ -82,37 +82,31 @@ async function handle(
     acceptThenAck({ ...identity, payload: body }, response, options);
 }
 
-/** Collect the exact bytes, capped; answers the 413 itself. */
-function readBody(request: IncomingMessage, response: ServerResponse): Promise<Buffer | null> {
-    return new Promise((resolve, reject) => {
-        const chunks: Buffer[] = [];
-        let size = 0;
-        let settled = false;
-        const fail = (error: Error): void => {
-            if (settled) return;
-            settled = true;
-            reject(error);
-        };
-        request.on("data", (chunk: Buffer) => {
-            if (settled) return;
-            size += chunk.length;
-            if (size > MAX_BODY_BYTES) {
-                settled = true;
-                response.writeHead(413).end();
-                resolve(null);
-                request.destroy();
-                return;
-            }
-            chunks.push(chunk);
-        });
-        request.on("end", () => {
-            if (settled) return;
-            settled = true;
-            resolve(Buffer.concat(chunks));
-        });
-        request.on("aborted", () => fail(new Error("request aborted")));
-        request.on("error", fail);
-    });
+/**
+ * Collect the exact bytes, capped; answers the 413 itself. A failed
+ * request rejects the iteration, which lands on `createReceiver`'s 500
+ * boundary like any other escape.
+ */
+async function readBody(
+    request: IncomingMessage,
+    response: ServerResponse,
+): Promise<Buffer | null> {
+    // `aborted` is deprecated and usually accompanied by a stream error,
+    // but not always; folding it into destroy() sends the lone signal
+    // through the same rejection path as every other failure.
+    request.once("aborted", () => request.destroy(new Error("request aborted")));
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of request as AsyncIterable<Buffer>) {
+        size += chunk.length;
+        if (size > MAX_BODY_BYTES) {
+            response.writeHead(413).end();
+            request.destroy();
+            return null;
+        }
+        chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
 }
 
 /** Station 1's gate: the HMAC of the raw bytes, checked before anything

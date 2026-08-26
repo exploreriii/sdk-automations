@@ -2,12 +2,22 @@
  * The live fill for core's external facts — what GitHub actually answers,
  * where the shell's stubs assume.
  *
- * This file owns the grants half today; the ordering-evidence half (the
- * timeline read) joins it. Grants ride the mint response: the token source
- * already holds them, so asking costs no HTTP call of its own.
+ * Two facts live here. Grants ride the mint response: the token source
+ * already holds them, so asking costs nothing. Ordering evidence is the
+ * expensive one — a timeline read per item, memoized for exactly one
+ * delivery — and its answer is a `Date`, a confident `null`, or
+ * `"unknown"`; a failed or incomplete read is always `"unknown"`, never
+ * either of the others (D51, D119).
  */
 
-import type { FailureClass, PermissionGrant } from "@hiero-hackers/automation-core";
+import type {
+    FailureClass,
+    HumanChangeOrdering,
+    ItemRef,
+    PermissionGrant,
+    RepositoryRef,
+} from "@hiero-hackers/automation-core";
+import { GITHUB_API_ORIGIN, type GitHubHttpClient, type GitHubOutcome } from "./http.js";
 import type { TokenSource } from "./token.js";
 
 /** The installation's grants, or the classified reason they are unknown. */
@@ -28,4 +38,172 @@ export async function installationGrants(source: TokenSource): Promise<GrantsOut
     return outcome.ok
         ? { ok: true, grants: outcome.token.grants }
         : { ok: false, failure: outcome.failure };
+}
+
+/**
+ * The timeline event kinds that count as a human change (D119): the
+ * surfaces the App writes — mapped labels, assignment — plus the
+ * open/closed state its decisions read. The list grows when the intent
+ * catalogue grows, not before.
+ */
+const HUMAN_CHANGE_EVENTS: ReadonlySet<string> = new Set([
+    "labeled",
+    "unlabeled",
+    "assigned",
+    "unassigned",
+    "closed",
+    "reopened",
+]);
+
+/** Timeline calls per item per delivery; past this the answer is `"unknown"`. */
+const TIMELINE_READ_CAP = 3;
+
+const TIMELINE_PAGE_SIZE = 100;
+
+/** The delivery's causing human action, so it cannot conflict with itself. */
+export interface CauseFingerprint {
+    readonly actorLogin: string;
+    readonly observedAt: Date;
+}
+
+/** What one delivery's ordering reads need; built fresh per delivery. */
+export interface OrderingEvidenceOptions {
+    readonly http: GitHubHttpClient;
+    readonly repository: RepositoryRef;
+    /** Absent for sweeps and bot-caused deliveries — nothing to exclude. */
+    readonly cause?: CauseFingerprint;
+}
+
+/** A property read that cannot throw, whatever shape GitHub sent. */
+const field = (value: unknown, name: string): unknown =>
+    typeof value === "object" && value !== null
+        ? (value as Record<string, unknown>)[name]
+        : undefined;
+
+/** GitHub timestamps have second granularity; compare at that granularity. */
+const sameSecond = (a: Date, b: Date): boolean =>
+    Math.floor(a.getTime() / 1000) === Math.floor(b.getTime() / 1000);
+
+/**
+ * When this timeline entry counts as a human change: a `Date`; `null` for
+ * an entry that does not count — an ignored kind, a non-User actor, or the
+ * causing event itself (same actor, same second; a DIFFERENT actor in the
+ * cause's second still counts, which is D33's tie going to the human).
+ * `"unparsable"` for an entry that counts but cannot be ordered.
+ */
+function humanChangeAt(entry: unknown, cause?: CauseFingerprint): Date | null | "unparsable" {
+    const kind = field(entry, "event");
+    if (typeof kind !== "string" || !HUMAN_CHANGE_EVENTS.has(kind)) return null;
+    const actor = field(entry, "actor");
+    if (field(actor, "type") !== "User") return null;
+    const createdAt = field(entry, "created_at");
+    if (typeof createdAt !== "string") return "unparsable";
+    const at = new Date(createdAt);
+    if (!Number.isFinite(at.getTime())) return "unparsable";
+    if (
+        cause !== undefined &&
+        field(actor, "login") === cause.actorLogin &&
+        sameSecond(at, cause.observedAt)
+    ) {
+        return null;
+    }
+    return at;
+}
+
+/** The newest human change among these entries, `null` for none. */
+function newestIn(events: readonly unknown[], cause?: CauseFingerprint): HumanChangeOrdering {
+    let newest: Date | null = null;
+    for (const entry of events) {
+        const at = humanChangeAt(entry, cause);
+        if (at === "unparsable") return "unknown";
+        if (at !== null && (newest === null || at.getTime() > newest.getTime())) newest = at;
+    }
+    return newest;
+}
+
+interface TimelinePage {
+    readonly events: readonly unknown[];
+    /** The page `rel="last"` names, or `null` when this page is the whole timeline. */
+    readonly lastPage: number | null;
+}
+
+function lastPageOf(link: string | undefined): number | null {
+    if (link === undefined) return null;
+    const match = /[?&]page=(\d+)[^>]*>;\s*rel="last"/.exec(link);
+    return match === null ? null : Number(match[1]);
+}
+
+function parsePage(outcome: GitHubOutcome): TimelinePage | "unknown" {
+    if (!outcome.ok) return "unknown";
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(outcome.body);
+    } catch {
+        return "unknown";
+    }
+    if (!Array.isArray(parsed)) return "unknown";
+    return { events: parsed, lastPage: lastPageOf(outcome.headers.link) };
+}
+
+/**
+ * Walk the timeline newest-first under the call cap.
+ *
+ * Pages ascend, so the newest change lives in the highest pages: read page
+ * one (which names the last page), then descend from the last page. A find
+ * in the descending block is the newest overall and later pages need no
+ * call. A `Date` found ONLY on page one while middle pages went unvisited
+ * would understate the newest change — the unsafe direction — so partial
+ * coverage without a find in the block answers `"unknown"`.
+ */
+async function readOrdering(
+    { http, repository, cause }: OrderingEvidenceOptions,
+    item: ItemRef,
+): Promise<HumanChangeOrdering> {
+    const pageUrl = (page: number): string =>
+        `${GITHUB_API_ORIGIN}/repos/${repository.owner}/${repository.repo}` +
+        `/issues/${String(item.number)}/timeline` +
+        `?per_page=${String(TIMELINE_PAGE_SIZE)}&page=${String(page)}`;
+    const read = async (page: number): Promise<TimelinePage | "unknown"> =>
+        parsePage(await http.request({ url: pageUrl(page), method: "GET" }));
+
+    const first = await read(1);
+    if (first === "unknown") return "unknown";
+    const lastPage = first.lastPage ?? 1;
+    if (lastPage === 1) return newestIn(first.events, cause);
+
+    const descending: number[] = [];
+    for (let page = lastPage; page > 1 && descending.length < TIMELINE_READ_CAP - 1; page -= 1) {
+        descending.push(page);
+    }
+    for (const page of descending) {
+        const outcome = await read(page);
+        if (outcome === "unknown") return "unknown";
+        const newest = newestIn(outcome.events, cause);
+        if (newest === "unknown") return "unknown";
+        if (newest !== null) return newest;
+    }
+    // Nothing in the newest block; only complete coverage may answer null.
+    return lastPage <= 1 + descending.length ? newestIn(first.events, cause) : "unknown";
+}
+
+/**
+ * Ordering evidence for one delivery: each item read once, concurrent
+ * intents sharing the in-flight read, nothing kept across deliveries — the
+ * object's lifetime IS the freshness rule. The ETag cache below this makes
+ * the next delivery's re-read cheap; it never makes it stale, because a
+ * conditional read revalidates with GitHub every time.
+ */
+export function orderingEvidenceSource(
+    options: OrderingEvidenceOptions,
+): (item: ItemRef) => Promise<HumanChangeOrdering> {
+    const memo = new Map<string, Promise<HumanChangeOrdering>>();
+    return (item) => {
+        const key = `${item.kind}#${String(item.number)}`;
+        let pending = memo.get(key);
+        if (pending === undefined) {
+            pending = readOrdering(options, item);
+            memo.set(key, pending);
+        }
+        return pending;
+    };
 }

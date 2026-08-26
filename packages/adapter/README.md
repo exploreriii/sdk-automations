@@ -56,8 +56,8 @@ operator reports. **Owner:** unassigned, the same unfilled row as its sibling in
 ## Still to arrive
 
 The operations — one per confirmed matrix row, each adding only its URL and its parse on top of
-`http.ts` — and the seam implementations the shell composes: `githubConfigSource`, the
-ordering-evidence half of `externals.ts` (the timeline read, #134), and the resolvers.
+`http.ts` — and the seam implementations the shell composes: `githubConfigSource`, the shell
+wiring that chooses live externals over the stubs (#134's last step), and the resolvers.
 `design/guides/adapter.md` holds the order and what each one is blocked on.
 
 ## What keeps it honest

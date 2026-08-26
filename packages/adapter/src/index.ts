@@ -11,7 +11,13 @@
  */
 
 export { signAppAssertion, type AppCredentials } from "./jwt.js";
-export { installationGrants, type GrantsOutcome } from "./externals.js";
+export {
+    installationGrants,
+    orderingEvidenceSource,
+    type CauseFingerprint,
+    type GrantsOutcome,
+    type OrderingEvidenceOptions,
+} from "./externals.js";
 export {
     createTokenSource,
     grantsFromPermissions,

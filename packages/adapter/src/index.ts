@@ -11,6 +11,7 @@
  */
 
 export { signAppAssertion, type AppCredentials } from "./jwt.js";
+export { installationGrants, type GrantsOutcome } from "./externals.js";
 export {
     createTokenSource,
     grantsFromPermissions,

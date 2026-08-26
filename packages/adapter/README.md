@@ -15,6 +15,7 @@ operation list and its costs are
 | `jwt.ts` | What proves we are the App? |
 | `token.ts` | What token may we call with, right now? |
 | `http.ts` | How does every operation make one bounded, classified GitHub call? |
+| `externals.ts` | Which of core's external facts does GitHub answer, live? |
 
 Every outside dependency — fetch, the clock, the mint call — is injected, so no test reaches the
 network. The client exposes only the GET reads this stage has proved, pins credentials to GitHub's
@@ -55,9 +56,9 @@ operator reports. **Owner:** unassigned, the same unfilled row as its sibling in
 ## Still to arrive
 
 The operations — one per confirmed matrix row, each adding only its URL and its parse on top of
-`http.ts` — and the seam implementations the shell composes: `githubConfigSource`,
-`liveExternals`, and the resolvers. `design/guides/adapter.md` holds the order and what each one is
-blocked on.
+`http.ts` — and the seam implementations the shell composes: `githubConfigSource`, the
+ordering-evidence half of `externals.ts` (the timeline read, #134), and the resolvers.
+`design/guides/adapter.md` holds the order and what each one is blocked on.
 
 ## What keeps it honest
 

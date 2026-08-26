@@ -11,8 +11,10 @@
  * calls what main calls. Rewiring the composition would not have failed it.
  *
  * v8 attributes nothing across a spawn, so src/main.ts is excluded from
- * coverage in vitest.config.ts. The exclusion records where the coverage
- * went, not that the file is untested.
+ * coverage in vitest.config.ts — and mutant activation does not cross a
+ * spawn either, so src/main.ts carries a file-wide Stryker disable for
+ * the same reason. Both exclusions record where the coverage went, not
+ * that the file is untested.
  *
  * Every child is killed twice over: a hard timer inside `withShell`, and
  * the wrapper's own `finally`. A boot that never reaches `listen` has to

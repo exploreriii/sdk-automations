@@ -10,6 +10,10 @@
  *   WEBHOOK_SECRET=… REPO_OWNER=… REPO_NAME=… pnpm --filter @hiero-hackers/automation-shell start
  */
 
+// Stryker disable all: mutant activation does not cross a spawn, and this
+// file is tested as a real child process (test/main.test.ts) — the same
+// blind spot vitest.config.ts records for v8 coverage.
+
 import { mkdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { toEngine } from "@hiero-hackers/automation-core";

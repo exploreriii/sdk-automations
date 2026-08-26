@@ -17,6 +17,7 @@ operation list and its costs are
 | `http.ts` | How does every operation make one bounded, classified GitHub call? |
 | `externals.ts` | Which of core's external facts does GitHub answer, live? |
 | `mint.ts` | How is a token minted when no token exists yet? |
+| `untrusted.ts` | How are GitHub's bytes read without trusting them? |
 
 Every outside dependency — fetch, the clock, the mint call — is injected, so no test reaches the
 network. The client exposes only the GET reads this stage has proved, pins credentials to GitHub's

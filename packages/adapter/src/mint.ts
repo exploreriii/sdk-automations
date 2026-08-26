@@ -15,7 +15,13 @@ import {
     GITHUB_API_VERSION,
     type FetchLike,
 } from "./http.js";
-import { grantsFromPermissions, type MintInstallationToken, type TokenOutcome } from "./token.js";
+import { field, jsonRecordOf } from "./untrusted.js";
+import {
+    grantsFromPermissions,
+    type InstallationToken,
+    type MintInstallationToken,
+    type TokenOutcome,
+} from "./token.js";
 
 /** Seams the composition root may override; production needs none of them. */
 export interface GitHubMintOptions {
@@ -26,6 +32,27 @@ export interface GitHubMintOptions {
 
 /** A response that promised a token but did not carry one readable. */
 const unreadableMint: TokenOutcome = { ok: false, failure: { kind: "transient" } };
+
+/** The minted token a 2xx body carries, or `null` when it cannot be read. */
+function mintedTokenOf(body: string): InstallationToken | null {
+    const record = jsonRecordOf(body);
+    if (record === null) return null;
+    const value = field(record, "token");
+    const expiresAtRaw = field(record, "expires_at");
+    if (typeof value !== "string" || typeof expiresAtRaw !== "string") return null;
+    const expiresAt = new Date(expiresAtRaw);
+    if (!Number.isFinite(expiresAt.getTime())) return null;
+    const permissions = field(record, "permissions");
+    return {
+        value,
+        expiresAt,
+        grants: grantsFromPermissions(
+            typeof permissions === "object" && permissions !== null
+                ? (permissions as Record<string, string>)
+                : {},
+        ),
+    };
+}
 
 /**
  * The live mint `createTokenSource` injects: one POST to
@@ -82,31 +109,7 @@ export function githubMintInstallationToken(
             };
         }
 
-        let parsed: unknown;
-        try {
-            parsed = JSON.parse(body);
-        } catch {
-            return unreadableMint;
-        }
-        if (typeof parsed !== "object" || parsed === null) return unreadableMint;
-        const record = parsed as Record<string, unknown>;
-        const value = record["token"];
-        const expiresAtRaw = record["expires_at"];
-        if (typeof value !== "string" || typeof expiresAtRaw !== "string") return unreadableMint;
-        const expiresAt = new Date(expiresAtRaw);
-        if (!Number.isFinite(expiresAt.getTime())) return unreadableMint;
-        const permissions = record["permissions"];
-        return {
-            ok: true,
-            token: {
-                value,
-                expiresAt,
-                grants: grantsFromPermissions(
-                    typeof permissions === "object" && permissions !== null
-                        ? (permissions as Record<string, string>)
-                        : {},
-                ),
-            },
-        };
+        const token = mintedTokenOf(body);
+        return token === null ? unreadableMint : { ok: true, token };
     };
 }

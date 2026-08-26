@@ -142,6 +142,17 @@ export function headersToRecord(headers: Headers): Record<string, string> {
     return record;
 }
 
+/**
+ * The page `rel="last"` names in a `link` header, or `null` when this
+ * response is the whole story. Pagination is this client's vocabulary —
+ * the cache retains `link` on stored representations for exactly this read.
+ */
+export function lastPageFromLink(link: string | undefined): number | null {
+    if (link === undefined) return null;
+    const match = /[?&]page=(\d+)[^>]*>;\s*rel="last"/.exec(link);
+    return match === null ? null : Number(match[1]);
+}
+
 function rateLimitHeaders(headers: Readonly<Record<string, string>>): Record<string, string> {
     return Object.fromEntries(
         Object.entries(headers).filter(([name]) => name.startsWith("x-ratelimit-")),

@@ -101,6 +101,7 @@ describe("the live mint", () => {
     it.each([
         ["unparsable JSON", success("not json", undefined)],
         ["a non-object body", new Response('"token"', { status: 201 })],
+        ["an array body", new Response("[]", { status: 201 })],
         [
             "a missing token field",
             new Response('{"expires_at":"2026-08-26T13:00:00Z"}', { status: 201 }),

@@ -17,8 +17,14 @@ import type {
     PermissionGrant,
     RepositoryRef,
 } from "@hiero-hackers/automation-core";
-import { GITHUB_API_ORIGIN, type GitHubHttpClient, type GitHubOutcome } from "./http.js";
+import {
+    GITHUB_API_ORIGIN,
+    lastPageFromLink,
+    type GitHubHttpClient,
+    type GitHubOutcome,
+} from "./http.js";
 import type { TokenSource } from "./token.js";
+import { field, jsonArrayOf } from "./untrusted.js";
 
 /** The installation's grants, or the classified reason they are unknown. */
 export type GrantsOutcome =
@@ -74,12 +80,6 @@ export interface OrderingEvidenceOptions {
     readonly cause?: CauseFingerprint;
 }
 
-/** A property read that cannot throw, whatever shape GitHub sent. */
-const field = (value: unknown, name: string): unknown =>
-    typeof value === "object" && value !== null
-        ? (value as Record<string, unknown>)[name]
-        : undefined;
-
 /** GitHub timestamps have second granularity; compare at that granularity. */
 const sameSecond = (a: Date, b: Date): boolean =>
     Math.floor(a.getTime() / 1000) === Math.floor(b.getTime() / 1000);
@@ -127,22 +127,11 @@ interface TimelinePage {
     readonly lastPage: number | null;
 }
 
-function lastPageOf(link: string | undefined): number | null {
-    if (link === undefined) return null;
-    const match = /[?&]page=(\d+)[^>]*>;\s*rel="last"/.exec(link);
-    return match === null ? null : Number(match[1]);
-}
-
 function parsePage(outcome: GitHubOutcome): TimelinePage | "unknown" {
     if (!outcome.ok) return "unknown";
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(outcome.body);
-    } catch {
-        return "unknown";
-    }
-    if (!Array.isArray(parsed)) return "unknown";
-    return { events: parsed, lastPage: lastPageOf(outcome.headers.link) };
+    const events = jsonArrayOf(outcome.body);
+    if (events === null) return "unknown";
+    return { events, lastPage: lastPageFromLink(outcome.headers.link) };
 }
 
 /**

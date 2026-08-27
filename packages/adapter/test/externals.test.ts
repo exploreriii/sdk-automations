@@ -12,6 +12,7 @@ import {
     installationGrants,
     liveExternalsForDelivery,
     orderingEvidenceSource,
+    type CauseFingerprint,
 } from "../src/externals.js";
 import {
     failure,
@@ -24,14 +25,35 @@ import {
 const ITEM: ItemRef = { kind: "issue", number: 7 };
 const REPOSITORY = { owner: "hiero-hackers", repo: "sdk-automations" };
 const TIMELINE_URL = "https://api.github.com/repos/hiero-hackers/sdk-automations/issues/7/timeline";
+const AT = "2026-08-20T10:00:00Z";
+const CAUSE: CauseFingerprint = {
+    actorLogin: "maintainer",
+    observedAt: new Date(AT),
+    itemNumber: 7,
+    action: "labeled",
+    target: "triage",
+};
+const PAYLOAD = {
+    action: "labeled",
+    label: { name: "triage" },
+    sender: { login: "maintainer" },
+    issue: { number: 7, updated_at: AT },
+};
 
 function entry(
     event: string,
     login: string,
     createdAt: string,
     type: "User" | "Bot" = "User",
-): unknown {
-    return { event, actor: { login, type }, created_at: createdAt };
+    target = "triage",
+): Record<string, unknown> {
+    const details =
+        event === "labeled" || event === "unlabeled"
+            ? { label: { name: target } }
+            : event === "assigned" || event === "unassigned"
+              ? { assignee: { login: target } }
+              : {};
+    return { event, actor: { login, type }, created_at: createdAt, ...details };
 }
 
 function page(events: readonly unknown[], headers?: Record<string, string>): Response {
@@ -47,10 +69,7 @@ function linkTo(lastPage: number): Record<string, string> {
     };
 }
 
-function source(
-    steps: Parameters<typeof harness>[0],
-    cause?: { actorLogin: string; observedAt: Date },
-) {
+function source(steps: Parameters<typeof harness>[0], cause?: CauseFingerprint) {
     const built = harness(steps);
     const lookup = orderingEvidenceSource({
         http: built.client,
@@ -101,8 +120,8 @@ describe("ordering evidence", () => {
     it("answers the newest human change on a single page", async () => {
         const { lookup, scripted } = source([
             page([
-                entry("labeled", "maintainer", "2026-08-20T10:00:00Z"),
                 entry("closed", "maintainer", "2026-08-20T12:00:00Z"),
+                entry("labeled", "maintainer", "2026-08-20T10:00:00Z"),
                 entry("labeled", "app[bot]", "2026-08-21T09:00:00Z", "Bot"),
             ]),
         ]);
@@ -125,8 +144,8 @@ describe("ordering evidence", () => {
         expect(await lookup(ITEM)).toBeNull();
     });
 
-    it("excludes the causing event: same actor and second only", async () => {
-        const cause = { actorLogin: "maintainer", observedAt: new Date("2026-08-20T10:00:00Z") };
+    it("excludes the cause but keeps ties from another actor and later changes", async () => {
+        const cause = CAUSE;
         const causeOnly = source(
             [page([entry("labeled", "maintainer", "2026-08-20T10:00:00Z")])],
             cause,
@@ -148,6 +167,41 @@ describe("ordering evidence", () => {
         expect(await later.lookup(ITEM)).toEqual(new Date("2026-08-20T10:00:01Z"));
     });
 
+    it.each([
+        ["another action", entry("unassigned", "maintainer", AT)],
+        ["the opposite action on the same label", entry("unlabeled", "maintainer", AT)],
+        ["another label", entry("labeled", "maintainer", AT, "User", "other")],
+        ["another identical action", entry("labeled", "maintainer", AT)],
+    ])("keeps %s by the same human in the same second", async (_name, other) => {
+        const { lookup } = source([page([entry("labeled", "maintainer", AT), other])], CAUSE);
+        expect(await lookup(ITEM)).toEqual(new Date(AT));
+    });
+
+    it("never excludes a matching action on another item", async () => {
+        const { lookup } = source([page([entry("labeled", "maintainer", AT)])], CAUSE);
+        expect(await lookup({ kind: "issue", number: 8 })).toEqual(new Date(AT));
+    });
+
+    it("excludes the cause only once across pages", async () => {
+        const match = entry("labeled", "maintainer", AT);
+        const { lookup } = source([page([match], linkTo(3)), page([match]), page([])], CAUSE);
+        expect(await lookup(ITEM)).toEqual(new Date(AT));
+    });
+
+    it("matches assignment targets and state changes", async () => {
+        for (const action of ["unlabeled", "assigned", "unassigned", "closed", "reopened"]) {
+            const target = action === "closed" || action === "reopened" ? null : "triage";
+            const cause = { ...CAUSE, action, target };
+            const { lookup } = source([page([entry(action, "maintainer", AT)])], cause);
+            expect(await lookup(ITEM)).toBeNull();
+        }
+        const { lookup } = source([page([entry("assigned", "maintainer", AT, "User", "other")])], {
+            ...CAUSE,
+            action: "assigned",
+        });
+        expect(await lookup(ITEM)).toEqual(new Date(AT));
+    });
+
     it("reads each item once per delivery, sharing the in-flight read", async () => {
         // A function step mints a fresh Response per call — a body reads once.
         const { lookup, scripted } = source([() => page([])]);
@@ -163,7 +217,7 @@ describe("ordering evidence", () => {
     });
 
     it("answers unknown for a failed read, never null", async () => {
-        const failing = source([failure(500, "boom"), failure(500, "boom")]);
+        const failing = source([failure(500, "[]"), failure(500, "[]")]);
         expect(await failing.lookup(ITEM)).toBe("unknown");
 
         const malformed = source([success("not json")]);
@@ -179,13 +233,29 @@ describe("ordering evidence", () => {
 
         const missingDate = source([page([{ event: "labeled", actor: { type: "User" } }])]);
         expect(await missingDate.lookup(ITEM)).toBe("unknown");
+
+        const numericDate = source([
+            page([{ event: "labeled", actor: { type: "User" }, created_at: 0 }]),
+        ]);
+        expect(await numericDate.lookup(ITEM)).toBe("unknown");
     });
 
-    it("does not count a counted kind whose actor is absent", async () => {
-        const { lookup } = source([
-            page([{ event: "labeled", created_at: "2026-08-20T10:00:00Z" }]),
+    it.each([undefined, null, {}, { type: "Unexpected" }])(
+        "answers unknown for an unidentified actor: %j",
+        async (actor) => {
+            const { lookup } = source([page([{ event: "labeled", actor, created_at: AT }])]);
+            expect(await lookup(ITEM)).toBe("unknown");
+        },
+    );
+
+    it("answers unknown when next exists but the last page is unavailable", async () => {
+        const { lookup, scripted } = source([
+            page([], {
+                link: `<${TIMELINE_URL}?page=2>; rel="next"`,
+            }),
         ]);
-        expect(await lookup(ITEM)).toBeNull();
+        expect(await lookup(ITEM)).toBe("unknown");
+        expect(scripted.calls).toHaveLength(1);
     });
 
     it("treats a link header without rel=last as a single page", async () => {
@@ -269,41 +339,63 @@ describe("the cause fingerprint", () => {
     it("reads the sender and the item's updated_at, the normalizer's field", () => {
         expect(
             causeFingerprintOf({
+                action: "labeled",
+                label: { name: "triage" },
                 sender: { login: "maintainer" },
                 issue: { number: 7, updated_at: "2026-08-20T10:00:00Z" },
             }),
-        ).toEqual({ actorLogin: "maintainer", observedAt: new Date("2026-08-20T10:00:00Z") });
+        ).toEqual(CAUSE);
     });
 
     it("falls back to the pull request when the payload carries no issue", () => {
         expect(
             causeFingerprintOf({
+                action: "closed",
                 sender: { login: "maintainer" },
                 pull_request: { number: 8, updated_at: "2026-08-20T11:00:00Z" },
             }),
-        ).toEqual({ actorLogin: "maintainer", observedAt: new Date("2026-08-20T11:00:00Z") });
+        ).toEqual({
+            ...CAUSE,
+            itemNumber: 8,
+            action: "closed",
+            target: null,
+            observedAt: new Date("2026-08-20T11:00:00Z"),
+        });
     });
 
     it.each([
         ["a non-object payload", undefined],
-        ["a missing sender", { issue: { updated_at: "2026-08-20T10:00:00Z" } }],
-        [
-            "a non-string login",
-            { sender: { login: 7 }, issue: { updated_at: "2026-08-20T10:00:00Z" } },
-        ],
-        ["a missing updated_at", { sender: { login: "m" }, issue: {} }],
-        ["an unreadable updated_at", { sender: { login: "m" }, issue: { updated_at: "later" } }],
+        ["a missing sender", { ...PAYLOAD, sender: undefined }],
+        ["a non-string login", { ...PAYLOAD, sender: { login: 7 } }],
+        ["a missing updated_at", { ...PAYLOAD, issue: { number: 7 } }],
+        ["an unreadable updated_at", { ...PAYLOAD, issue: { number: 7, updated_at: "later" } }],
+        ["a numeric updated_at", { ...PAYLOAD, issue: { number: 7, updated_at: 0 } }],
+        ["a missing action", { ...PAYLOAD, action: undefined }],
+        ["an uncounted action", { ...PAYLOAD, action: "opened" }],
+        ["a missing label", { ...PAYLOAD, label: undefined }],
+        ["a missing assignee", { ...PAYLOAD, action: "assigned" }],
+        ["a missing item number", { ...PAYLOAD, issue: { updated_at: AT } }],
+        ["a non-integer item number", { ...PAYLOAD, issue: { number: 1.5, updated_at: AT } }],
+        ["a non-positive item number", { ...PAYLOAD, issue: { number: 0, updated_at: AT } }],
     ])("answers nothing to exclude for %s", (_label, payload) => {
         expect(causeFingerprintOf(payload)).toBeUndefined();
+    });
+
+    it.each(["assigned", "unassigned"])("reads the %s target", (action) => {
+        expect(
+            causeFingerprintOf({ ...PAYLOAD, action, assignee: { login: "contributor" } }),
+        ).toEqual({ ...CAUSE, action, target: "contributor" });
+    });
+
+    it("accepts the first item number", () => {
+        expect(causeFingerprintOf({ ...PAYLOAD, issue: { number: 1, updated_at: AT } })).toEqual({
+            ...CAUSE,
+            itemNumber: 1,
+        });
     });
 });
 
 describe("live externals for one delivery", () => {
-    const PAYLOAD = {
-        sender: { login: "maintainer" },
-        issue: { number: 7, updated_at: "2026-08-20T10:00:00Z" },
-    };
-
     it("propagates a grants failure instead of deciding without them", async () => {
         const tokens = tokenSource([{ ok: false, failure: { kind: "transient" } }]);
         const built = harness([page([])]);

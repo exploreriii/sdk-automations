@@ -143,8 +143,8 @@ export function headersToRecord(headers: Headers): Record<string, string> {
 }
 
 /**
- * The page `rel="last"` names in a `link` header, or `null` when this
- * response is the whole story. Pagination is this client's vocabulary —
+ * The page `rel="last"` names in a `link` header, or `null` when absent.
+ * That does NOT imply a complete response. Pagination is this client's vocabulary —
  * the cache retains `link` on stored representations for exactly this read.
  */
 export function lastPageFromLink(link: string | undefined): number | null {

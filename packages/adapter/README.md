@@ -2,9 +2,9 @@
 
 **The only place in the platform that talks to GitHub.** Everything else decides; this asks and
 answers. It sits on `core/` and on nothing else, and exactly one file outside it — the shell's
-composition root — ever names it. Green tests here mean the code still agrees with what was
-measured against a live system, not that it is correct; the provenance table below is that
-obligation. The build guide is [`design/guides/adapter.md`](../../design/guides/adapter.md); the
+composition root — ever names it. Green tests mean agreement with the fixtures, not live GitHub;
+the provenance table below records what was actually measured.
+The build guide is [`design/guides/adapter.md`](../../design/guides/adapter.md); the
 operation list and its costs are
 [`design/findings/endpoint-permission-matrix.md`](../../design/findings/endpoint-permission-matrix.md).
 
@@ -46,8 +46,8 @@ changing — so they are here for coverage, not for the quarterly pass.
 | `permissions` is `{scope: level}` | `grantsFromPermissions` | mint response | 2026-07-23 | a level outside `read`/`write` enters the ceiling | **quiet**: the grant is dropped, and a capability refuses citing a permission the installation actually holds |
 | REST request version is `2026-03-10` | `GITHUB_API_VERSION` | GitHub's version docs | documented | the version approaches sunset | response carries `deprecation`/`sunset`, then calls return 410 |
 | Authenticated conditional GET returning 304 costs no primary quota | `http.ts` ETag cache | GitHub's best-practice docs, experiment 6.4 | documented + 2026-07-23 | GitHub changes conditional accounting | rate usage rises on unchanged reads |
-| Mint answers 201 with `token`, `expires_at`, `permissions` | `mint.ts` | experiment 6.1, matrix row | 2026-07-23 | the response shape changes | every mint reads as transient — loud |
-| Timeline entries name `event`, a typed `actor`, second-precision `created_at`; pages ascend | `externals.ts` six-kind filter | GitHub's timeline docs, matrix row | documented + 2026-07-23 | the shape or the kinds change | **quiet**: an unrecognized shape stops counting as human evidence, and writes proceed over human edits |
+| Mint answers 201 with `token`, `expires_at`, `permissions` | `mint.ts` | experiment 6.1, matrix row | 2026-07-23 | the response shape changes | unreadable token/expiry is transient; missing permissions grant nothing |
+| Timeline entries name `event`, a typed `actor`, second-precision `created_at`; pages ascend | `externals.ts` six-kind filter | GitHub's timeline docs, matrix row | documented + 2026-07-23 | the shape or the kinds change | missing actor/date on a counted event is unknown; **quiet**: new kinds remain uncounted |
 
 **The quiet rows are the ones that matter.** A wrong JWT bound fails loudly within minutes; a TTL
 that shrank, a grant level silently dropped, or a timeline shape that drifted keeps every test

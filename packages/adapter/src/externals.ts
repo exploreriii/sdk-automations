@@ -1,13 +1,7 @@
 /**
- * The live fill for core's external facts — what GitHub actually answers,
- * where the shell's stubs assume.
- *
- * Two facts live here. Grants ride the mint response: the token source
- * already holds them, so asking costs nothing. Ordering evidence is the
- * expensive one — a timeline read per item, memoized for exactly one
- * delivery — and its answer is a `Date`, a confident `null`, or
- * `"unknown"`; a failed or incomplete read is always `"unknown"`, never
- * either of the others (D51, D119).
+ * Live facts for core: grants from the cached mint response, and timeline
+ * ordering read once per item per delivery. Ordering is a Date, confirmed
+ * absence (null), or "unknown"; failed/incomplete reads are unknown (D51, D119).
  */
 
 import type {
@@ -32,12 +26,9 @@ export type GrantsOutcome =
     | { readonly ok: false; readonly failure: FailureClass };
 
 /**
- * What GitHub granted this installation, right now.
- *
- * A failed mint returns as its classified failure, never as an empty grant
- * list: an empty list reads as "granted nothing", and a capability would
- * refuse citing a permission the installation may actually hold. Answers
- * move when the token refreshes — nothing is memoized here.
+ * Current token grants, or the classified mint failure — never an invented
+ * empty list (which would wrongly mean "granted nothing"). No memo here:
+ * grants change with token refreshes.
  */
 export async function installationGrants(source: TokenSource): Promise<GrantsOutcome> {
     const outcome = await source.current();
@@ -47,10 +38,8 @@ export async function installationGrants(source: TokenSource): Promise<GrantsOut
 }
 
 /**
- * The timeline event kinds that count as a human change (D119): the
- * surfaces the App writes — mapped labels, assignment — plus the
- * open/closed state its decisions read. The list grows when the intent
- * catalogue grows, not before.
+ * D119: mapped labels, assignment, and the open/closed state decisions read.
+ * Extend this list when the intent catalogue adds a surface, not before.
  */
 const HUMAN_CHANGE_EVENTS: ReadonlySet<string> = new Set([
     "labeled",
@@ -70,13 +59,16 @@ const TIMELINE_PAGE_SIZE = 100;
 export interface CauseFingerprint {
     readonly actorLogin: string;
     readonly observedAt: Date;
+    readonly itemNumber: number;
+    readonly action: string;
+    readonly target: string | null;
 }
 
 /** What one delivery's ordering reads need; built fresh per delivery. */
 export interface OrderingEvidenceOptions {
     readonly http: GitHubHttpClient;
     readonly repository: RepositoryRef;
-    /** Absent for sweeps and bot-caused deliveries — nothing to exclude. */
+    /** Absent for sweeps and incomplete/unhandled causes — nothing to exclude. */
     readonly cause?: CauseFingerprint;
 }
 
@@ -86,44 +78,56 @@ const sameSecond = (a: Date, b: Date): boolean =>
 
 /**
  * When this timeline entry counts as a human change: a `Date`; `null` for
- * an entry that does not count — an ignored kind, a non-User actor, or the
- * causing event itself (same actor, same second; a DIFFERENT actor in the
- * cause's second still counts, which is D33's tie going to the human).
+ * an entry that does not count — an ignored kind or a known bot.
  * `"unparsable"` for an entry that counts but cannot be ordered.
  */
-function humanChangeAt(entry: unknown, cause?: CauseFingerprint): Date | null | "unparsable" {
+function humanChangeAt(entry: unknown): Date | null | "unparsable" {
     const kind = field(entry, "event");
     if (typeof kind !== "string" || !HUMAN_CHANGE_EVENTS.has(kind)) return null;
     const actor = field(entry, "actor");
-    if (field(actor, "type") !== "User") return null;
+    const actorType = field(actor, "type");
+    if (actorType === "Bot") return null;
+    if (actorType !== "User") return "unparsable";
     const createdAt = field(entry, "created_at");
     if (typeof createdAt !== "string") return "unparsable";
     const at = new Date(createdAt);
     if (!Number.isFinite(at.getTime())) return "unparsable";
-    if (
-        cause !== undefined &&
-        field(actor, "login") === cause.actorLogin &&
-        sameSecond(at, cause.observedAt)
-    ) {
-        return null;
-    }
     return at;
 }
 
-/** The newest human change among these entries, `null` for none. */
+/** The label or assignee identifies the touched target; state changes need neither. */
+function changeTarget(entry: unknown, action: string): unknown {
+    if (action === "labeled" || action === "unlabeled") return field(field(entry, "label"), "name");
+    if (action === "assigned" || action === "unassigned")
+        return field(field(entry, "assignee"), "login");
+    return null;
+}
+
+/** Exclude at most one matching cause. Every other change still counts, including ties. */
 function newestIn(events: readonly unknown[], cause?: CauseFingerprint): HumanChangeOrdering {
     let newest: Date | null = null;
     for (const entry of events) {
-        const at = humanChangeAt(entry, cause);
+        const at = humanChangeAt(entry);
         if (at === "unparsable") return "unknown";
-        if (at !== null && (newest === null || at.getTime() > newest.getTime())) newest = at;
+        if (at === null) continue;
+        if (
+            cause !== undefined &&
+            field(entry, "event") === cause.action &&
+            field(field(entry, "actor"), "login") === cause.actorLogin &&
+            sameSecond(at, cause.observedAt) &&
+            changeTarget(entry, cause.action) === cause.target
+        ) {
+            cause = undefined;
+            continue;
+        }
+        if (newest === null || at.getTime() > newest.getTime()) newest = at;
     }
     return newest;
 }
 
 interface TimelinePage {
     readonly events: readonly unknown[];
-    /** The page `rel="last"` names, or `null` when this page is the whole timeline. */
+    /** The page `rel="last"` names, or `null` when there is no next page. */
     readonly lastPage: number | null;
 }
 
@@ -131,18 +135,19 @@ function parsePage(outcome: GitHubOutcome): TimelinePage | "unknown" {
     if (!outcome.ok) return "unknown";
     const events = jsonArrayOf(outcome.body);
     if (events === null) return "unknown";
-    return { events, lastPage: lastPageFromLink(outcome.headers.link) };
+    const link = outcome.headers.link;
+    const lastPage = lastPageFromLink(link);
+    // GitHub may advertise a next page without knowing the last page.
+    // We cannot walk newest-first in that case; absence would be a guess.
+    if (lastPage === null && link?.includes('rel="next"')) return "unknown";
+    return { events, lastPage };
 }
 
 /**
- * Walk the timeline newest-first under the call cap.
- *
- * Pages ascend, so the newest change lives in the highest pages: read page
- * one (which names the last page), then descend from the last page. A find
- * in the descending block is the newest overall and later pages need no
- * call. A `Date` found ONLY on page one while middle pages went unvisited
- * would understate the newest change — the unsafe direction — so partial
- * coverage without a find in the block answers `"unknown"`.
+ * Pages ascend: page one locates the last page, then we walk backwards.
+ * A find in that newest block is authoritative and saves further calls.
+ * A page-one find with unvisited middle pages is not; under the call cap,
+ * incomplete coverage without a newest-block find must answer "unknown".
  */
 async function readOrdering(
     { http, repository, cause }: OrderingEvidenceOptions,
@@ -158,50 +163,56 @@ async function readOrdering(
     const first = await read(1);
     if (first === "unknown") return "unknown";
     const lastPage = first.lastPage ?? 1;
-    if (lastPage === 1) return newestIn(first.events, cause);
+    const itemCause = cause?.itemNumber === item.number ? cause : undefined;
+    if (lastPage === 1) return newestIn(first.events, itemCause);
 
     const descending: number[] = [];
     for (let page = lastPage; page > 1 && descending.length < TIMELINE_READ_CAP - 1; page -= 1) {
         descending.push(page);
     }
+    const recent: unknown[] = [];
     for (const page of descending) {
         const outcome = await read(page);
         if (outcome === "unknown") return "unknown";
-        const newest = newestIn(outcome.events, cause);
-        // "unknown" flows out through the same return as a Date.
+        // Keep the visited block together: the cause can be excluded only once,
+        // even when two same-second actions straddle a page boundary.
+        recent.push(...outcome.events);
+        const newest = newestIn(recent, itemCause);
         if (newest !== null) return newest;
     }
     // Nothing in the newest block; only complete coverage may answer null.
-    return lastPage <= 1 + descending.length ? newestIn(first.events, cause) : "unknown";
+    return lastPage <= 1 + descending.length
+        ? newestIn([...recent, ...first.events], itemCause)
+        : "unknown";
 }
 
 /**
- * The causing action as the timeline will record it, read from the raw
- * payload.
- *
- * `observedAt` reads the item's `updated_at` — the SAME field core's
- * normalizer stamps on the cause — so the same-second exclusion here and
- * safety's `causeObservedAt` describe one instant; a different field would
- * quietly miss the exclusion and self-conflict every reaction. `undefined`
- * when the payload names no sender or no dated item: nothing to exclude,
- * which only ever errs toward refusing a write.
+ * Match the webhook to its timeline action. `updated_at` is also core's
+ * causeObservedAt: both must describe the same instant to avoid self-conflict.
+ * Missing action, target, sender or dated item excludes nothing, erring
+ * toward refusal rather than hiding a human change.
  */
 export function causeFingerprintOf(payload: unknown): CauseFingerprint | undefined {
     const login = field(field(payload, "sender"), "login");
     const item = field(payload, "issue") ?? field(payload, "pull_request");
     const updatedAt = field(item, "updated_at");
+    const itemNumber = field(item, "number");
+    const action = field(payload, "action");
     if (typeof login !== "string" || typeof updatedAt !== "string") return undefined;
+    if (typeof itemNumber !== "number" || !Number.isSafeInteger(itemNumber) || itemNumber < 1)
+        return undefined;
+    if (typeof action !== "string" || !HUMAN_CHANGE_EVENTS.has(action)) return undefined;
+    const target = changeTarget(payload, action);
+    if (target !== null && typeof target !== "string") return undefined;
     const observedAt = new Date(updatedAt);
     if (!Number.isFinite(observedAt.getTime())) return undefined;
-    return { actorLogin: login, observedAt };
+    return { actorLogin: login, observedAt, itemNumber, action, target };
 }
 
 /**
- * Ordering evidence for one delivery: each item read once, concurrent
- * intents sharing the in-flight read, nothing kept across deliveries — the
- * object's lifetime IS the freshness rule. The ETag cache below this makes
- * the next delivery's re-read cheap; it never makes it stale, because a
- * conditional read revalidates with GitHub every time.
+ * One delivery's memo: concurrent intents share each item's in-flight read.
+ * Never reuse it across deliveries. ETags below reduce quota, not freshness:
+ * each conditional read revalidates with GitHub.
  */
 export function orderingEvidenceSource(
     options: OrderingEvidenceOptions,

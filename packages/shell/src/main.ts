@@ -10,10 +10,6 @@
  *   WEBHOOK_SECRET=… REPO_OWNER=… REPO_NAME=… pnpm --filter @hiero-hackers/automation-shell start
  */
 
-// Stryker disable all: mutant activation does not cross a spawn, and this
-// file is tested as a real child process (test/main.test.ts) — the same
-// blind spot vitest.config.ts records for v8 coverage.
-
 import { mkdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { toEngine } from "@hiero-hackers/automation-core";
@@ -40,6 +36,18 @@ if (!secret || !owner || !repo) {
     process.exit(1);
 }
 
+// D93: no credentials selects CI stubs; partial credentials are an error.
+const appId = env["APP_ID"];
+const installationId = env["INSTALLATION_ID"];
+const privateKeyPath = env["PRIVATE_KEY_PATH"];
+const credentialCount = [appId, privateKeyPath, installationId].filter(Boolean).length;
+if (credentialCount !== 0 && credentialCount !== 3) {
+    console.error(
+        "APP_ID, PRIVATE_KEY_PATH and INSTALLATION_ID must be provided together to use live GitHub access.",
+    );
+    process.exit(1);
+}
+
 const dataDir = fileURLToPath(new URL("../data/", import.meta.url));
 mkdirSync(dataDir, { recursive: true });
 const configFile = env["CONFIG_FILE"] ?? `${dataDir}automations.yml`;
@@ -53,21 +61,25 @@ const host = env["HOST"];
 const killSwitchActive = env["KILL_SWITCH"] === "1";
 const repository = { owner, repo };
 
-// THE one conditional D93 promised: App credentials present composes the
-// live externals, their absence composes the stubs. CI never holds a
-// credential, so CI runs the stub path permanently.
 /** The credentialed path: adapter-composed facts, per delivery. */
-function liveExternals(credentials: {
+function liveExternals({
+    appId,
+    installationId,
+    privateKeyPath,
+}: {
     appId: string;
     installationId: string;
-    privateKeyFile: string;
+    privateKeyPath: string;
 }): ExternalsForDelivery {
+    let privateKeyPem: string;
+    try {
+        privateKeyPem = readFileSync(privateKeyPath, "utf8");
+    } catch {
+        console.error(`PRIVATE_KEY_PATH could not be read: ${privateKeyPath}`);
+        process.exit(1);
+    }
     const tokenSource = createTokenSource({
-        credentials: {
-            appId: credentials.appId,
-            installationId: credentials.installationId,
-            privateKeyPem: readFileSync(credentials.privateKeyFile, "utf8"),
-        },
+        credentials: { appId, installationId, privateKeyPem },
         mint: githubMintInstallationToken(),
         clock: () => new Date(),
     });
@@ -82,12 +94,9 @@ function liveExternals(credentials: {
     };
 }
 
-const appId = env["APP_ID"];
-const installationId = env["INSTALLATION_ID"];
-const privateKeyFile = env["PRIVATE_KEY_FILE"];
 const externals: ExternalsForDelivery =
-    appId && installationId && privateKeyFile
-        ? liveExternals({ appId, installationId, privateKeyFile })
+    appId && installationId && privateKeyPath
+        ? liveExternals({ appId, installationId, privateKeyPath })
         : () => stubbedExternals({ killSwitchActive });
 
 const shell = createShell({

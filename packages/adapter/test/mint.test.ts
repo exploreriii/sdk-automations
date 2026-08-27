@@ -77,6 +77,24 @@ describe("the live mint", () => {
         });
     });
 
+    it("keeps a rejected mint with an unreadable body as transient", async () => {
+        const { call } = mint([
+            new Response(
+                new ReadableStream({
+                    pull(controller) {
+                        controller.error(new Error("body interrupted"));
+                    },
+                }),
+                { status: 401 },
+            ),
+        ]);
+
+        expect(await call("a", CREDENTIALS)).toEqual({
+            ok: false,
+            failure: { kind: "transient" },
+        });
+    });
+
     it("refuses to follow a redirect and names it", async () => {
         const { call } = mint([
             new Response(null, {

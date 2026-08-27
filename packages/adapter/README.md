@@ -15,6 +15,7 @@ operation list and its costs are
 | `jwt.ts` | What proves we are the App? |
 | `token.ts` | What token may we call with, right now? |
 | `http.ts` | How does every operation make one bounded, classified GitHub call? |
+| `config.ts` | Which configuration is on the repository's default branch? |
 | `externals.ts` | Which of core's external facts does GitHub answer, live? |
 | `mint.ts` | How is a token minted when no token exists yet? |
 | `untrusted.ts` | How are GitHub's bytes read without trusting them? |
@@ -62,8 +63,8 @@ operator reports. **Owner:** unassigned, the same unfilled row as its sibling in
 ## Still to arrive
 
 The remaining operations — one per confirmed matrix row, each adding only its URL and its parse
-on top of `http.ts` — and the two seams still stubbed in the shell: `githubConfigSource` and the
-resolvers. `design/guides/adapter.md` holds the order and what each one is blocked on.
+on top of `http.ts` — and the resolver seam still stubbed in the shell.
+`design/guides/adapter.md` holds the order and what each one is blocked on.
 
 ## What keeps it honest
 

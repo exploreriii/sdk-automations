@@ -5,22 +5,19 @@
  * Q14's path half): the file configures the automation platform, not
  * GitHub, and everywhere else in the design GitHub is an adapter detail —
  * a `.github/` home would contradict that at the most user-visible spot.
- * The first slice reads an operator-maintained LOCAL COPY of that file;
- * the read-only adapter later replaces `fileConfigSource` with a fetch of
- * the same path at the repository's default branch, behind this same seam.
+ * Credential-free development and CI read an operator-maintained local
+ * copy; the live adapter reads the same path from the default branch.
  */
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import {
+    ABSENT_CONFIG_REVISION,
+    CONFIG_PATH,
+    type ConfigDocument,
+} from "@hiero-hackers/automation-core";
 
-/** The path inside the configured repository, relative to its root. */
-export const CONFIG_PATH = "automations.yml";
-
-export interface ConfigDocument {
-    /** Names WHICH text was decided on; lands in every persisted record. */
-    readonly revision: string;
-    readonly text: string;
-}
+export { ABSENT_CONFIG_REVISION, CONFIG_PATH, type ConfigDocument };
 
 export interface ConfigSource {
     load(): Promise<ConfigDocument>;
@@ -41,7 +38,7 @@ export function fileConfigSource(path: string): ConfigSource {
                 if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
                 // An absent file and an empty file agree by construction:
                 // both parse to no-config's observe mode (config-schema.md §1, §4).
-                return { revision: "sha256:absent", text: "" };
+                return { revision: ABSENT_CONFIG_REVISION, text: "" };
             }
             return { revision: revisionOf(text), text };
         },

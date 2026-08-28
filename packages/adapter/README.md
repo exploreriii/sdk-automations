@@ -10,6 +10,20 @@ operation list and its costs are
 
 ## What is here today
 
+```mermaid
+flowchart LR
+    CRED["App credentials\n(untracked env)"] --> JWT["jwt.ts\nsign the assertion"]
+    JWT --> MINT["mint.ts\nits own POST — a token\ncannot fetch its own mint"]
+    MINT --> TOK["token.ts\ncache, refresh,\nsingle flight"]
+    TOK --> HTTP["http.ts\nETags, retry, classify,\norigin pin"]
+    HTTP --> CFG["config.ts\nConfigSource"]
+    HTTP --> EXT["externals.ts\nordering evidence"]
+    TOK -->|"grants ride\nthe mint response"| EXT
+    UNT["untrusted.ts\nfield / jsonRecordOf"] -.->|"every body parse"| MINT & CFG & EXT
+    CFG --> SHELL["the shell's seams\n(composed in main.ts only)"]
+    EXT --> SHELL
+```
+
 | File | The question it answers |
 |---|---|
 | `jwt.ts` | What proves we are the App? |

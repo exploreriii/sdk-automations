@@ -27,6 +27,7 @@ export {
     type ConfigSource,
 };
 
+/** The credential-free source: an operator-maintained local copy. */
 export function fileConfigSource(path: string): ConfigSource {
     return {
         async load(): Promise<ConfigLoadOutcome> {

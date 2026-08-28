@@ -5,7 +5,9 @@
 
 import { createHash } from "node:crypto";
 
+/** The path inside the configured repository, relative to its root (D93). */
 export const CONFIG_PATH = "automations.yml";
+/** The revision every source stamps on a confidently absent config. */
 export const ABSENT_CONFIG_REVISION = "sha256:absent";
 /** Stamped on records when a defective file's own revision is unknowable. */
 export const UNREADABLE_CONFIG_REVISION = "sha256:unreadable";

@@ -22,6 +22,7 @@ import {
 import { GITHUB_API_ORIGIN, type GitHubHttpClient } from "./http.js";
 import { field, jsonRecordOf } from "./untrusted.js";
 
+/** Seams the composition root supplies; the clock is for tests. */
 export interface GitHubConfigSourceOptions {
     readonly client: GitHubHttpClient;
     readonly repository: RepositoryRef;

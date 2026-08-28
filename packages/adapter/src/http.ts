@@ -148,6 +148,7 @@ export function headersToRecord(headers: Headers): Record<string, string> {
  * the cache retains `link` on stored representations for exactly this read.
  */
 export function lastPageFromLink(link: string | undefined): number | null {
+    // Stryker disable next-line ConditionalExpression: exec stringifies undefined and misses; the guard is for readers.
     if (link === undefined) return null;
     const match = /[?&]page=(\d+)[^>]*>;\s*rel="last"/.exec(link);
     return match === null ? null : Number(match[1]);

@@ -125,6 +125,33 @@ describe("the live configuration source", () => {
         await expect(load()).resolves.toMatchObject({ ok: false, permanent: false });
     });
 
+    it("believes a corroborated absence for the TTL, then re-asks", async () => {
+        let now = 0;
+        const built = harness([
+            failure(404, "Not Found"),
+            success('{"id":1}'),
+            failure(404, "Not Found"),
+            success('{"id":1}'),
+        ]);
+        const src = githubConfigSource({
+            client: built.client,
+            repository: REPOSITORY,
+            clock: () => new Date(now),
+        });
+
+        await src.load();
+        now = 59_999;
+        await expect(src.load()).resolves.toEqual({
+            ok: true,
+            document: { revision: ABSENT_CONFIG_REVISION, text: "" },
+        });
+        expect(built.scripted.calls).toHaveLength(2);
+
+        now = 60_000;
+        await src.load();
+        expect(built.scripted.calls).toHaveLength(4);
+    });
+
     it("encodes repository names as path components", async () => {
         const built = harness([success(fileBody(""))]);
         await githubConfigSource({

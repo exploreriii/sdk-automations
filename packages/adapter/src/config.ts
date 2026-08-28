@@ -25,9 +25,18 @@ import { field, jsonRecordOf } from "./untrusted.js";
 export interface GitHubConfigSourceOptions {
     readonly client: GitHubHttpClient;
     readonly repository: RepositoryRef;
+    readonly clock?: () => Date;
 }
 
 const BLOB_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/**
+ * How long a corroborated absence is believed without re-asking. A 404
+ * carries no validator, so absence is the one config answer the ETag cache
+ * cannot make free — without this memo, every delivery to a config-less
+ * repository (the documented default) would cost full quota, twice.
+ */
+const ABSENT_CONFIG_TTL_MS = 60_000;
 
 /** A document, a defect of the committed file, or a shape we do not know. */
 type DecodedContents =
@@ -84,7 +93,9 @@ function decodeContents(body: string): DecodedContents {
 export function githubConfigSource({
     client,
     repository,
+    clock = () => new Date(),
 }: GitHubConfigSourceOptions): ConfigSource {
+    let absentBelievedUntil = 0;
     const repoUrl =
         `${GITHUB_API_ORIGIN}/repos/${encodeURIComponent(repository.owner)}` +
         `/${encodeURIComponent(repository.repo)}`;
@@ -94,6 +105,7 @@ export function githubConfigSource({
     const corroboratedAbsence = async (): Promise<ConfigLoadOutcome> => {
         const repo = await client.request({ method: "GET", url: repoUrl });
         if (repo.ok) {
+            absentBelievedUntil = clock().getTime() + ABSENT_CONFIG_TTL_MS;
             return { ok: true, document: { revision: ABSENT_CONFIG_REVISION, text: "" } };
         }
         return {
@@ -105,6 +117,9 @@ export function githubConfigSource({
 
     return {
         async load(): Promise<ConfigLoadOutcome> {
+            if (clock().getTime() < absentBelievedUntil) {
+                return { ok: true, document: { revision: ABSENT_CONFIG_REVISION, text: "" } };
+            }
             const outcome = await client.request({ method: "GET", url: configUrl });
             if (!outcome.ok) {
                 return outcome.failure.kind === "notFoundOrNotInstalled"

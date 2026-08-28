@@ -19,7 +19,7 @@ import {
     type RepositoryRef,
     revisionOf,
 } from "@hiero-hackers/automation-core";
-import { GITHUB_API_ORIGIN, type GitHubHttpClient } from "./http.js";
+import { repoPath, type GitHubHttpClient } from "./http.js";
 import { field, jsonRecordOf } from "./untrusted.js";
 
 /** Seams the composition root supplies; the clock is for tests. */
@@ -100,9 +100,7 @@ export function githubConfigSource({
     clock = () => new Date(),
 }: GitHubConfigSourceOptions): ConfigSource {
     let absentBelievedUntil = 0;
-    const repoUrl =
-        `${GITHUB_API_ORIGIN}/repos/${encodeURIComponent(repository.owner)}` +
-        `/${encodeURIComponent(repository.repo)}`;
+    const repoUrl = repoPath(repository);
     const configUrl = `${repoUrl}/contents/${CONFIG_PATH}`;
 
     /** A bare 404 proves nothing; only a visible repository makes it absence. */

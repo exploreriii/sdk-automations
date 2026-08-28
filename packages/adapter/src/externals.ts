@@ -11,12 +11,7 @@ import type {
     PermissionGrant,
     RepositoryRef,
 } from "@hiero-hackers/automation-core";
-import {
-    GITHUB_API_ORIGIN,
-    lastPageFromLink,
-    type GitHubHttpClient,
-    type GitHubOutcome,
-} from "./http.js";
+import { lastPageFromLink, repoPath, type GitHubHttpClient, type GitHubOutcome } from "./http.js";
 import type { TokenSource } from "./token.js";
 import { field, jsonArrayOf } from "./untrusted.js";
 
@@ -78,8 +73,9 @@ const sameSecond = (a: Date, b: Date): boolean =>
 
 /**
  * When this timeline entry counts as a human change: a `Date`; `null` for
- * an entry that does not count — an ignored kind or a known bot.
- * `"unparsable"` for an entry that counts but cannot be ordered.
+ * an entry that does not count — an ignored kind or a known bot;
+ * `"unparsable"` for one that cannot be trusted either way — an unknown
+ * actor type or an unorderable timestamp, refusing rather than ignoring.
  */
 function humanChangeAt(entry: unknown): Date | null | "unparsable" {
     const kind = field(entry, "event");
@@ -156,8 +152,7 @@ async function readOrdering(
     item: ItemRef,
 ): Promise<HumanChangeOrdering> {
     const pageUrl = (page: number): string =>
-        `${GITHUB_API_ORIGIN}/repos/${repository.owner}/${repository.repo}` +
-        `/issues/${String(item.number)}/timeline` +
+        `${repoPath(repository)}/issues/${String(item.number)}/timeline` +
         `?per_page=${String(TIMELINE_PAGE_SIZE)}&page=${String(page)}`;
     const read = async (page: number): Promise<TimelinePage | "unknown"> =>
         parsePage(await http.request({ url: pageUrl(page), method: "GET" }));

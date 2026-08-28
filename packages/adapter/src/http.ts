@@ -133,6 +133,15 @@ interface CachedRepresentation {
 
 // ─── Local judgements ────────────────────────────────────────────────
 
+/** The one spelling of a repository's API path — owner and repo encoded
+ * once, identically, for every operation that names one. */
+export function repoPath(repository: { readonly owner: string; readonly repo: string }): string {
+    return (
+        `${GITHUB_API_ORIGIN}/repos/${encodeURIComponent(repository.owner)}` +
+        `/${encodeURIComponent(repository.repo)}`
+    );
+}
+
 /** Lower-cased header record, the shape core's classifier reads. */
 export function headersToRecord(headers: Headers): Record<string, string> {
     const record: Record<string, string> = {};

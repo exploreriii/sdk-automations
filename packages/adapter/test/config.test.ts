@@ -1,14 +1,19 @@
+/**
+ * The live configuration source: typed outcomes and corroborated absence,
+ * driven through the REAL client via the shared harness. Bodies are
+ * SYNTHETIC, shaped from GitHub's documented contents format.
+ */
+
 import { Buffer } from "node:buffer";
 import { describe, expect, it } from "vitest";
-import { ABSENT_CONFIG_REVISION, CONFIG_PATH } from "@hiero-hackers/automation-core";
-import {
-    githubConfigSource,
-    type GitHubHttpClient,
-    type GitHubOutcome,
-    type GitHubRequest,
-} from "../src/index.js";
+import { ABSENT_CONFIG_REVISION, CONFIG_PATH, revisionOf } from "@hiero-hackers/automation-core";
+import { githubConfigSource } from "../src/config.js";
+import { failure, httpHarness as harness, success } from "./harness.js";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
+const REPOSITORY = { owner: "hiero-hackers", repo: "sdk-automations" };
+const REPO_URL = "https://api.github.com/repos/hiero-hackers/sdk-automations";
+const CONFIG_URL = `${REPO_URL}/contents/${CONFIG_PATH}`;
 
 function fileBody(text: string, overrides: Readonly<Record<string, unknown>> = {}): string {
     return JSON.stringify({
@@ -20,157 +25,115 @@ function fileBody(text: string, overrides: Readonly<Record<string, unknown>> = {
     });
 }
 
-function success(body: string, status = 200): GitHubOutcome {
-    return { ok: true, status, body, headers: {}, fromCache: status === 304 };
-}
-
-function clientFor(...outcomes: readonly (GitHubOutcome | Error)[]): {
-    readonly client: GitHubHttpClient;
-    readonly calls: GitHubRequest[];
-} {
-    const calls: GitHubRequest[] = [];
-    let index = 0;
-    return {
-        calls,
-        client: {
-            async request(request): Promise<GitHubOutcome> {
-                calls.push(request);
-                const outcome = outcomes[index++];
-                if (outcome === undefined) throw new Error("unexpected request");
-                if (outcome instanceof Error) throw outcome;
-                return outcome;
-            },
-            latestRateLimit: () => null,
-        },
-    };
-}
-
-function sourceFor(client: GitHubHttpClient) {
-    return githubConfigSource({
-        client,
-        repository: { owner: "hiero-hackers", repo: "sdk-automations" },
-    });
+function source(steps: Parameters<typeof harness>[0]) {
+    const built = harness(steps);
+    const configSource = githubConfigSource({ client: built.client, repository: REPOSITORY });
+    return { load: () => configSource.load(), scripted: built.scripted };
 }
 
 describe("the live configuration source", () => {
-    it.each([200, 304])("reads a file at status %i and records its blob sha", async (status) => {
-        const scripted = clientFor(success(fileBody("mode: observe\n"), status));
+    it("reads a committed file and records its content hash", async () => {
+        const { load, scripted } = source([success(fileBody("mode: observe\n"))]);
 
-        await expect(sourceFor(scripted.client).load()).resolves.toEqual({
-            revision: SHA,
-            text: "mode: observe\n",
+        await expect(load()).resolves.toEqual({
+            ok: true,
+            document: { revision: revisionOf("mode: observe\n"), text: "mode: observe\n" },
         });
-        expect(scripted.calls).toEqual([
-            {
-                method: "GET",
-                url: `https://api.github.com/repos/hiero-hackers/sdk-automations/contents/${CONFIG_PATH}`,
-            },
-        ]);
+        expect(scripted.calls).toHaveLength(1);
+        expect(scripted.calls[0]!.url).toBe(CONFIG_URL);
         expect(new URL(scripted.calls[0]!.url).search).toBe("");
+    });
+
+    it("replays the cached representation on a 304", async () => {
+        const { load, scripted } = source([
+            success(fileBody("mode: observe\n"), { etag: '"v1"' }),
+            new Response(null, { status: 304 }),
+        ]);
+
+        await load();
+        await expect(load()).resolves.toMatchObject({
+            ok: true,
+            document: { revision: revisionOf("mode: observe\n"), text: "mode: observe\n" },
+        });
+        expect(scripted.calls).toHaveLength(2);
     });
 
     it("preserves UTF-8 text from GitHub's line-wrapped base64", async () => {
         const text = "mode: observe\n# café ☕\n";
         const encoded = Buffer.from(text).toString("base64");
         const body = fileBody("", { content: `${encoded.slice(0, 8)}\n${encoded.slice(8)}\r\n` });
+        const { load } = source([success(body)]);
 
-        await expect(sourceFor(clientFor(success(body)).client).load()).resolves.toEqual({
-            revision: SHA,
-            text,
+        await expect(load()).resolves.toEqual({
+            ok: true,
+            document: { revision: revisionOf(text), text },
         });
     });
 
-    it("maps only a received 404 to the shared absent document", async () => {
-        const missing: GitHubOutcome = {
-            ok: false,
-            status: 404,
-            body: "Not Found",
-            headers: {},
-            failure: { kind: "notFoundOrNotInstalled" },
-        };
-        await expect(sourceFor(clientFor(missing).client).load()).resolves.toEqual({
-            revision: ABSENT_CONFIG_REVISION,
-            text: "",
+    it("corroborates a 404 into absence only when the repository answers", async () => {
+        const { load, scripted } = source([failure(404, "Not Found"), success('{"id":1}')]);
+
+        await expect(load()).resolves.toEqual({
+            ok: true,
+            document: { revision: ABSENT_CONFIG_REVISION, text: "" },
         });
+        expect(scripted.calls.map((call) => call.url)).toEqual([CONFIG_URL, REPO_URL]);
+    });
+
+    it("treats a 404 with an invisible repository as access, not absence", async () => {
+        const { load, scripted } = source([failure(404, "Not Found"), failure(404, "Not Found")]);
+
+        await expect(load()).resolves.toMatchObject({ ok: false, permanent: false });
+        expect(scripted.calls).toHaveLength(2);
     });
 
     it.each([
-        ["transport failure", { ok: false, failure: { kind: "transient" } }],
-        [
-            "403 response",
-            {
-                ok: false,
-                status: 403,
-                body: "forbidden",
-                headers: {},
-                failure: { kind: "forbiddenUnrecognized", bodySnippet: "forbidden" },
-            },
-        ],
-    ] as const)("does not turn a %s into an absent config", async (_label, outcome) => {
-        await expect(sourceFor(clientFor(outcome).client).load()).rejects.toMatchObject({
-            name: "GitHubConfigUnavailableError",
-            message: "GitHub configuration unavailable: requestFailed",
-            reason: { kind: "requestFailed", failure: outcome.failure },
-        });
+        ["a transport failure", [new Error("reset"), new Error("still reset")]],
+        ["a 403", [failure(403, "forbidden")]],
+        ["a 500", [failure(500, "boom"), failure(500, "boom")]],
+    ] as const)("answers transient for %s, never absence", async (_label, steps) => {
+        const { load } = source([...steps]);
+
+        await expect(load()).resolves.toMatchObject({ ok: false, permanent: false });
     });
 
-    it("contains a client that breaks its no-throw contract", async () => {
-        await expect(
-            sourceFor(clientFor(new Error("broken client")).client).load(),
-        ).rejects.toMatchObject({
-            reason: {
-                kind: "requestFailed",
-                failure: { kind: "notSent", reason: "brokenSeam", seam: "response" },
-            },
+    it.each([
+        ["a directory", fileBody("", { type: "dir" })],
+        ["an oversized file's encoding none", fileBody("", { encoding: "none", content: "" })],
+        ["a non-string content", fileBody("", { content: 7 })],
+        ["invalid base64", fileBody("", { content: "%%%=" })],
+        ["non-canonical base64", fileBody("", { content: "AB==" })],
+        ["invalid UTF-8", fileBody("", { content: "/w==" })],
+    ])("marks %s as a permanent defect naming the blob", async (_label, body) => {
+        const { load } = source([success(body)]);
+
+        await expect(load()).resolves.toMatchObject({
+            ok: false,
+            permanent: true,
+            revision: `git:${SHA}`,
         });
     });
 
     it.each([
         ["invalid JSON", "{"],
-        ["a non-object", "[]"],
-        ["a directory", fileBody("", { type: "dir" })],
-        ["a different encoding", fileBody("", { encoding: "utf-8" })],
-        ["a missing content", fileBody("", { content: undefined })],
+        ["a non-object body", "[]"],
         ["a malformed sha", fileBody("", { sha: "not-a-sha" })],
         ["a numeric sha", fileBody("", { sha: 123 })],
-        ["an array sha", fileBody("", { sha: [SHA] })],
-        ["invalid base64", fileBody("", { content: "%%%=" })],
-        ["non-canonical base64", fileBody("", { content: "AB==" })],
-        ["invalid UTF-8", fileBody("", { content: "/w==" })],
-    ])("rejects a successful response containing %s", async (_label, body) => {
-        await expect(sourceFor(clientFor(success(body)).client).load()).rejects.toMatchObject({
-            reason: { kind: "invalidResponse" },
-        });
-    });
+    ])("treats %s as an unrecognized shape, transient", async (_label, body) => {
+        const { load } = source([success(body)]);
 
-    it("rejects an unexpected successful status", async () => {
-        await expect(
-            sourceFor(clientFor(success(fileBody("mode: observe\n"), 206)).client).load(),
-        ).rejects.toMatchObject({ reason: { kind: "invalidResponse" } });
+        await expect(load()).resolves.toMatchObject({ ok: false, permanent: false });
     });
 
     it("encodes repository names as path components", async () => {
-        const scripted = clientFor(success(fileBody("")));
+        const built = harness([success(fileBody(""))]);
         await githubConfigSource({
-            client: scripted.client,
+            client: built.client,
             repository: { owner: "owner/name", repo: "repo?ref=attacker" },
         }).load();
 
-        expect(scripted.calls[0]!.url).toBe(
+        expect(built.scripted.calls[0]!.url).toBe(
             `https://api.github.com/repos/owner%2Fname/repo%3Fref%3Dattacker/contents/${CONFIG_PATH}`,
         );
-    });
-
-    it("rejects a caller-provided ref before making a request", () => {
-        const scripted = clientFor(success(fileBody("")));
-        expect(() =>
-            githubConfigSource({
-                client: scripted.client,
-                repository: { owner: "owner", repo: "repo" },
-                // @ts-expect-error Config always follows the repository's default branch.
-                ref: "refs/pull/42/head",
-            }),
-        ).toThrowError(expect.objectContaining({ reason: { kind: "unsafeRef" } }));
-        expect(scripted.calls).toHaveLength(0);
     });
 });

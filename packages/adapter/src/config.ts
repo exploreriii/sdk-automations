@@ -1,102 +1,141 @@
-/** Fetch repository configuration from the default branch. */
+/**
+ * The live configuration read: `automations.yml` at the repository's
+ * default branch, through the shared client.
+ *
+ * The seam speaks `ConfigLoadOutcome` — typed values, never a throw — and
+ * refuses the tempting shortcut: a bare 404 is `notFoundOrNotInstalled`,
+ * never confident absence (D51, D122). Absence is CORROBORATED: the config
+ * 404s while the repository itself answers, so the file is genuinely not
+ * there. `permanent` marks defects of the committed file — the outcomes a
+ * new commit fixes and a retry never will.
+ */
 
 import { Buffer } from "node:buffer";
 import {
     ABSENT_CONFIG_REVISION,
     CONFIG_PATH,
-    type ConfigDocument,
+    type ConfigLoadOutcome,
+    type ConfigSource,
     type RepositoryRef,
+    revisionOf,
 } from "@hiero-hackers/automation-core";
-import { GITHUB_API_ORIGIN, type GitHubHttpClient, type GitHubHttpFailureClass } from "./http.js";
+import { GITHUB_API_ORIGIN, type GitHubHttpClient } from "./http.js";
 import { field, jsonRecordOf } from "./untrusted.js";
-
-export interface GitHubConfigSource {
-    load(): Promise<ConfigDocument>;
-}
 
 export interface GitHubConfigSourceOptions {
     readonly client: GitHubHttpClient;
     readonly repository: RepositoryRef;
 }
 
-export type GitHubConfigUnavailableReason =
-    | { readonly kind: "requestFailed"; readonly failure: GitHubHttpFailureClass }
-    | { readonly kind: "invalidResponse" }
-    | { readonly kind: "unsafeRef" };
-
-export class GitHubConfigUnavailableError extends Error {
-    constructor(readonly reason: GitHubConfigUnavailableReason) {
-        super(`GitHub configuration unavailable: ${reason.kind}`);
-        this.name = "GitHubConfigUnavailableError";
-    }
-}
-
 const BLOB_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
-function configDocumentOf(body: string): ConfigDocument | null {
+/** A document, a defect of the committed file, or a shape we do not know. */
+type DecodedContents =
+    | { readonly kind: "document"; readonly revision: string; readonly text: string }
+    | { readonly kind: "defective"; readonly detail: string; readonly revision: string }
+    | { readonly kind: "unrecognized" };
+
+function decodeContents(body: string): DecodedContents {
     const response = jsonRecordOf(body);
     const sha = field(response, "sha");
-    const content = field(response, "content");
-    if (
-        field(response, "type") !== "file" ||
-        field(response, "encoding") !== "base64" ||
-        typeof sha !== "string" ||
-        !BLOB_SHA.test(sha) ||
-        typeof content !== "string"
-    ) {
-        return null;
+    if (response === null || typeof sha !== "string" || !BLOB_SHA.test(sha)) {
+        return { kind: "unrecognized" };
     }
-
+    const type = field(response, "type");
+    if (type !== "file") {
+        return {
+            kind: "defective",
+            detail: `the config path is not a file (type ${String(type)})`,
+            revision: `git:${sha}`,
+        };
+    }
+    const content = field(response, "content");
+    if (field(response, "encoding") !== "base64" || typeof content !== "string") {
+        // GitHub answers `encoding: "none"` with empty content over 1 MB.
+        return {
+            kind: "defective",
+            detail: "the config file's content is not retrievable inline (too large?)",
+            revision: `git:${sha}`,
+        };
+    }
     const encoded = content.replace(/[\r\n]/g, "");
     try {
         const bytes = Buffer.from(encoded, "base64");
-        if (bytes.toString("base64") !== encoded) return null;
-        return { revision: sha, text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+        if (bytes.toString("base64") !== encoded) {
+            return {
+                kind: "defective",
+                detail: "the config file's content is not valid base64",
+                revision: `git:${sha}`,
+            };
+        }
+        // The shared content hash, not the blob sha: the SAME text yields
+        // the SAME revision whichever source loaded it (D122 follow-on).
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        return { kind: "document", revision: revisionOf(text), text };
     } catch {
-        return null;
+        return {
+            kind: "defective",
+            detail: "the config file is not valid UTF-8",
+            revision: `git:${sha}`,
+        };
     }
 }
 
-function configUrl({ owner, repo }: RepositoryRef): string {
-    return (
-        `${GITHUB_API_ORIGIN}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}` +
-        `/contents/${CONFIG_PATH}`
-    );
-}
+export function githubConfigSource({
+    client,
+    repository,
+}: GitHubConfigSourceOptions): ConfigSource {
+    const repoUrl =
+        `${GITHUB_API_ORIGIN}/repos/${encodeURIComponent(repository.owner)}` +
+        `/${encodeURIComponent(repository.repo)}`;
+    const configUrl = `${repoUrl}/contents/${CONFIG_PATH}`;
 
-export function githubConfigSource(options: GitHubConfigSourceOptions): GitHubConfigSource {
-    if ("ref" in (options as GitHubConfigSourceOptions & { readonly ref?: unknown })) {
-        throw new GitHubConfigUnavailableError({ kind: "unsafeRef" });
-    }
+    /** A bare 404 proves nothing; only a visible repository makes it absence. */
+    const corroboratedAbsence = async (): Promise<ConfigLoadOutcome> => {
+        const repo = await client.request({ method: "GET", url: repoUrl });
+        if (repo.ok) {
+            return { ok: true, document: { revision: ABSENT_CONFIG_REVISION, text: "" } };
+        }
+        return {
+            ok: false,
+            permanent: false,
+            detail: "config 404 without a visible repository — access, not absence",
+        };
+    };
 
-    const url = configUrl(options.repository);
     return {
-        async load(): Promise<ConfigDocument> {
-            let outcome;
-            try {
-                outcome = await options.client.request({ method: "GET", url });
-            } catch {
-                throw new GitHubConfigUnavailableError({
-                    kind: "requestFailed",
-                    failure: { kind: "notSent", reason: "brokenSeam", seam: "response" },
-                });
-            }
-
+        async load(): Promise<ConfigLoadOutcome> {
+            const outcome = await client.request({ method: "GET", url: configUrl });
             if (!outcome.ok) {
-                if (outcome.status === 404) {
-                    return { revision: ABSENT_CONFIG_REVISION, text: "" };
-                }
-                throw new GitHubConfigUnavailableError({
-                    kind: "requestFailed",
-                    failure: outcome.failure,
-                });
+                return outcome.failure.kind === "notFoundOrNotInstalled"
+                    ? corroboratedAbsence()
+                    : {
+                          ok: false,
+                          permanent: false,
+                          detail: `config read failed: ${outcome.failure.kind}`,
+                      };
             }
-
-            const document = configDocumentOf(outcome.body);
-            if ((outcome.status !== 200 && outcome.status !== 304) || document === null) {
-                throw new GitHubConfigUnavailableError({ kind: "invalidResponse" });
+            const decoded = decodeContents(outcome.body);
+            switch (decoded.kind) {
+                case "document":
+                    return {
+                        ok: true,
+                        document: { revision: decoded.revision, text: decoded.text },
+                    };
+                case "defective":
+                    return {
+                        ok: false,
+                        permanent: true,
+                        detail: decoded.detail,
+                        revision: decoded.revision,
+                    };
+                case "unrecognized":
+                    return {
+                        ok: false,
+                        permanent: false,
+                        detail: "unrecognized contents response shape",
+                    };
             }
-            return document;
         },
     };
 }

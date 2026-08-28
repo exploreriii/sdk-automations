@@ -541,7 +541,7 @@ describe("the sandbox entry point, as a process", () => {
         {
             title: "does not fall back to stubs when mint fails",
             mintStatus: 401,
-            failureText: "GitHub configuration unavailable",
+            failureText: "configuration unavailable",
         },
     ])(
         "$title",

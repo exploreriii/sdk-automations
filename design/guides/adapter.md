@@ -23,8 +23,8 @@ flowchart TD
 
 | Rule | Consequence |
 |---|---|
-| The processing pipeline stays stable | Live reads land behind the existing seams |
-| Failed reads fail honestly | Unavailable config rejects; unavailable evidence is `unknown` |
+| The shell changes only when a seam's contract does (D122) | Live reads land behind the existing seams |
+| Nothing throws across a seam | Every failure is a typed value — `ConfigLoadOutcome`, `"unknown"` |
 | Unknown is never absence (D51) | A failed read must never become a default |
 | Core stays pure | A new package; core's one edit is making one seam async — below |
 | Fail closed on identity | Config fetches pin the default branch |

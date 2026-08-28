@@ -9,38 +9,47 @@
  * copy; the live adapter reads the same path from the default branch.
  */
 
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
     ABSENT_CONFIG_REVISION,
     CONFIG_PATH,
     type ConfigDocument,
+    type ConfigLoadOutcome,
+    type ConfigSource,
+    revisionOf,
 } from "@hiero-hackers/automation-core";
 
-export { ABSENT_CONFIG_REVISION, CONFIG_PATH, type ConfigDocument };
-
-export interface ConfigSource {
-    load(): Promise<ConfigDocument>;
-}
-
-/** Content-addressed, so a changed file is always a changed revision. */
-function revisionOf(text: string): string {
-    return `sha256:${createHash("sha256").update(text).digest("hex").slice(0, 12)}`;
-}
+export {
+    ABSENT_CONFIG_REVISION,
+    CONFIG_PATH,
+    type ConfigDocument,
+    type ConfigLoadOutcome,
+    type ConfigSource,
+};
 
 export function fileConfigSource(path: string): ConfigSource {
     return {
-        async load(): Promise<ConfigDocument> {
+        async load(): Promise<ConfigLoadOutcome> {
             let text: string;
             try {
                 text = await readFile(path, "utf8");
             } catch (error) {
-                if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-                // An absent file and an empty file agree by construction:
-                // both parse to no-config's observe mode (config-schema.md §1, §4).
-                return { revision: ABSENT_CONFIG_REVISION, text: "" };
+                if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+                    return {
+                        ok: false,
+                        permanent: false,
+                        detail: `local config unreadable: ${(error as Error).message}`,
+                    };
+                }
+                // ENOENT genuinely proves absence locally. An absent file and
+                // an empty file agree by construction: both parse to
+                // no-config's observe mode (config-schema.md §1, §4).
+                return {
+                    ok: true,
+                    document: { revision: ABSENT_CONFIG_REVISION, text: "" },
+                };
             }
-            return { revision: revisionOf(text), text };
+            return { ok: true, document: { revision: revisionOf(text), text } };
         },
     };
 }

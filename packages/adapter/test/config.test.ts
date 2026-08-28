@@ -70,6 +70,15 @@ describe("the live configuration source", () => {
         });
     });
 
+    it("drops a leading BOM, matching the local source", async () => {
+        const { load } = source([success(fileBody("\uFEFFmode: observe\n"))]);
+
+        await expect(load()).resolves.toEqual({
+            ok: true,
+            document: { revision: revisionOf("mode: observe\n"), text: "mode: observe\n" },
+        });
+    });
+
     it("corroborates a 404 into absence only when the repository answers", async () => {
         const { load, scripted } = source([failure(404, "Not Found"), success('{"id":1}')]);
 
@@ -80,10 +89,25 @@ describe("the live configuration source", () => {
         expect(scripted.calls.map((call) => call.url)).toEqual([CONFIG_URL, REPO_URL]);
     });
 
+    it("corroborates only a 404 — a 403 never asks the repository", async () => {
+        const { load, scripted } = source([failure(403, "forbidden"), success('{"id":1}')]);
+
+        await expect(load()).resolves.toMatchObject({
+            ok: false,
+            permanent: false,
+            detail: expect.stringContaining("config read failed") as string,
+        });
+        expect(scripted.calls).toHaveLength(1);
+    });
+
     it("treats a 404 with an invisible repository as access, not absence", async () => {
         const { load, scripted } = source([failure(404, "Not Found"), failure(404, "Not Found")]);
 
-        await expect(load()).resolves.toMatchObject({ ok: false, permanent: false });
+        await expect(load()).resolves.toMatchObject({
+            ok: false,
+            permanent: false,
+            detail: expect.stringContaining("access, not absence") as string,
+        });
         expect(scripted.calls).toHaveLength(2);
     });
 
@@ -107,11 +131,9 @@ describe("the live configuration source", () => {
     ])("marks %s as a permanent defect naming the blob", async (_label, body) => {
         const { load } = source([success(body)]);
 
-        await expect(load()).resolves.toMatchObject({
-            ok: false,
-            permanent: true,
-            revision: `git:${SHA}`,
-        });
+        const outcome = await load();
+        expect(outcome).toMatchObject({ ok: false, permanent: true, revision: `git:${SHA}` });
+        if (!outcome.ok) expect(outcome.detail.length).toBeGreaterThan(10);
     });
 
     it.each([
@@ -119,10 +141,18 @@ describe("the live configuration source", () => {
         ["a non-object body", "[]"],
         ["a malformed sha", fileBody("", { sha: "not-a-sha" })],
         ["a numeric sha", fileBody("", { sha: 123 })],
+        ["a sha with trailing junk", fileBody("", { sha: `${SHA}x` })],
+        ["a sha with leading junk", fileBody("", { sha: `x${SHA}` })],
+        ["a 64-char non-hex sha", fileBody("", { sha: "z".repeat(64) })],
+        ["a single-hex-char sha", fileBody("", { sha: "a" })],
     ])("treats %s as an unrecognized shape, transient", async (_label, body) => {
         const { load } = source([success(body)]);
 
-        await expect(load()).resolves.toMatchObject({ ok: false, permanent: false });
+        await expect(load()).resolves.toMatchObject({
+            ok: false,
+            permanent: false,
+            detail: expect.stringContaining("unrecognized") as string,
+        });
     });
 
     it("believes a corroborated absence for the TTL, then re-asks", async () => {

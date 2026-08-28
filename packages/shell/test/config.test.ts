@@ -26,6 +26,18 @@ describe("configuration source", () => {
         });
     });
 
+    it("drops a leading BOM, matching the live source's decode", async () => {
+        await withTempDir("shell-config-", async (directory) => {
+            const path = join(directory, CONFIG_PATH);
+            writeFileSync(path, "\uFEFFmode: observe\n");
+
+            await expect(fileConfigSource(path).load()).resolves.toEqual({
+                ok: true,
+                document: { revision: "sha256:d7c5e99c8a84", text: "mode: observe\n" },
+            });
+        });
+    });
+
     it("maps only an absent file to the no-config document", async () => {
         await withTempDir("shell-config-", async (directory) => {
             await expect(fileConfigSource(join(directory, "missing.yml")).load()).resolves.toEqual({

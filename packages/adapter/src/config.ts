@@ -47,6 +47,7 @@ type DecodedContents =
 function decodeContents(body: string): DecodedContents {
     const response = jsonRecordOf(body);
     const sha = field(response, "sha");
+    // Stryker disable next-line ConditionalExpression,LogicalOperator: field() answers undefined on null and test() stringifies non-strings to a miss — the leading arms are for readers.
     if (response === null || typeof sha !== "string" || !BLOB_SHA.test(sha)) {
         return { kind: "unrecognized" };
     }
@@ -79,6 +80,8 @@ function decodeContents(body: string): DecodedContents {
         }
         // The shared content hash, not the blob sha: the SAME text yields
         // the SAME revision whichever source loaded it (D122 follow-on).
+        // The decoder's WHATWG default drops a leading BOM — deliberate,
+        // matched by fileConfigSource, so environments never diverge.
         const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
         return { kind: "document", revision: revisionOf(text), text };
     } catch {

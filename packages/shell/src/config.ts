@@ -30,9 +30,9 @@ export {
 export function fileConfigSource(path: string): ConfigSource {
     return {
         async load(): Promise<ConfigLoadOutcome> {
-            let text: string;
+            let raw: string;
             try {
-                text = await readFile(path, "utf8");
+                raw = await readFile(path, "utf8");
             } catch (error) {
                 if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
                     return {
@@ -49,6 +49,10 @@ export function fileConfigSource(path: string): ConfigSource {
                     document: { revision: ABSENT_CONFIG_REVISION, text: "" },
                 };
             }
+            // The live source's UTF-8 decode drops a leading BOM (the WHATWG
+            // default); drop it here too, so the same committed bytes yield
+            // the same text and revision in every environment (D122).
+            const text = raw.replace(/^\uFEFF/, "");
             return { ok: true, document: { revision: revisionOf(text), text } };
         },
     };

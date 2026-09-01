@@ -1,3 +1,16 @@
+/**
+ * The adapter's answers to the questions core lets a capability ask: one
+ * arm per name in core's `RESOLVER_NAMES`, and nothing else.
+ *
+ * Every answer is VERIFIED on this side rather than taken on trust. A
+ * linked-issue page must name the repository and the pull request that
+ * were asked about, a page claiming a successor must carry a cursor that
+ * is new, and paging stops at `MAX_LINKED_ISSUE_PAGES`. Whatever fails a
+ * check becomes a typed failure, never a shorter list: a capability
+ * reading `[]` as "no linked issue" would act on a rate limit
+ * (resolvers.md §6).
+ */
+
 import type {
     ItemRef,
     RepositoryRef,
@@ -179,17 +192,32 @@ async function linkedIssues(
     return unavailable("GitHub linked-issue pagination exceeded 10 pages");
 }
 
+/** GitHub gives every App actor the `[bot]` suffix, so no call is needed. */
+function isAutomationActor(input: unknown): ResolverAnswer<boolean> {
+    const login = field(input, "login");
+    return typeof login === "string" && login.length > 0
+        ? { ok: true, value: login.toLowerCase().endsWith("[bot]") }
+        : unavailable("isAutomationActor requires a valid login");
+}
+
 export function createResolverSource(options: ResolverSourceOptions): ResolverSource {
+    // Exhaustive, with no default arm: a name added to RESOLVER_NAMES leaves
+    // this switch able to return undefined, which the declared type refuses.
+    // Adding the resolver is then a compile error, not a silent inheritance
+    // of whichever answer happened to sit last.
     const resolve = async (
         query: ResolverName,
         input: unknown,
     ): Promise<ResolverAnswer<unknown>> => {
-        if (query === "linkedIssues") return linkedIssues(options, input);
-
-        const login = field(input, "login");
-        return typeof login === "string" && login.length > 0
-            ? { ok: true, value: login.toLowerCase().endsWith("[bot]") }
-            : unavailable("isAutomationActor requires a valid login");
+        switch (query) {
+            case "linkedIssues":
+                return linkedIssues(options, input);
+            case "isAutomationActor":
+                return isAutomationActor(input);
+        }
     };
+    // The one erasure: `ResolverSource` ties each name to its own output
+    // type, and a body that dispatches at runtime cannot prove that pairing
+    // per call. The switch above is what makes the pairing true.
     return resolve as ResolverSource;
 }

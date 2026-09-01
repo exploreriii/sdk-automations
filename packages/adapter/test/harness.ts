@@ -118,11 +118,19 @@ export function scriptedTokenSource(
 
 // ─── The harnesses ───────────────────────────────────────────────────
 
-/** Seams an http test overrides; everything omitted gets a quiet default. */
+/**
+ * Seams an http test overrides; everything omitted gets a quiet default.
+ *
+ * `sleep` is for a test whose point is what happens DURING a pause — a
+ * throwing seam, or a probe of client state mid-wait. Every pause is recorded
+ * whether or not this is supplied, so the usual test reads `sleeps` and lets
+ * the default return instantly.
+ */
 export interface HttpHarnessOptions {
     readonly outcomes?: ReadonlyArray<TokenOutcome | Error>;
     readonly onInvalidate?: (rejected: InstallationToken) => void;
     readonly clock?: () => Date;
+    readonly sleep?: (milliseconds: number) => Promise<void>;
     readonly timeoutMs?: number;
     readonly timeoutSignal?: (milliseconds: number) => AbortSignal;
 }
@@ -135,10 +143,15 @@ export function httpHarness(steps: readonly ResponseStep[], options: HttpHarness
         options.onInvalidate,
     );
     const timeoutCalls: number[] = [];
+    const sleeps: number[] = [];
     const client = createGitHubHttpClient({
         tokenSource: tokens.source,
         fetch: scripted.fetch,
         clock: options.clock ?? (() => TEST_NOW),
+        sleep: (milliseconds) => {
+            sleeps.push(milliseconds);
+            return options.sleep === undefined ? Promise.resolve() : options.sleep(milliseconds);
+        },
         ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
         timeoutSignal:
             options.timeoutSignal ??
@@ -147,7 +160,7 @@ export function httpHarness(steps: readonly ResponseStep[], options: HttpHarness
                 return AbortSignal.abort("test timeout signal");
             }),
     });
-    return { client, scripted, tokens, timeoutCalls };
+    return { client, scripted, tokens, timeoutCalls, sleeps };
 }
 
 /** The real token source over counted mints and a clock moved by hand. */

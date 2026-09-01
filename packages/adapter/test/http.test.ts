@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
     createGitHubHttpClient,
     lastPageFromLink,
+    wait,
     DEFAULT_ETAG_CACHE_BYTES,
     DEFAULT_ETAG_CACHE_ENTRIES,
     DEFAULT_ETAG_CACHE_ENTRY_BYTES,
@@ -17,6 +18,9 @@ import {
     GITHUB_API_ORIGIN,
     GITHUB_API_VERSION,
     GITHUB_GRAPHQL_URL,
+    MAX_RESPONSE_BODY_BYTES,
+    MAX_RETRY_WAIT_MS,
+    PRIMARY_BUDGET_RESERVE,
     type FetchLike,
     type GitHubRequest,
 } from "../src/http.js";
@@ -841,14 +845,14 @@ describe("classification and bounded retry", () => {
             expected: { kind: "badCredentials" },
         },
         {
-            // Returns at once with the reset instant; a retry would spend
-            // requests the window no longer has.
+            // The reset is an hour out, far past the in-request wait ceiling,
+            // so this returns at once with the instant an operator needs.
             name: "primary quota exhausted",
             response: failure(403, "API rate limit exceeded", {
                 "x-ratelimit-remaining": "0",
-                "x-ratelimit-reset": "1787300000",
+                "x-ratelimit-reset": "1787310000",
             }),
-            expected: { kind: "primaryExhausted", resetAt: "1787300000" },
+            expected: { kind: "primaryExhausted", resetAt: "1787310000" },
         },
         {
             name: "rate-limit wait beyond the automatic ceiling",
@@ -1036,6 +1040,331 @@ describe("classification and bounded retry", () => {
             ok: false,
             failure: { kind: "forbiddenUnrecognized", bodySnippet: body },
         });
+    });
+});
+
+/** The epoch second the fixed test clock reads, the grammar GitHub resets in. */
+const NOW_SECONDS = Math.floor(NOW.getTime() / 1000);
+
+/** A primary-exhaustion response whose budget resets `seconds` from the clock. */
+const exhausted = (seconds: number): Response =>
+    failure(403, "API rate limit exceeded", {
+        "x-ratelimit-remaining": "0",
+        "x-ratelimit-reset": String(NOW_SECONDS + seconds),
+    });
+
+/**
+ * What the client does with core's retry advice, which it used to discard.
+ *
+ * Every pause is recorded rather than taken, so an assertion here is the exact
+ * instant the client would have waited to (D20).
+ */
+describe("waiting between attempts", () => {
+    it("waits core's backoff before retrying weather", async () => {
+        const { client, scripted, sleeps } = harness([failure(503, "down"), success("up")]);
+
+        expect(await client.request(request())).toMatchObject({ ok: true, body: "up" });
+        expect(sleeps).toEqual([500]);
+        expect(scripted.calls).toHaveLength(2);
+    });
+
+    it("spreads a backoff we chose by a clock-derived amount", async () => {
+        // 500 ms of advice, a quarter of it available to spread, and a clock
+        // 73 ms off a round second: the same failure at a different instant
+        // waits a different length, with no random source involved.
+        const at = new Date(NOW.getTime() + 73);
+        const { client, sleeps } = harness([failure(503, "down"), success("up")], {
+            clock: () => at,
+        });
+
+        expect((await client.request(request())).ok).toBe(true);
+        expect(sleeps).toEqual([573]);
+    });
+
+    it("waits an instant GitHub dictated exactly, and up to core's rate bound", async () => {
+        const at = new Date(NOW.getTime() + 73);
+        const { client, scripted, sleeps } = harness([() => exhausted(10)], { clock: () => at });
+
+        expect(await client.request(request())).toMatchObject({
+            ok: false,
+            failure: { kind: "primaryExhausted" },
+        });
+        expect(sleeps).toEqual([10_000, 10_000]);
+        expect(scripted.calls).toHaveLength(3);
+    });
+
+    it("bounds weather at two sends, whatever core's backoff list allows", async () => {
+        const { client, scripted, sleeps } = harness([() => failure(503, "down")]);
+
+        expect(await client.request(request())).toMatchObject({
+            ok: false,
+            failure: { kind: "transient" },
+        });
+        expect(scripted.calls).toHaveLength(2);
+        expect(sleeps).toEqual([500]);
+    });
+
+    it("stops at the ceiling rather than starting a wait it cannot finish", async () => {
+        const { client, scripted, sleeps } = harness([() => exhausted(20)]);
+
+        expect(await client.request(request())).toMatchObject({
+            ok: false,
+            failure: { kind: "primaryExhausted" },
+        });
+        expect(sleeps).toEqual([20_000]);
+        expect(sleeps.reduce((total, ms) => total + ms, 20_000)).toBeGreaterThan(MAX_RETRY_WAIT_MS);
+        expect(scripted.calls).toHaveLength(2);
+    });
+
+    it("returns a wait that breaches the ceiling outright, having slept none of it", async () => {
+        const { client, scripted, sleeps } = harness([exhausted(31)]);
+
+        expect(await client.request(request())).toEqual({
+            ok: false,
+            status: 403,
+            body: "API rate limit exceeded",
+            headers: {
+                "content-type": "text/plain;charset=UTF-8",
+                "x-ratelimit-remaining": "0",
+                "x-ratelimit-reset": String(NOW_SECONDS + 31),
+            },
+            failure: { kind: "primaryExhausted", resetAt: String(NOW_SECONDS + 31) },
+        });
+        expect(sleeps).toEqual([]);
+        expect(scripted.calls).toHaveLength(1);
+    });
+
+    it("never sleeps on a secondary limit: core's floor is past the ceiling", async () => {
+        const { client, scripted, sleeps } = harness([
+            failure(403, BODY_PATTERNS.secondaryRateLimit.observed, { "retry-after": "5" }),
+        ]);
+
+        expect(await client.request(request())).toMatchObject({
+            ok: false,
+            failure: { kind: "secondaryLimit", retryAfterSeconds: 5 },
+        });
+        expect(sleeps).toEqual([]);
+        expect(scripted.calls).toHaveLength(1);
+    });
+
+    it("never sleeps when nothing failed", async () => {
+        const { client, sleeps } = harness([success()]);
+
+        expect((await client.request(request())).ok).toBe(true);
+        expect(sleeps).toEqual([]);
+    });
+
+    it("refreshes a rejected token without pausing first", async () => {
+        const expired = token("expired", new Date(NOW.getTime() - 1));
+        const { client, sleeps } = harness([failure(401, "Bad credentials"), success("fresh")], {
+            outcomes: [
+                { ok: true, token: expired },
+                { ok: true, token: token("fresh") },
+            ],
+        });
+
+        expect(await client.request(request())).toMatchObject({ ok: true, body: "fresh" });
+        expect(sleeps).toEqual([]);
+    });
+
+    it("contains a sleep seam that rejects", async () => {
+        const { client, scripted } = harness([failure(503, "down"), success("must not happen")], {
+            sleep: () => Promise.reject(new Error("the timer is gone")),
+        });
+
+        expect(await client.request(request())).toEqual({
+            ok: false,
+            failure: { kind: "notSent", reason: "brokenSeam", seam: "sleep" },
+        });
+        expect(scripted.calls).toHaveLength(1);
+    });
+
+    it("contains a clock that breaks after the send", async () => {
+        let reads = 0;
+        const { client } = harness([failure(503, "down"), success("must not happen")], {
+            clock: () => {
+                reads += 1;
+                if (reads > 1) throw new Error("the clock is gone");
+                return NOW;
+            },
+        });
+
+        expect(await client.request(request())).toEqual({
+            ok: false,
+            failure: { kind: "notSent", reason: "brokenSeam", seam: "clock" },
+        });
+    });
+
+    it("pauses on the production timer by default", async () => {
+        // A reset already reached advises a zero wait, so the real timer runs
+        // without the suite waiting on anything.
+        const scripted = responseScript([exhausted(0), success("after the reset")]);
+        const client = createGitHubHttpClient({
+            tokenSource: tokenSource([{ ok: true, token: token("t") }]).source,
+            fetch: scripted.fetch,
+            clock: () => NOW,
+        });
+
+        expect(await client.request(request())).toMatchObject({
+            ok: true,
+            body: "after the reset",
+        });
+        expect(scripted.calls).toHaveLength(2);
+    });
+
+    it("resolves the production pause only after the time has passed", async () => {
+        const started = Date.now();
+        await wait(20);
+
+        expect(Date.now() - started).toBeGreaterThanOrEqual(15);
+    });
+});
+
+describe("bounded body reads", () => {
+    /** A response whose body arrives as `chunks` separate blocks of `size` bytes. */
+    const streamed = (chunks: number, size: number): Response =>
+        new Response(
+            new ReadableStream({
+                start(controller) {
+                    for (let sent = 0; sent < chunks; sent += 1) {
+                        controller.enqueue(new Uint8Array(size).fill(0x61));
+                    }
+                    controller.close();
+                },
+            }),
+            { status: 200 },
+        );
+
+    it("reads a body that stops exactly at the bound", async () => {
+        const { client } = harness([streamed(4, MAX_RESPONSE_BODY_BYTES / 4)]);
+
+        const outcome = await client.request(request());
+        expect(outcome.ok).toBe(true);
+        if (outcome.ok) expect(outcome.body.length).toBe(MAX_RESPONSE_BODY_BYTES);
+    });
+
+    it("abandons a body one byte past the bound, and does not read it again", async () => {
+        const { client, scripted, sleeps } = harness([
+            () => streamed(1, MAX_RESPONSE_BODY_BYTES + 1),
+        ]);
+
+        expect(await client.request(request())).toMatchObject({
+            ok: false,
+            status: 200,
+            failure: { kind: "responseTooLarge", limitBytes: MAX_RESPONSE_BODY_BYTES },
+        });
+        expect(scripted.calls).toHaveLength(1);
+        expect(sleeps).toEqual([]);
+    });
+
+    it("decodes a character split across two chunks", async () => {
+        const bytes = new TextEncoder().encode("héllo");
+        const { client } = harness([
+            new Response(
+                new ReadableStream({
+                    start(controller) {
+                        controller.enqueue(bytes.slice(0, 2));
+                        controller.enqueue(bytes.slice(2));
+                        controller.close();
+                    },
+                }),
+                { status: 200 },
+            ),
+        ]);
+
+        expect(await client.request(request())).toMatchObject({ ok: true, body: "héllo" });
+    });
+
+    it("reads a bodyless response as empty text", async () => {
+        const { client } = harness([new Response(null, { status: 204 })]);
+
+        expect(await client.request(request())).toMatchObject({
+            ok: true,
+            status: 204,
+            body: "",
+        });
+    });
+});
+
+/**
+ * The rate snapshot's one consumer: a budget under the reserve is treated as
+ * the exhaustion it is about to become, before a request spends any of it.
+ */
+describe("proactive pacing", () => {
+    const spent = (remaining: string, resetSeconds: number): Response =>
+        success("first", {
+            "x-ratelimit-remaining": remaining,
+            "x-ratelimit-reset": String(NOW_SECONDS + resetSeconds),
+        });
+
+    it("waits out a reset within reach before spending the reserve", async () => {
+        const { client, scripted, sleeps } = harness([spent("49", 5), success("second")]);
+
+        expect((await client.request(request())).ok).toBe(true);
+        expect(await client.request(request())).toMatchObject({ ok: true, body: "second" });
+        expect(sleeps).toEqual([5_000]);
+        expect(scripted.calls).toHaveLength(2);
+    });
+
+    it("refuses to spend the reserve when the reset is out of reach", async () => {
+        const { client, scripted, sleeps } = harness([
+            spent("49", 600),
+            success("must not happen"),
+        ]);
+
+        expect((await client.request(request())).ok).toBe(true);
+        expect(await client.request(request())).toEqual({
+            ok: false,
+            failure: { kind: "primaryExhausted", resetAt: String(NOW_SECONDS + 600) },
+        });
+        expect(scripted.calls).toHaveLength(1);
+        expect(sleeps).toEqual([]);
+    });
+
+    it("spends the budget while the reserve is still intact", async () => {
+        const { client, scripted } = harness([
+            spent(String(PRIMARY_BUDGET_RESERVE), 600),
+            success("second"),
+        ]);
+
+        await client.request(request());
+        expect(await client.request(request())).toMatchObject({ ok: true, body: "second" });
+        expect(scripted.calls).toHaveLength(2);
+    });
+
+    it("does not pace on a count it could never recover from", async () => {
+        const noReset = harness([
+            success("first", { "x-ratelimit-remaining": "1" }),
+            success("second"),
+        ]);
+        await noReset.client.request(request());
+        expect(await noReset.client.request(request())).toMatchObject({
+            ok: true,
+            body: "second",
+        });
+
+        const unreadable = harness([spent("", 600), success("second")]);
+        await unreadable.client.request(request());
+        expect(await unreadable.client.request(request())).toMatchObject({
+            ok: true,
+            body: "second",
+        });
+    });
+
+    it("paces once per request, not again before each retry", async () => {
+        const { client, scripted, sleeps } = harness([
+            spent("1", 5),
+            failure(503, "down", {
+                "x-ratelimit-remaining": "1",
+                "x-ratelimit-reset": String(NOW_SECONDS + 5),
+            }),
+            success("done"),
+        ]);
+
+        expect((await client.request(request())).ok).toBe(true);
+        expect(await client.request(request())).toMatchObject({ ok: true, body: "done" });
+        expect(sleeps).toEqual([5_000, 500]);
+        expect(scripted.calls).toHaveLength(3);
     });
 });
 

@@ -19,6 +19,7 @@ import type {
     ResolverSource,
 } from "@hiero-hackers/automation-core";
 import {
+    describeFailure,
     GITHUB_GRAPHQL_URL,
     type GitHubFailure,
     type GitHubHttpClient,
@@ -53,22 +54,54 @@ export interface ResolverSourceOptions {
     readonly repository: RepositoryRef;
 }
 
+/** GitHub's own words reach an operator verbatim, so they are kept short. */
+const QUOTED_HEADER_LIMIT = 40;
+
 const unavailable = (detail: string): ResolverFailure => ({
     ok: false,
     reason: "unavailable",
     detail,
 });
 
+const rateLimited = (detail: string): ResolverFailure => ({
+    ok: false,
+    reason: "rateLimited",
+    detail,
+});
+
+/**
+ * A failed call as a resolver answer.
+ *
+ * The `reason` is the capability's half of this and stays coarse — a
+ * capability can act on "rate limited" and on nothing finer. The `detail` is
+ * the operator's half, and the three rate classes are three different
+ * problems: an hourly budget spent, a burst that must slow down, and a wait
+ * signal nobody could read. The adapter has already waited whatever was worth
+ * waiting, so what arrives here is what an operator must decide about.
+ */
 function httpFailure(outcome: GitHubFailure): ResolverFailure {
-    switch (outcome.failure.kind) {
+    const failure = outcome.failure;
+    switch (failure.kind) {
         case "permissionMissing":
             return { ok: false, reason: "noPermission", detail: "GitHub denied the query" };
         case "primaryExhausted":
+            return rateLimited(
+                "GitHub primary rate limit reached; the budget resets at " +
+                    (failure.resetAt ?? "an instant GitHub did not report"),
+            );
         case "secondaryLimit":
+            return rateLimited(
+                failure.retryAfterSeconds === undefined
+                    ? "GitHub secondary rate limit reached, with no retry-after to wait on"
+                    : `GitHub secondary rate limit reached; retry-after ${String(failure.retryAfterSeconds)}s`,
+            );
         case "rateLimitResponseUnusable":
-            return { ok: false, reason: "rateLimited", detail: "GitHub rate limit reached" };
+            return rateLimited(
+                `GitHub rate limit reached; ${failure.headerName} ` +
+                    `"${failure.headerValue.slice(0, QUOTED_HEADER_LIMIT)}" is ${failure.reason}`,
+            );
         default:
-            return unavailable(`GitHub query failed: ${outcome.failure.kind}`);
+            return unavailable(`GitHub query failed: ${describeFailure(failure)}`);
     }
 }
 

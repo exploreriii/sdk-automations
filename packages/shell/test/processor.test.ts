@@ -1,8 +1,14 @@
 /**
- * The worker's failure honesty: a crash mid-decision RELEASES the claim —
- * the delivery stays durable and the next drain retries it — and a
- * completed delivery never runs twice. The receiver acknowledged long
- * before any of this; GitHub is not watching.
+ * The worker's failure honesty: a crash mid-decision COUNTS an attempt —
+ * the delivery stays durable, waits out a widening backoff, and is
+ * eventually dead-lettered rather than retried forever — and a completed
+ * delivery never runs twice. The receiver acknowledged long before any of
+ * this; GitHub is not watching.
+ *
+ * Failures here are injected through the externals seam, which is the one
+ * this worker actually meets (`live externals unavailable`) and the one
+ * whose throw the processor sees: a capability that throws is contained by
+ * `decide()` and reported, never raised.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -67,7 +73,7 @@ function records(): Record<string, unknown>[] {
 }
 
 describe("a config source that cannot answer", () => {
-    const withSource = (load: ConfigSource["load"]) =>
+    const withSource = (load: ConfigSource["load"], atMs = 1000) =>
         createProcessor({
             store,
             capabilities: [toEngine(intake)],
@@ -75,7 +81,7 @@ describe("a config source that cannot answer", () => {
             externals: () => stubbedExternals(),
             repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
             worker: "test-worker",
-            clock: () => new Date(BASE.getTime() + 1000),
+            clock: () => new Date(BASE.getTime() + atMs),
         });
 
     it("completes a permanent defect as configRejected — retrying cannot fix a file", async () => {
@@ -96,7 +102,7 @@ describe("a config source that cannot answer", () => {
         ]);
     });
 
-    it("releases the claim on a transient failure so the delivery retries", async () => {
+    it("spends an attempt on a transient failure instead of retrying at once", async () => {
         const failing = withSource(async () => ({
             ok: false,
             permanent: false,
@@ -106,28 +112,34 @@ describe("a config source that cannot answer", () => {
         await expect(failing.processOnce()).rejects.toThrow("configuration unavailable");
         expect(records()).toEqual([]);
 
-        const healthy = withSource(configSource.load);
-        expect(await healthy.processOnce()).toBe(true);
+        // The deliberate change: transient config failures are counted, so a
+        // config that is unreachable for good cannot spin the queue forever.
+        expect(await withSource(configSource.load, 30_999).processOnce()).toBe(false);
+        expect(await withSource(configSource.load, 31_000).processOnce()).toBe(true);
         expect(records()).toHaveLength(1);
     });
 });
 
-describe("a crash releases the claim", () => {
-    it("the delivery survives its processor and is retried by the next one", async () => {
-        const bomb: EngineCapability = {
-            declaration: intakeDeclaration,
-            evaluate: async () => {
-                throw new Error("capability exploded");
+describe("a crash counts an attempt", () => {
+    it("the delivery survives its processor and is retried once its wait is up", async () => {
+        const failing = createProcessor({
+            store,
+            capabilities: [toEngine(intake)],
+            configSource,
+            externals: () => {
+                throw new Error("live externals unavailable");
             },
-        };
-        const failing = processor(bomb);
-        await expect(failing.processOnce()).rejects.toThrow("capability exploded");
+            repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
+            worker: "test-worker",
+            clock: () => new Date(BASE.getTime() + 1000),
+        });
+        await expect(failing.processOnce()).rejects.toThrow("live externals unavailable");
         expect(records()).toEqual([]);
 
-        // Released, not stuck: a fresh worker claims it immediately —
-        // no stale-claim wait — and carries it to a decision.
-        const healthy = processor(toEngine(intake));
-        expect(await healthy.processOnce()).toBe(true);
+        // Durable but waiting: the attempt bought thirty seconds, and the
+        // millisecond before them claims nothing.
+        expect(await processor(toEngine(intake), 30_999).processOnce()).toBe(false);
+        expect(await processor(toEngine(intake), 31_000).processOnce()).toBe(true);
         expect(records()).toEqual([
             expect.objectContaining({
                 kind: "decision",
@@ -220,5 +232,102 @@ describe("a crash releases the claim", () => {
                 "2026-08-07T09:00:00.000Z",
             ),
         ).toBeDefined();
+    });
+
+    it("ends the drain on a lost claim rather than spinning on the same delivery", async () => {
+        // Requeued mid-decision, the delivery is claimable again at once and
+        // the failed attempt cannot be counted against it. A drain that kept
+        // going would re-claim it forever, so this test hangs if it does.
+        const lostClaim: EngineCapability = {
+            declaration: intakeDeclaration,
+            evaluate: async () => {
+                store.requeueStuckDeliveries("2026-08-07T10:30:00.000Z");
+                return [];
+            },
+        };
+        await processor(lostClaim).drain();
+
+        expect(records()).toEqual([]);
+        expect(
+            store.claimNextDelivery(
+                "next-worker",
+                "2026-08-07T10:01:00.000Z",
+                "2026-08-07T09:00:00.000Z",
+            ),
+        ).toMatchObject({ attempts: 0 });
+    });
+});
+
+describe("a poison delivery", () => {
+    /** A payload the externals seam below is willing to answer for. */
+    const HEALTHY = Buffer.from(JSON.stringify({ action: "healthy" }));
+    let consulted = 0;
+
+    /** One whole drain at one instant, failing everything but HEALTHY. */
+    async function drainAt(offsetMs: number): Promise<void> {
+        await createProcessor({
+            store,
+            capabilities: [toEngine(intake)],
+            configSource,
+            externals: ({ payload }) => {
+                consulted++;
+                if ((payload as { action?: unknown }).action === "healthy") {
+                    return stubbedExternals();
+                }
+                throw new Error("live externals unavailable");
+            },
+            repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
+            worker: "test-worker",
+            clock: () => new Date(BASE.getTime() + offsetMs),
+        }).drain();
+    }
+
+    beforeEach(() => {
+        consulted = 0;
+        store.acceptDelivery({
+            deliveryId: SECOND_GUID,
+            eventName: "issues",
+            payload: HEALTHY,
+            receivedAt: new Date(BASE.getTime() + 1000).toISOString(),
+        });
+    });
+
+    it("backs off, lets the queue behind it through, and dead-letters at five attempts", async () => {
+        // The poison delivery is the OLDEST, so the queue behind it only
+        // moves if a failed drain steps over it instead of unwinding.
+        await drainAt(10_000);
+        expect(consulted).toBe(2);
+        expect(records()).toEqual([expect.objectContaining({ deliveryId: SECOND_GUID as string })]);
+
+        // Thirty seconds, then sixty: the wait doubles per spent attempt,
+        // and neither is served a millisecond early.
+        consulted = 0;
+        await drainAt(39_999);
+        expect(consulted).toBe(0);
+        await drainAt(40_000);
+        await drainAt(99_999);
+        expect(consulted).toBe(1);
+
+        // Attempts three, four and five, at 100s, 220s and 460s.
+        await drainAt(100_000);
+        await drainAt(220_000);
+        await drainAt(460_000);
+        expect(consulted).toBe(4);
+
+        expect(store.deadLetteredDeliveries()).toEqual([
+            expect.objectContaining({
+                deliveryId: GUID,
+                eventName: "issues",
+                receivedAt: BASE.toISOString(),
+                attempts: 5,
+                failedAt: new Date(BASE.getTime() + 460_000).toISOString(),
+            }),
+        ]);
+
+        // Inspectable, and claimed by nothing however long it waits.
+        consulted = 0;
+        await drainAt(24 * 60 * 60_000);
+        expect(consulted).toBe(0);
+        expect(records()).toHaveLength(1);
     });
 });

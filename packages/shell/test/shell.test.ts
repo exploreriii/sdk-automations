@@ -46,20 +46,27 @@ const BASE = new Date("2026-08-07T10:00:00.000Z");
 const temp = useTempDir("shell-test-");
 let store: Store;
 let configFile: string;
+/** Every shell built here, so its sweep stops with the test that made it. */
+let running: Shell[];
 
 beforeEach(() => {
     configFile = temp.file("automations.yml");
     writeFileSync(configFile, CONFIG);
     store = new Store(temp.file("store.sqlite"));
+    running = [];
 });
 afterEach(() => {
+    for (const shell of running) shell.stopSweep();
     vi.restoreAllMocks();
     store.close();
 });
 
-function buildShell(capability: EngineCapability = toEngine(intake)): Shell {
+function buildShell(
+    capability: EngineCapability = toEngine(intake),
+    sweepIntervalMs = 60_000,
+): Shell {
     let tick = 0;
-    return createShell({
+    const shell = createShell({
         secret: SECRET,
         store,
         capabilities: [capability],
@@ -67,7 +74,10 @@ function buildShell(capability: EngineCapability = toEngine(intake)): Shell {
         externals: () => stubbedExternals(),
         repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
         clock: () => new Date(BASE.getTime() + 1000 * tick++),
+        sweepIntervalMs,
     });
+    running.push(shell);
+    return shell;
 }
 
 async function deliver(shell: Shell, guid = GUID): Promise<number> {
@@ -258,6 +268,56 @@ describe("the first slice, end to end", () => {
         const shell = buildShell();
         expect(await deliver(shell)).toBe(202);
         await vi.waitFor(() => expect(records()).toHaveLength(1));
+    });
+
+    it("sweeps a dead worker's claim back into a drain with no delivery to wake it", async () => {
+        expect(
+            store.acceptDelivery({
+                deliveryId: asDeliveryGuid(SECOND_GUID)!,
+                eventName: "issues",
+                payload: FIXTURE,
+                receivedAt: BASE.toISOString(),
+            }),
+        ).toMatchObject({ outcome: "accepted" });
+        // A worker that died twenty minutes ago still holds the claim, and
+        // in a quiet repository nothing else will ever arrive to drain it.
+        expect(
+            store.claimNextDelivery(
+                "dead-worker",
+                new Date(BASE.getTime() - 20 * 60_000).toISOString(),
+                new Date(BASE.getTime() - 60 * 60_000).toISOString(),
+            ),
+        ).toBeDefined();
+
+        buildShell(toEngine(intake), 5);
+        await vi.waitFor(() => expect(records()).toHaveLength(1));
+        expect(records()[0]).toMatchObject({ kind: "decision", deliveryId: SECOND_GUID });
+    });
+
+    it("reports a sweep it cannot run instead of taking the process down", async () => {
+        // A closed store is the sweep's worst case: a throw inside a timer
+        // callback is an unhandled exception, and this shell keeps serving.
+        const doomed = new Store(temp.file("doomed.sqlite"));
+        const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        running.push(
+            createShell({
+                secret: SECRET,
+                store: doomed,
+                capabilities: [toEngine(intake)],
+                configSource: fileConfigSource(configFile),
+                externals: () => stubbedExternals(),
+                repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
+                sweepIntervalMs: 5,
+            }),
+        );
+        doomed.close();
+
+        await vi.waitFor(() =>
+            expect(reported).toHaveBeenCalledWith(
+                "shell: sweep failed; inspect durable store state",
+                expect.anything(),
+            ),
+        );
     });
 
     it("a broken config fails closed: recorded, completed, nothing decided", async () => {

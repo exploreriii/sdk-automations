@@ -22,7 +22,7 @@ import {
     githubMintInstallationToken,
     liveExternalsForDelivery,
 } from "@hiero-hackers/automation-adapter";
-import { createShell } from "./shell.js";
+import { createShell, DEFAULT_SWEEP_INTERVAL_MS } from "./shell.js";
 import { CONFIG_PATH, fileConfigSource, type ConfigSource } from "./config.js";
 import { stubbedExternals, type ExternalsForDelivery } from "./externals.js";
 
@@ -58,6 +58,18 @@ const port = Number(env["PORT"] ?? 8790);
 // dual-stack on an IPv6-capable host, where "0.0.0.0" would be IPv4 only.
 // A test or a sandbox names the loopback.
 const host = env["HOST"];
+
+// How often stale claims are requeued and the queue re-drained. Validated
+// rather than coerced: a mistyped interval that silently became a 0ms tick
+// or a NaN one would take out the recovery this exists to provide.
+const sweepSeconds =
+    env["SWEEP_INTERVAL_SECONDS"] === undefined
+        ? DEFAULT_SWEEP_INTERVAL_MS / 1000
+        : Number(env["SWEEP_INTERVAL_SECONDS"]);
+if (!Number.isInteger(sweepSeconds) || sweepSeconds < 1) {
+    console.error("SWEEP_INTERVAL_SECONDS must be a whole number of seconds, 1 or more.");
+    process.exit(1);
+}
 
 const killSwitchActive = env["KILL_SWITCH"] === "1";
 const repository = { owner, repo };
@@ -122,6 +134,7 @@ const shell = createShell({
     configSource,
     externals,
     repository,
+    sweepIntervalMs: sweepSeconds * 1000,
 });
 
 // Start recovering anything a previous run left pending before listening.

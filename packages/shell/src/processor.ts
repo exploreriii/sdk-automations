@@ -5,9 +5,10 @@
  *
  * The reading key: a claimed delivery always ends as exactly ONE of three
  * records — `configRejected`, `modeUnsupported`, or a decision — and there
- * is no fourth exit. The try/catch in `processOnce` is routing, not
- * handling: any throw releases the claim, and retry-by-reclaim IS the
- * recovery logic, which is why none lives here.
+ * is no fourth exit. The try/catch in `attemptNext` is routing, not
+ * handling: any throw becomes a counted failed attempt, and the retry
+ * policy above IS the recovery logic — a bounded, spaced reclaim, ending
+ * in the store's dead letter when the budget runs out.
  *
  * `recordFor` below is stations ③ to ⑤ of this package's README table,
  * one named step per station.
@@ -25,12 +26,39 @@ import {
     type RepositoryConfig,
     type RepositoryRef,
 } from "@hiero-hackers/automation-core";
-import type { ClaimedDelivery, Store } from "@hiero-hackers/automation-store";
+import type {
+    ClaimedDelivery,
+    ReleaseDeliveryAfterFailureResult,
+    Store,
+} from "@hiero-hackers/automation-store";
 import type { ConfigSource } from "./config.js";
 import type { ExternalsForDelivery } from "./externals.js";
 
-/** A processing claim older than this is presumed dead and taken over. */
-const STALE_CLAIM_MINUTES = 15;
+/**
+ * A processing claim older than this is presumed dead and taken over.
+ * Exported for the sweep in `shell.ts`, which requeues on the same clock.
+ */
+export const STALE_CLAIM_MINUTES = 15;
+
+/**
+ * The retry bounds. A delivery that keeps failing gets five attempts in
+ * all, waiting 30s, 60s, 120s and 240s between them.
+ *
+ * Thirty seconds is longer than the blips this worker actually meets — a
+ * config read that lost its token, externals answering unavailable — and
+ * five attempts spread over about eight minutes outlast most of them
+ * without holding a delivery for an afternoon. The hourly ceiling is a
+ * bound on the doubling rather than a number this schedule reaches; it
+ * only binds if the attempt budget is raised.
+ */
+const MAX_DELIVERY_ATTEMPTS = 5;
+const RETRY_BASE_MS = 30_000;
+const RETRY_CEILING_MS = 60 * 60_000;
+
+/** The wait a delivery earns after `attempts` failures, doubling each time. */
+function retryDelayMs(attempts: number): number {
+    return Math.min(RETRY_BASE_MS * 2 ** attempts, RETRY_CEILING_MS);
+}
 
 /** Dependencies and operator hooks for one durable delivery worker. */
 export interface ProcessorOptions {
@@ -95,6 +123,33 @@ export interface Processor {
     drain(): Promise<void>;
 }
 
+/**
+ * What one claimed-and-carried delivery came to. The failure case is a
+ * VALUE because the drain has to keep going after it, and needs to know
+ * what the store made of the failure to decide whether it can.
+ */
+type PassOutcome =
+    | { readonly kind: "idle" }
+    | { readonly kind: "completed" }
+    | {
+          readonly kind: "failed";
+          readonly deliveryId: string;
+          readonly error: unknown;
+          readonly release: ReleaseDeliveryAfterFailureResult;
+      };
+
+/** What the failure did to the delivery, for the line an operator reads. */
+function dispositionOf(release: ReleaseDeliveryAfterFailureResult): string {
+    switch (release.outcome) {
+        case "retryScheduled":
+            return `attempt ${String(release.attempts)} of ${String(MAX_DELIVERY_ATTEMPTS)}, retrying after ${release.retryNotBefore}`;
+        case "deadLettered":
+            return `attempt ${String(release.attempts)} of ${String(MAX_DELIVERY_ATTEMPTS)}, dead-lettered for inspection`;
+        case "notOwned":
+            return "the claim was already lost, so this attempt was not counted";
+    }
+}
+
 export function createProcessor(options: ProcessorOptions): Processor {
     const { store, capabilities, configSource, externals, repository, worker, clock } = options;
     let draining: Promise<void> | null = null;
@@ -135,7 +190,9 @@ export function createProcessor(options: ProcessorOptions): Processor {
                     },
                 };
             }
-            // Transient: the throw releases the claim; the delivery retries.
+            // Transient: the throw costs the delivery one attempt and
+            // schedules the next. A config that is unreachable for good
+            // therefore dead-letters instead of retrying without end.
             throw new Error(`configuration unavailable: ${loaded.detail}`);
         }
         const { document } = loaded;
@@ -170,8 +227,8 @@ export function createProcessor(options: ProcessorOptions): Processor {
     ): Promise<Decision> => {
         const payload = parsePayload(claimed.payload);
         // Built per delivery: the live path binds its ordering-evidence
-        // memo to exactly this delivery. A rejection here releases the
-        // claim like any pre-completion failure, and the delivery retries.
+        // memo to exactly this delivery. A rejection here is a counted
+        // failed attempt, like any other failure before completion.
         return decide(
             { kind: "delivery", repository, event: claimed.eventName, payload },
             config,
@@ -204,12 +261,33 @@ export function createProcessor(options: ProcessorOptions): Processor {
     };
 
     /**
-     * Station 3 onward: claim, decide, then atomically persist-and-complete.
-     * Failures before canonical completion release the claim.
+     * Count one failed attempt against this claim, which either spaces the
+     * next one or ends the delivery as a dead letter. The wait is derived
+     * from the attempts the claim arrived with, so a delivery that keeps
+     * failing backs off instead of being re-claimed on every drain.
      */
-    const processOnce = async (): Promise<boolean> => {
+    const recordFailure = (claimed: ClaimedDelivery): ReleaseDeliveryAfterFailureResult => {
+        const failedAt = clock();
+        return store.releaseDeliveryAfterFailure({
+            deliveryId: claimed.deliveryId,
+            claimToken: claimed.claimToken,
+            failedAt: failedAt.toISOString(),
+            retryNotBefore: new Date(
+                failedAt.getTime() + retryDelayMs(claimed.attempts),
+            ).toISOString(),
+            maxAttempts: MAX_DELIVERY_ATTEMPTS,
+        });
+    };
+
+    /**
+     * Station 3 onward: claim, decide, then atomically persist-and-complete.
+     * A failure before canonical completion is counted, not just released:
+     * a delivery nothing can process spends its budget and dead-letters
+     * rather than being retried forever.
+     */
+    const attemptNext = async (): Promise<PassOutcome> => {
         const claimed = claimNext();
-        if (claimed === undefined) return false;
+        if (claimed === undefined) return { kind: "idle" };
         try {
             const record = await recordFor(claimed);
             const completion = store.completeDeliveryWithReport({
@@ -223,20 +301,47 @@ export function createProcessor(options: ProcessorOptions): Processor {
             if (completion.outcome !== "completed") {
                 throw new Error(`delivery report was not committed: ${completion.outcome}`);
             }
-            return true;
+            return { kind: "completed" };
         } catch (error) {
-            store.releaseDelivery(claimed.deliveryId, claimed.claimToken);
-            throw error;
+            return {
+                kind: "failed",
+                deliveryId: String(claimed.deliveryId),
+                error,
+                release: recordFailure(claimed),
+            };
         }
     };
 
     return {
-        processOnce,
-        /** Process until the queue is empty. Overlapping calls share one loop. */
+        /** One pass. A failed delivery still throws: the caller asked for it. */
+        async processOnce(): Promise<boolean> {
+            const outcome = await attemptNext();
+            if (outcome.kind === "failed") throw outcome.error;
+            return outcome.kind === "completed";
+        },
+        /**
+         * Process until the queue is empty, stepping OVER a delivery that
+         * failed: it is backed off or dead-lettered by then, so the queue
+         * behind it moves. Overlapping calls share one loop.
+         *
+         * The one failure that ends the pass early is a lost claim. The
+         * attempt went uncounted, so the same delivery can be handed back
+         * immediately, and a loop that cannot prove progress should stop
+         * rather than spin — the next drain starts from a fresh claim.
+         */
         drain(): Promise<void> {
             draining ??= (async () => {
                 try {
-                    while (await processOnce());
+                    for (;;) {
+                        const outcome = await attemptNext();
+                        if (outcome.kind === "idle") return;
+                        if (outcome.kind !== "failed") continue;
+                        console.error(
+                            `shell: delivery ${outcome.deliveryId} failed to process (${dispositionOf(outcome.release)})`,
+                            outcome.error,
+                        );
+                        if (outcome.release.outcome === "notOwned") return;
+                    }
                 } finally {
                     draining = null;
                 }

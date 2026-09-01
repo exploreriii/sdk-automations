@@ -3,6 +3,12 @@
  * running shell. Every box is existing, gated code — this file's whole
  * contribution is ORDER: verify before accept, accept before ack, decide
  * before act, then atomically commit the canonical report and completion.
+ *
+ * Plus one clock. A webhook arrival is the only other thing that ever
+ * drains, so work a drain left behind — a stale claim from a killed
+ * worker, a delivery waiting out its backoff — would sit until the next
+ * delivery happened to arrive. The sweep is what makes those recover on
+ * their own in a quiet repository.
  */
 
 import { createServer, type Server } from "node:http";
@@ -13,9 +19,12 @@ import {
 } from "@hiero-hackers/automation-core";
 import type { Store } from "@hiero-hackers/automation-store";
 import { createReceiver } from "./receiver.js";
-import { createProcessor } from "./processor.js";
+import { createProcessor, STALE_CLAIM_MINUTES } from "./processor.js";
 import type { ConfigSource } from "./config.js";
 import type { ExternalsForDelivery } from "./externals.js";
+
+/** How often the shell requeues stale claims and drains, absent an override. */
+export const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
 
 export interface ShellOptions {
     readonly secret: string;
@@ -26,12 +35,15 @@ export interface ShellOptions {
     readonly repository: RepositoryRef;
     readonly worker?: string;
     readonly clock?: () => Date;
+    readonly sweepIntervalMs?: number;
 }
 
 export interface Shell {
     readonly server: Server;
     /** Pump everything pending — exposed so tests and operators drain deterministically. */
     drain(): Promise<void>;
+    /** Stop the sweep. The server stays the caller's to close. */
+    stopSweep(): void;
 }
 
 export function createShell(options: ShellOptions): Shell {
@@ -66,8 +78,38 @@ export function createShell(options: ShellOptions): Shell {
             });
         },
     });
+    /**
+     * One tick: hand back claims their worker died holding, then pump.
+     *
+     * Contained, because a tick that throws inside a timer callback takes
+     * the process down, and a store that cannot be swept is a thing to
+     * report rather than a reason to stop serving webhooks. Overlapping
+     * ticks are already harmless: the processor's drain shares one loop.
+     */
+    const sweep = (): void => {
+        try {
+            const staleBefore = new Date(clock().getTime() - STALE_CLAIM_MINUTES * 60_000);
+            const requeued = options.store.requeueStuckDeliveries(staleBefore.toISOString());
+            if (requeued.length > 0) {
+                console.error(`shell: requeued stale delivery claims: ${requeued.join(", ")}`);
+            }
+        } catch (error) {
+            console.error("shell: sweep failed; inspect durable store state", error);
+            return;
+        }
+        void processor.drain().catch((error: unknown) => {
+            console.error("shell: swept drain failed; inspect durable store state", error);
+        });
+    };
+    const ticking = setInterval(sweep, options.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS);
+    // The sweep is recovery, never a reason for the process to stay alive.
+    ticking.unref();
+
     return {
         server: createServer(handler),
         drain: () => processor.drain(),
+        stopSweep: () => {
+            clearInterval(ticking);
+        },
     };
 }

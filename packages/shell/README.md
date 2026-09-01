@@ -83,6 +83,7 @@ PORT=8790                   # optional
 HOST=127.0.0.1              # optional; omit to use Node's default bind host
 CONFIG_FILE=…               # credential-free fallback; default data/automations.yml
 STORE_PATH=…                # optional; default data/shell.sqlite
+SWEEP_INTERVAL_SECONDS=60   # optional; requeue stale claims and drain on this clock
 KILL_SWITCH=1               # optional; refuse everything, loudly
 ```
 

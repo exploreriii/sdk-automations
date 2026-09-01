@@ -87,6 +87,7 @@ const SHELL_VARIABLES = [
     "PORT",
     "HOST",
     "KILL_SWITCH",
+    "SWEEP_INTERVAL_SECONDS",
 ];
 
 /** Longer than any boot, shorter than the per-test timeout below it. */
@@ -534,6 +535,27 @@ describe("the sandbox entry point, as a process", () => {
         TEST_TIMEOUT_MS,
     );
 
+    it.each(["0", "-1", "1.5", "soon"])(
+        "fails closed when SWEEP_INTERVAL_SECONDS is %j",
+        async (interval) => {
+            await withShell(
+                { ...bootEnvironment(), SWEEP_INTERVAL_SECONDS: interval },
+                async (shell) => {
+                    await until(
+                        () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
+                        "the sweep interval to be refused",
+                    );
+                    expect(shell.stdout()).toBe("");
+                    expect(await shell.exit).toBe(1);
+                    expect(shell.stderr().trim()).toBe(
+                        "SWEEP_INTERVAL_SECONDS must be a whole number of seconds, 1 or more.",
+                    );
+                },
+            );
+        },
+        TEST_TIMEOUT_MS,
+    );
+
     it(
         "fails closed when PRIVATE_KEY_PATH names no readable file",
         async () => {
@@ -711,6 +733,9 @@ describe("the sandbox entry point, as a process", () => {
                         CONFIG_FILE: configFile,
                         STORE_PATH: storeFile,
                         PORT: String(port),
+                        // The fastest interval the validation accepts, so a
+                        // boot that swept every second is proved to work.
+                        SWEEP_INTERVAL_SECONDS: "1",
                     },
                     async (shell) => {
                         expect(await listeningLine(shell)).toBe(

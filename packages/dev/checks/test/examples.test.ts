@@ -1,7 +1,8 @@
 /**
  * The shipped `docs/examples/` files still parse, through the entry point the
- * shell uses (D82). A documented example that stopped parsing would surface
- * only as a maintainer's confusion.
+ * shell uses (D82) and against the capability list the shell actually admits.
+ * A documented example that stopped parsing — or that names a capability
+ * nobody ships — would surface only as a maintainer's confusion.
  *
  * A repository check, not coverage: Stryker's sandbox is `core/`, so nothing
  * here can kill a mutant and the rejection corpus lives in core (D82, D85).
@@ -11,18 +12,63 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseConfigDocument } from "@hiero-hackers/automation-core";
-import { docsDir, exampleFiles } from "./repository.js";
+import { docsDir, exampleFiles, normalizeNewlines, repoRoot, sourceFiles } from "./repository.js";
 
 const examplesDir = join(docsDir, "examples");
 
-/** The direct capability list these schema examples are read against. */
-const KNOWN = ["assignment", "intake", "prQuality"];
+const read = (path: string) => normalizeNewlines(readFileSync(join(repoRoot, path), "utf8"));
 
-const parse = (file: string) =>
-    parseConfigDocument(readFileSync(join(examplesDir, file), "utf8"), {
-        revision: file,
-        knownCapabilities: KNOWN,
-    });
+/** Each probe's wiring identifier and the capability name it declares. */
+function probeDeclarations(): { readonly binding: string; readonly name: string }[] {
+    return sourceFiles(["src"])
+        .filter((path) => path.startsWith("packages/probes/src/") && !path.endsWith("/index.ts"))
+        .map((path) => {
+            const text = read(path);
+            const name = /declareCapability\(\{\s*name: "([A-Za-z]+)"/.exec(text)?.[1];
+            const binding = /export const ([A-Za-z]+): Capability</.exec(text)?.[1];
+            expect({ path, named: name !== undefined, bound: binding !== undefined }).toEqual({
+                path,
+                named: true,
+                bound: true,
+            });
+            return { binding: binding!, name: name! };
+        });
+}
+
+/** The identifiers `createShell` is handed at the composition root. */
+function wiredBindings(): string[] {
+    const main = read("packages/shell/src/main.ts");
+    const list = main.split("capabilities: [")[1]?.split("]")[0] ?? "";
+    return [...list.matchAll(/toEngine\(([A-Za-z]+)\)/g)].map((m) => m[1]!);
+}
+
+/**
+ * The capability names the shipped shell admits — the probe declarations
+ * `main.ts` wires, which is the same list the parser fails closed against with
+ * `capabilityUnknown`. Read as text because this package depends on core's
+ * barrel and nothing downstream of it (D85), so the probes are a file to open
+ * rather than an import.
+ *
+ * A hand-typed literal here was the defect: it named `assignment`, which no
+ * probe declares, so an example the real shell would reject parsed clean.
+ */
+function shippedCapabilities(): string[] {
+    const byBinding = new Map(probeDeclarations().map(({ binding, name }) => [binding, name]));
+    return wiredBindings()
+        .map((binding) => {
+            const name = byBinding.get(binding);
+            expect(name, `${binding} is a probe declaration main.ts can wire`).toBeDefined();
+            return name!;
+        })
+        .sort();
+}
+
+const KNOWN = shippedCapabilities();
+
+const parseText = (text: string, revision: string) =>
+    parseConfigDocument(text, { revision, knownCapabilities: KNOWN });
+
+const parse = (file: string) => parseText(readFileSync(join(examplesDir, file), "utf8"), file);
 
 const files = exampleFiles();
 
@@ -34,6 +80,31 @@ describe("the shipped examples", () => {
             "empty.yml",
             "minimal.yml",
             "observe-only.yml",
+        ]);
+    });
+
+    /** A derivation that finds nothing admits nothing, and silently. */
+    it("reads the admitted capability list off the shipped probes", () => {
+        expect(KNOWN.length).toBeGreaterThan(0);
+        expect(KNOWN).toEqual(
+            probeDeclarations()
+                .map(({ name }) => name)
+                .sort(),
+        );
+    });
+
+    /**
+     * The negative control for the list above: a name outside it is refused,
+     * so a future example that configures an unshipped capability fails here
+     * rather than in a maintainer's repository.
+     */
+    it("refuses a capability the shell does not ship", () => {
+        const invented = parseText(
+            "schemaVersion: 1\ncapabilities:\n  assignment:\n    enabled: false\n",
+            "invented",
+        );
+        expect(invented.ok ? [] : invented.errors.map((e) => e.code)).toEqual([
+            "capabilityUnknown",
         ]);
     });
 
@@ -60,11 +131,11 @@ describe("the shipped examples", () => {
         }
     });
 
-    it("a known capability may be configured while disabled", () => {
+    it("a shipped capability may be configured while disabled", () => {
         const active = parse("active.yml");
         expect(active.ok).toBe(true);
         if (!active.ok) return;
-        expect(active.config.capabilities.assignment).toMatchObject({ enabled: false });
+        expect(active.config.capabilities.inactivity).toMatchObject({ enabled: false });
     });
 
     /** A file with no README row is one nobody will read; a row with no file is a promise. */

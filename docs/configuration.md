@@ -68,8 +68,9 @@ migration/deprecation policy for any future version remains deliberately undecid
 | Allowed | `disabled`, `observe`, `dry-run`, `active` |
 
 Core recognizes all four values, but the runnable shell supports the three non-active modes. Active is
-reserved and rejected before a decision. Values are case-sensitive, and unquoted `no` is a YAML boolean
-rather than a mode — quote anything you are unsure of.
+reserved and rejected before a decision, recorded as `modeUnsupported` and explained in
+[Troubleshooting](troubleshooting.md#it-never-got-as-far-as-deciding). Values are case-sensitive, and
+unquoted `no` is a YAML boolean rather than a mode — quote anything you are unsure of.
 
 | Mode | Reads | Reports | Records what it would do | Writes |
 |---|---|---|---|---|

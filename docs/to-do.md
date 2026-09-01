@@ -33,7 +33,7 @@
 
 ## Missing, blocked on capabilities shipping
 
-- **Per-capability pages.** `settings.announce`, `settings.marker`, `settings.maxOpenAssignments`
+- **Per-capability pages.** `settings.announce`, `settings.marker`, `settings.gracePeriodDays`
   appear in examples but are defined nowhere — `settings` is each capability's own contract, and the
   platform docs cannot define keys the platform does not own. Each shipped capability gets a page:
   what it does, its settings, required meanings, and platform-derived permissions.

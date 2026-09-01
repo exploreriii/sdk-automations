@@ -19,6 +19,7 @@ const assignment: CapabilityDeclaration = {
     name: "assignment",
     triggers: [{ kind: "event", event: "issue_comment.created" }],
     configKeys: ["maxOpenAssignments"],
+    requiredMeanings: [],
     observations: ["issueUpdated"],
     resolvers: [],
     intents: ["applyMappedLabel"],

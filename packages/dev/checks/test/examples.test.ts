@@ -11,15 +11,30 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseConfigDocument } from "@hiero-hackers/automation-core";
+import { parseConfigDocument, type AdmittedCapability } from "@hiero-hackers/automation-core";
 import { docsDir, exampleFiles, normalizeNewlines, repoRoot, sourceFiles } from "./repository.js";
 
 const examplesDir = join(docsDir, "examples");
 
 const read = (path: string) => normalizeNewlines(readFileSync(join(repoRoot, path), "utf8"));
 
-/** Each probe's wiring identifier and the capability name it declares. */
-function probeDeclarations(): { readonly binding: string; readonly name: string }[] {
+/** The quoted names in one flat `field: [...]` list of a declaration. */
+function declaredList(text: string, field: string): string[] {
+    const body = new RegExp(`${field}: \\[([^\\]]*)\\]`).exec(text)?.[1] ?? "";
+    return [...body.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]!);
+}
+
+/**
+ * Each probe's wiring identifier and everything the parser judges a document
+ * against: its name, the settings keys it declares, and the meanings it
+ * requires (D84).
+ */
+function probeDeclarations(): {
+    readonly binding: string;
+    readonly name: string;
+    readonly configKeys: string[];
+    readonly requiredMeanings: string[];
+}[] {
     return sourceFiles(["src"])
         .filter((path) => path.startsWith("packages/probes/src/") && !path.endsWith("/index.ts"))
         .map((path) => {
@@ -31,7 +46,12 @@ function probeDeclarations(): { readonly binding: string; readonly name: string 
                 named: true,
                 bound: true,
             });
-            return { binding: binding!, name: name! };
+            return {
+                binding: binding!,
+                name: name!,
+                configKeys: declaredList(text, "configKeys"),
+                requiredMeanings: declaredList(text, "requiredMeanings"),
+            };
         });
 }
 
@@ -43,24 +63,32 @@ function wiredBindings(): string[] {
 }
 
 /**
- * The capability names the shipped shell admits — the probe declarations
- * `main.ts` wires, which is the same list the parser fails closed against with
+ * The capabilities the shipped shell admits — the probe declarations `main.ts`
+ * wires, which is the same list the parser fails closed against with
  * `capabilityUnknown`. Read as text because this package depends on core's
  * barrel and nothing downstream of it (D85), so the probes are a file to open
  * rather than an import.
  *
  * A hand-typed literal here was the defect: it named `assignment`, which no
  * probe declares, so an example the real shell would reject parsed clean.
+ *
+ * Admitted as DECLARATIONS rather than names, so the examples are held to the
+ * two rules a name alone cannot reach: a settings key no capability declares,
+ * and an enabled capability missing a meaning it needs (D84).
  */
-function shippedCapabilities(): string[] {
-    const byBinding = new Map(probeDeclarations().map(({ binding, name }) => [binding, name]));
+function shippedCapabilities(): AdmittedCapability[] {
+    const byBinding = new Map(probeDeclarations().map((probe) => [probe.binding, probe]));
     return wiredBindings()
         .map((binding) => {
-            const name = byBinding.get(binding);
-            expect(name, `${binding} is a probe declaration main.ts can wire`).toBeDefined();
-            return name!;
+            const probe = byBinding.get(binding);
+            expect(probe, `${binding} is a probe declaration main.ts can wire`).toBeDefined();
+            return {
+                name: probe!.name,
+                configKeys: probe!.configKeys,
+                requiredMeanings: probe!.requiredMeanings as AdmittedCapability["requiredMeanings"],
+            };
         })
-        .sort();
+        .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 const KNOWN = shippedCapabilities();
@@ -86,11 +114,25 @@ describe("the shipped examples", () => {
     /** A derivation that finds nothing admits nothing, and silently. */
     it("reads the admitted capability list off the shipped probes", () => {
         expect(KNOWN.length).toBeGreaterThan(0);
-        expect(KNOWN).toEqual(
+        expect(KNOWN.map(({ name }) => name)).toEqual(
             probeDeclarations()
                 .map(({ name }) => name)
                 .sort(),
         );
+    });
+
+    /**
+     * The declarations are read out of source text, so an expression that
+     * matched nothing would admit every capability with no settings keys and
+     * no required meanings — and every check below would pass in silence.
+     * `intake` is the probe that has both, so it is the one worth pinning.
+     */
+    it("reads each probe's declared settings keys and required meanings", () => {
+        expect(KNOWN.find(({ name }) => name === "intake")).toEqual({
+            name: "intake",
+            configKeys: ["announce"],
+            requiredMeanings: ["awaitingTriage"],
+        });
     });
 
     /**
@@ -105,6 +147,32 @@ describe("the shipped examples", () => {
         );
         expect(invented.ok ? [] : invented.errors.map((e) => e.code)).toEqual([
             "capabilityUnknown",
+        ]);
+    });
+
+    /**
+     * The negative controls for the two rules D84 added. Without them an
+     * example could quietly stop exercising either — `observe-only.yml`
+     * enables `intake`, so dropping its `awaitingTriage` line is a one-word
+     * edit away from a documented file the real shell refuses to parse.
+     */
+    it("refuses an enabled capability missing a meaning it requires", () => {
+        const unmapped = parseText(
+            "schemaVersion: 1\ncapabilities:\n  intake:\n    enabled: true\n",
+            "unmapped",
+        );
+        expect(unmapped.ok ? [] : unmapped.errors.map((e) => `${e.code} @ ${e.path}`)).toEqual([
+            "meaningRequired @ mappings.labels.awaitingTriage",
+        ]);
+    });
+
+    it("refuses a settings key no capability declares", () => {
+        const typo = parseText(
+            "schemaVersion: 1\ncapabilities:\n  intake:\n    enabled: false\n    settings:\n      annouce: true\n",
+            "typo",
+        );
+        expect(typo.ok ? [] : typo.errors.map((e) => `${e.code} @ ${e.path}`)).toEqual([
+            "unknownKey @ capabilities.intake.settings.annouce",
         ]);
     });
 

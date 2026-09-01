@@ -248,7 +248,9 @@ export function createProcessor(options: ProcessorOptions): Processor {
             revision: document.revision,
             result: parseConfigDocument(document.text, {
                 revision: document.revision,
-                knownCapabilities: capabilities.map((c) => c.declaration.name),
+                // Full declarations, not names: the parser holds settings
+                // keys to configKeys and enabling to requiredMeanings.
+                knownCapabilities: capabilities.map((c) => c.declaration),
             }),
         };
     };

@@ -23,6 +23,7 @@ const declaration = declareCapability({
     name: "triage",
     triggers: [{ kind: "event", event: "issues" }],
     configKeys: [],
+    requiredMeanings: [],
     observations: ["issueUpdated"],
     resolvers: [],
     intents: ["applyMappedLabel"],

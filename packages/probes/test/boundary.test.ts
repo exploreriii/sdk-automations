@@ -22,8 +22,8 @@ const NAMES = ALL.map((c) => c.declaration.name);
  * A declaration is the whole of what the platform will let a capability see,
  * ask and write, so each is pinned as a literal rather than sampled. The
  * triad is also deliberately unalike — event and schedule triggers, one
- * empty resolver list, one `durableState: "required"` — and only the full
- * shapes side by side show that.
+ * empty resolver list, one `durableState: "required"`, one non-empty
+ * `requiredMeanings` — and only the full shapes side by side show that.
  */
 describe("declared shape", () => {
     it("prQuality declares one event trigger, one resolver, and one comment", () => {
@@ -31,6 +31,7 @@ describe("declared shape", () => {
             name: "prQuality",
             triggers: [{ kind: "event", event: "pull_request" }],
             configKeys: ["marker"],
+            requiredMeanings: [],
             observations: ["pullRequestUpdated"],
             resolvers: ["linkedIssues"],
             intents: ["postManagedComment"],
@@ -43,11 +44,17 @@ describe("declared shape", () => {
         });
     });
 
-    it("intake declares no resolver, and two intents from one observation", () => {
+    /**
+     * The only probe that requires a meaning, and the one D84 is about: this
+     * list is what makes enabling intake without `awaitingTriage` a file
+     * error instead of a runtime silence.
+     */
+    it("intake declares no resolver, two intents from one observation, and one required meaning", () => {
         expect(intake.declaration).toEqual({
             name: "intake",
             triggers: [{ kind: "event", event: "issues" }],
             configKeys: ["announce"],
+            requiredMeanings: ["awaitingTriage"],
             observations: ["issueUpdated"],
             resolvers: [],
             intents: ["applyMappedLabel", "postManagedComment"],
@@ -65,6 +72,7 @@ describe("declared shape", () => {
             name: "inactivity",
             triggers: [{ kind: "schedule", description: "daily stale-assignment sweep" }],
             configKeys: ["gracePeriodDays"],
+            requiredMeanings: [],
             observations: ["staleItemsDue"],
             resolvers: ["isAutomationActor"],
             intents: ["postManagedComment", "unassign"],

@@ -20,6 +20,7 @@ export const prQualityDeclaration = declareCapability({
     name: "prQuality",
     triggers: [{ kind: "event", event: "pull_request" }],
     configKeys: ["marker"],
+    requiredMeanings: [],
     observations: ["pullRequestUpdated"],
     resolvers: ["linkedIssues"],
     intents: ["postManagedComment"],

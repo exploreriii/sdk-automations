@@ -37,6 +37,8 @@ const FIXTURE = capture("issues.opened.json").bytes();
  */
 const REPOSITORY = { owner: "scrubbed-1", repo: "scrubbed-2" } as const;
 
+// Maps awaitingTriage because intake requires it: enabling without the
+// mapping is now a configRejected, which has its own coverage in core.
 const CONFIG_TEXT = `schemaVersion: 1
 mode: dry-run
 capabilities:
@@ -44,6 +46,9 @@ capabilities:
     enabled: true
     settings:
       announce: false
+mappings:
+  labels:
+    awaitingTriage: "status: triage"
 `;
 const configSource: ConfigSource = {
     load: async () => ({ ok: true, document: { revision: "rev-test-1", text: CONFIG_TEXT } }),

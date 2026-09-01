@@ -31,6 +31,7 @@ const declaration = declareCapability({
     name: "fixture",
     triggers: [{ kind: "event", event: "issues" }],
     configKeys: ["announce"],
+    requiredMeanings: [],
     observations: ["issueUpdated"],
     resolvers: ["linkedIssues"],
     intents: ["applyMappedLabel", "unassign"],

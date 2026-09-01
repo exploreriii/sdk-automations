@@ -19,6 +19,7 @@ export const inactivityDeclaration = declareCapability({
     name: "inactivity",
     triggers: [{ kind: "schedule", description: "daily stale-assignment sweep" }],
     configKeys: ["gracePeriodDays"],
+    requiredMeanings: [],
     observations: ["staleItemsDue"],
     resolvers: ["isAutomationActor"],
     intents: ["postManagedComment", "unassign"],

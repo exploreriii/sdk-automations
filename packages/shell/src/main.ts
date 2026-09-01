@@ -26,6 +26,9 @@ import { createShell, DEFAULT_SWEEP_INTERVAL_MS } from "./shell.js";
 import { CONFIG_PATH, fileConfigSource, type ConfigSource } from "./config.js";
 import { stubbedExternals, type ExternalsForDelivery } from "./externals.js";
 
+/** The port this endpoint takes when PORT says nothing. */
+const DEFAULT_PORT = 8790;
+
 const env = process.env;
 const secret = env["WEBHOOK_SECRET"];
 const owner = env["REPO_OWNER"];
@@ -53,11 +56,25 @@ const dataDir = fileURLToPath(new URL("../data/", import.meta.url));
 mkdirSync(dataDir, { recursive: true });
 const configFile = env["CONFIG_FILE"] ?? `${dataDir}automations.yml`;
 const storeFile = env["STORE_PATH"] ?? `${dataDir}shell.sqlite`;
-const port = Number(env["PORT"] ?? 8790);
+// Validated rather than coerced, like the interval below: `Number("nope")`
+// is NaN, which node reads as "any free port" — so a typo would bind a
+// port nobody can find and announce it as `:NaN`.
+const port = env["PORT"] === undefined ? DEFAULT_PORT : Number(env["PORT"]);
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    console.error("PORT must be a whole number between 1 and 65535.");
+    process.exit(1);
+}
+
 // Unnamed by default, which is what binds the unspecified address —
 // dual-stack on an IPv6-capable host, where "0.0.0.0" would be IPv4 only.
-// A test or a sandbox names the loopback.
+// A test or a sandbox names the loopback. An EMPTY name is the one value
+// that means neither: it is a typo for absent, and node answers it by
+// resolving the empty host rather than by refusing.
 const host = env["HOST"];
+if (host !== undefined && host.trim() === "") {
+    console.error("HOST must be a host name or address, or unset to bind every interface.");
+    process.exit(1);
+}
 
 // How often stale claims are requeued and the queue re-drained. Validated
 // rather than coerced: a mistyped interval that silently became a 0ms tick
@@ -127,9 +144,10 @@ const configDescription =
         ? `config copy of ${CONFIG_PATH}: ${configFile}`
         : `live config from ${owner}/${repo}'s default branch: ${CONFIG_PATH}`;
 
+const store = new Store(storeFile);
 const shell = createShell({
     secret,
-    store: new Store(storeFile),
+    store,
     capabilities: [toEngine(intake), toEngine(prQuality), toEngine(inactivity)],
     configSource,
     externals,
@@ -147,3 +165,50 @@ shell.server.listen(port, host, () => {
         `shell listening on :${port} for ${owner}/${repo} (${configDescription}); canonical reports stored in ${storeFile}`,
     );
 });
+
+/**
+ * Stop in the order that loses nothing.
+ *
+ * The socket closes first, because a delivery accepted after this point
+ * would be one nothing left in the process will drain. Idle keep-alive
+ * connections are closed with it: they hold no request, and waiting out
+ * their timeout would only spend the shutdown budget. The sweep stops
+ * next, so no timer claims fresh work on the way out.
+ *
+ * Then the pass already in flight is joined — NOT a new drain, which
+ * would claim exactly the work being abandoned. A claim the process dies
+ * holding is invisible for the full fifteen-minute stale window, and that
+ * window is the whole cost this ordering buys off; anything still queued
+ * is durable and waits for the next start.
+ *
+ * The store closes last, because every step above it writes.
+ */
+let stopping = false;
+const shutdown = (signal: NodeJS.Signals): void => {
+    // A second signal during a shutdown is impatience, not new information.
+    if (stopping) return;
+    stopping = true;
+    void (async () => {
+        // close() stops accepting at once; its callback is the LAST
+        // connection leaving, which is what the drain below waits behind.
+        const closed = new Promise<void>((resolve) => {
+            shell.server.close(() => resolve());
+            shell.server.closeIdleConnections();
+        });
+        shell.stopSweep();
+        await closed;
+        await shell.settled();
+        try {
+            store.close();
+        } catch (error) {
+            console.error("shell: the store did not close cleanly", error);
+        }
+        // console.log to a pipe is asynchronous and process.exit truncates
+        // whatever is still queued, so the exit waits for the line itself.
+        process.stdout.write(`shell: stopped cleanly on ${signal}\n`, () => {
+            process.exit(0);
+        });
+    })();
+};
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

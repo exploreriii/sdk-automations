@@ -26,6 +26,21 @@ import type { ExternalsForDelivery } from "./externals.js";
 /** How often the shell requeues stale claims and drains, absent an override. */
 export const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
 
+/**
+ * How long one connection may hold the edge open. Node's defaults are 300s
+ * for a whole request and 60s for its headers, which is a slow-loris budget
+ * rather than a webhook's.
+ *
+ * GitHub abandons a delivery it has not been answered within about ten
+ * seconds and redelivers later, so a body still arriving after thirty is
+ * one nobody is waiting for; cutting it costs a redelivery this shell was
+ * built to absorb. Headers arrive in the first segment or not at all, so
+ * ten seconds is already generous, and it is the header phase a loris
+ * spends its connections on.
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+const HEADERS_TIMEOUT_MS = 10_000;
+
 export interface ShellOptions {
     readonly secret: string;
     readonly store: Store;
@@ -42,6 +57,12 @@ export interface Shell {
     readonly server: Server;
     /** Pump everything pending — exposed so tests and operators drain deterministically. */
     drain(): Promise<void>;
+    /**
+     * The drain in flight, if there is one. Starts no work: a shutdown
+     * joins the pass that already holds a claim rather than beginning
+     * another one it would have to abandon.
+     */
+    settled(): Promise<void>;
     /** Stop the sweep. The server stays the caller's to close. */
     stopSweep(): void;
 }
@@ -105,9 +126,14 @@ export function createShell(options: ShellOptions): Shell {
     // The sweep is recovery, never a reason for the process to stay alive.
     ticking.unref();
 
+    const server = createServer(handler);
+    server.requestTimeout = REQUEST_TIMEOUT_MS;
+    server.headersTimeout = HEADERS_TIMEOUT_MS;
+
     return {
-        server: createServer(handler),
+        server,
         drain: () => processor.drain(),
+        settled: () => processor.settled(),
         stopSweep: () => {
             clearInterval(ticking);
         },

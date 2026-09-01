@@ -9,6 +9,12 @@
  * this worker actually meets (`live externals unavailable`) and the one
  * whose throw the processor sees: a capability that throws is contained by
  * `decide()` and reported, never raised.
+ *
+ * One case here is not about failure at all: the delivery that is refused
+ * because it names another repository. It sits with these because it is
+ * the fourth way a claimed delivery can end, and because what it must NOT
+ * do — retry, dead-letter, or read a configuration — is what everything
+ * else in this file is about.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -23,6 +29,13 @@ import type { ConfigSource } from "../src/config.js";
 const GUID = asDeliveryGuid("94f5384a-ee9a-33a5-a3cd-6eb589fe2b7a")!;
 const SECOND_GUID = asDeliveryGuid("94f5384a-ee9a-33a5-a3cd-6eb589fe2b7b")!;
 const FIXTURE = capture("issues.opened.json").bytes();
+
+/**
+ * The repository the captured fixture names, and therefore the one every
+ * processor here is configured to serve: a delivery from anywhere else is
+ * now refused before anything is read, which is its own case below.
+ */
+const REPOSITORY = { owner: "scrubbed-1", repo: "scrubbed-2" } as const;
 
 const CONFIG_TEXT = `schemaVersion: 1
 mode: dry-run
@@ -60,7 +73,7 @@ function processor(capability: EngineCapability, firstTickMs = 1_000) {
         capabilities: [capability],
         configSource,
         externals: () => stubbedExternals(),
-        repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
+        repository: REPOSITORY,
         worker: "test-worker",
         clock: () => new Date(BASE.getTime() + firstTickMs + 1000 * tick++),
     });
@@ -79,7 +92,7 @@ describe("a config source that cannot answer", () => {
             capabilities: [toEngine(intake)],
             configSource: { load },
             externals: () => stubbedExternals(),
-            repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
+            repository: REPOSITORY,
             worker: "test-worker",
             clock: () => new Date(BASE.getTime() + atMs),
         });
@@ -120,6 +133,112 @@ describe("a config source that cannot answer", () => {
     });
 });
 
+describe("a delivery from another repository", () => {
+    /** One processor serving `serves`, with every config read counted. */
+    function servingProcessor(serves: { owner: string; repo: string }) {
+        let reads = 0;
+        return {
+            reads: () => reads,
+            processor: createProcessor({
+                store,
+                capabilities: [toEngine(intake)],
+                configSource: {
+                    load: async () => {
+                        reads += 1;
+                        return configSource.load();
+                    },
+                },
+                externals: () => stubbedExternals(),
+                repository: serves,
+                worker: "test-worker",
+                clock: () => new Date(BASE.getTime() + 1000),
+            }),
+        };
+    }
+
+    it("completes as repositoryMismatch, having read nothing about it", async () => {
+        const serving = servingProcessor({ owner: "some-other", repo: "repository" });
+
+        expect(await serving.processor.processOnce()).toBe(true);
+        expect(records()).toEqual([
+            expect.objectContaining({
+                kind: "repositoryMismatch",
+                deliveryId: GUID as string,
+                expected: "some-other/repository",
+                observed: "scrubbed-1/scrubbed-2",
+                configRevision: "sha256:unconsulted",
+            }),
+        ]);
+        // Not merely unused: never asked for. A config outage must not turn
+        // a permanent property of the delivery into a retry.
+        expect(serving.reads()).toBe(0);
+    });
+
+    it("neither retries nor dead-letters: the queue is empty afterwards", async () => {
+        const serving = servingProcessor({ owner: "some-other", repo: "repository" });
+        await serving.processor.drain();
+
+        expect(records()).toHaveLength(1);
+        expect(store.deadLetteredDeliveries()).toEqual([]);
+        expect(
+            store.claimNextDelivery(
+                "assert",
+                "2026-08-07T23:00:00.000Z",
+                "2026-08-07T22:00:00.000Z",
+            ),
+        ).toBeUndefined();
+    });
+
+    it("holds a matching payload to nothing: GitHub's names are case-blind", async () => {
+        const serving = servingProcessor({ owner: "Scrubbed-1", repo: "SCRUBBED-2" });
+
+        expect(await serving.processor.processOnce()).toBe(true);
+        expect(records()).toEqual([expect.objectContaining({ kind: "decision" })]);
+    });
+
+    /**
+     * A payload that does not READABLY name a repository cannot be judged
+     * foreign, and every one of these shapes is a way to fall short of
+     * naming one. Each must reach `decide()` and come back as a report
+     * naming the malformation — the shell does not pre-empt that verdict,
+     * and must not trip over the missing fields on its way past them.
+     */
+    it.each([
+        ["not an object at all", "not json at all", "payloadNotObject"],
+        ["no repository", '{"action":"opened"}', "repositoryUnreadable"],
+        [
+            "a repository that is not an object",
+            '{"repository":"scrubbed-1/2"}',
+            "repositoryUnreadable",
+        ],
+        ["no owner", '{"repository":{"name":"scrubbed-2"}}', "repositoryUnreadable"],
+        [
+            "an owner without a login",
+            '{"repository":{"owner":{},"name":"x"}}',
+            "repositoryUnreadable",
+        ],
+        ["no name", '{"repository":{"owner":{"login":"scrubbed-1"}}}', "repositoryUnreadable"],
+    ])("leaves %s to the report that names it", async (_shape, payload, code) => {
+        store.acceptDelivery({
+            deliveryId: SECOND_GUID,
+            eventName: "issues",
+            payload: Buffer.from(payload),
+            receivedAt: new Date(BASE.getTime() + 500).toISOString(),
+        });
+        const serving = servingProcessor({ owner: "some-other", repo: "repository" });
+        await serving.processor.drain();
+
+        // The fixture is foreign and refused; this one is merely unreadable.
+        const [foreign, unreadable] = records();
+        expect(foreign).toMatchObject({ kind: "repositoryMismatch" });
+        expect(unreadable).toMatchObject({
+            kind: "decision",
+            deliveryId: SECOND_GUID as string,
+            report: { findings: [expect.objectContaining({ code })] },
+        });
+    });
+});
+
 describe("a crash counts an attempt", () => {
     it("the delivery survives its processor and is retried once its wait is up", async () => {
         const failing = createProcessor({
@@ -129,7 +248,7 @@ describe("a crash counts an attempt", () => {
             externals: () => {
                 throw new Error("live externals unavailable");
             },
-            repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
+            repository: REPOSITORY,
             worker: "test-worker",
             clock: () => new Date(BASE.getTime() + 1000),
         });
@@ -161,7 +280,7 @@ describe("a crash counts an attempt", () => {
                 seen.push(delivery.payload);
                 return stubbedExternals();
             },
-            repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
+            repository: REPOSITORY,
             worker: "test-worker",
             clock: () => new Date(BASE.getTime() + 1000),
         });
@@ -276,7 +395,7 @@ describe("a poison delivery", () => {
                 }
                 throw new Error("live externals unavailable");
             },
-            repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
+            repository: REPOSITORY,
             worker: "test-worker",
             clock: () => new Date(BASE.getTime() + offsetMs),
         }).drain();

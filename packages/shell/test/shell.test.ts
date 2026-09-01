@@ -41,6 +41,9 @@ mappings:
     awaitingTriage: "status: triage"
 `;
 
+/** The repository the fixture names, which is the one the shell serves. */
+const REPOSITORY = { owner: "scrubbed-1", repo: "scrubbed-2" } as const;
+
 const BASE = new Date("2026-08-07T10:00:00.000Z");
 
 const temp = useTempDir("shell-test-");
@@ -64,6 +67,7 @@ afterEach(() => {
 function buildShell(
     capability: EngineCapability = toEngine(intake),
     sweepIntervalMs = 60_000,
+    repository: { owner: string; repo: string } = REPOSITORY,
 ): Shell {
     let tick = 0;
     const shell = createShell({
@@ -72,7 +76,7 @@ function buildShell(
         capabilities: [capability],
         configSource: fileConfigSource(configFile),
         externals: () => stubbedExternals(),
-        repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
+        repository,
         clock: () => new Date(BASE.getTime() + 1000 * tick++),
         sweepIntervalMs,
     });
@@ -115,6 +119,7 @@ type StoredRecord = RecordIdentity &
         | { readonly kind: "decision"; readonly report: Report }
         | { readonly kind: "configRejected"; readonly errors: readonly unknown[] }
         | { readonly kind: "modeUnsupported"; readonly reason: string }
+        | { readonly kind: "repositoryMismatch"; readonly expected: string }
     );
 
 function records(): StoredRecord[] {
@@ -137,7 +142,7 @@ describe("the first slice, end to end", () => {
                 ],
                 configSource: fileConfigSource(configFile),
                 externals: () => stubbedExternals(),
-                repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
+                repository: REPOSITORY,
             }),
         ).toThrow(
             'invalid capability declarations: duplicate capability name "intake"; duplicate capability name "prQuality"',
@@ -158,11 +163,9 @@ describe("the first slice, end to end", () => {
         });
         if (entry?.kind !== "decision") throw new Error("expected a decision");
         expect(entry.report.mode).toBe("dry-run");
-        // The engine named the repository from the payload, not our routing default.
-        expect(entry.report.repository).toEqual({
-            owner: "scrubbed-1",
-            repo: "scrubbed-2",
-        });
+        // Named from the payload by the engine, and equal to the served
+        // repository because a payload naming any other never gets here.
+        expect(entry.report.repository).toEqual(REPOSITORY);
         expect(problems(entry.report as Report)).toEqual([]);
         expect(entry.report.findings.length).toBeGreaterThan(0);
         expect(entry).not.toHaveProperty("approved");
@@ -180,6 +183,55 @@ describe("the first slice, end to end", () => {
                 "2026-08-07T10:59:00.000Z",
             ),
         ).toBeUndefined();
+    });
+
+    /**
+     * The signature only proves the sender holds this App's secret, not
+     * that the delivery is this endpoint's business — an App installed on
+     * two repositories signs both identically.
+     */
+    it("refuses a delivery from a repository it does not serve", async () => {
+        const capability = toEngine(intake);
+        const shell = buildShell(
+            {
+                ...capability,
+                evaluate: async () => {
+                    throw new Error("a foreign repository reached capability evaluation");
+                },
+            },
+            60_000,
+            { owner: "some-other", repo: "repository" },
+        );
+        expect(await deliver(shell)).toBe(202);
+        await shell.drain();
+
+        expect(records()).toEqual([
+            expect.objectContaining({
+                kind: "repositoryMismatch",
+                deliveryId: GUID,
+                expected: "some-other/repository",
+                observed: "scrubbed-1/scrubbed-2",
+            }),
+        ]);
+        // Terminal, like the two record kinds beside it: nothing to reclaim.
+        expect(
+            store.claimNextDelivery(
+                "assert",
+                "2026-08-07T11:00:00.000Z",
+                "2026-08-07T10:59:00.000Z",
+            ),
+        ).toBeUndefined();
+        expect(store.deadLetteredDeliveries()).toEqual([]);
+    });
+
+    /**
+     * Node's defaults (300s and 60s) are a slow-loris budget, and the edge
+     * buffers up to 25 MB per connection before it can verify anything.
+     */
+    it("bounds how long one connection may hold the edge open", () => {
+        const shell = buildShell();
+        expect(shell.server.requestTimeout).toBe(30_000);
+        expect(shell.server.headersTimeout).toBe(10_000);
     });
 
     it("rejects active mode canonically without deciding or retrying", async () => {
@@ -219,6 +271,29 @@ describe("the first slice, end to end", () => {
         expect(await deliver(shell)).toBe(202);
         await shell.drain();
         expect(records()).toHaveLength(1);
+    });
+
+    /**
+     * What a shutdown waits on. Starting a drain instead would claim the
+     * very delivery the process is leaving, and a claim nobody completes
+     * is invisible for the full fifteen-minute stale window.
+     */
+    it("settles on the pass in flight without starting one", async () => {
+        store.acceptDelivery({
+            deliveryId: asDeliveryGuid(SECOND_GUID)!,
+            eventName: "issues",
+            payload: FIXTURE,
+            receivedAt: BASE.toISOString(),
+        });
+        const shell = buildShell();
+
+        await shell.settled();
+        expect(records()).toEqual([]);
+
+        const draining = shell.drain();
+        await shell.settled();
+        expect(records()).toHaveLength(1);
+        await draining;
     });
 
     it("a process restart observes the committed canonical report", async () => {
@@ -306,7 +381,7 @@ describe("the first slice, end to end", () => {
                 capabilities: [toEngine(intake)],
                 configSource: fileConfigSource(configFile),
                 externals: () => stubbedExternals(),
-                repository: { owner: "owner-sandbox", repo: "automation-sandbox" },
+                repository: REPOSITORY,
                 sweepIntervalMs: 5,
             }),
         );

@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { createServer, request as httpRequest, type ServerResponse } from "node:http";
-import { connect as netConnect, type AddressInfo } from "node:net";
+import { connect as netConnect, type AddressInfo, type Socket } from "node:net";
 import { PassThrough } from "node:stream";
 import type { IncomingMessage } from "node:http";
 import { signBody, SIGNATURE_HEADER } from "@hiero-hackers/automation-core";
@@ -28,6 +28,7 @@ interface PostOverrides {
     readonly guid?: string | null;
     readonly event?: string | null;
     readonly method?: string;
+    readonly path?: string;
 }
 
 /** One request against a real listening socket; the server lives per call. */
@@ -53,7 +54,7 @@ async function post(handler: RequestHandler, overrides: PostOverrides = {}): Pro
                 {
                     host: "127.0.0.1",
                     port,
-                    path: "/",
+                    path: overrides.path ?? "/",
                     method,
                     headers,
                 },
@@ -69,6 +70,37 @@ async function post(handler: RequestHandler, overrides: PostOverrides = {}): Pro
                 if (!settled) reject(error);
             });
             request.end(method === "GET" ? undefined : body);
+        });
+    } finally {
+        await new Promise<void>((resolve, reject) =>
+            server.close((error) => (error ? reject(error) : resolve())),
+        );
+    }
+}
+
+/** A GET, with the body read: a probe's answer is the thing being judged. */
+async function probe(
+    handler: RequestHandler,
+    path: string,
+): Promise<{ status: number; body: string }> {
+    const server = createServer(handler);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+        const { port } = server.address() as AddressInfo;
+        return await new Promise<{ status: number; body: string }>((resolve, reject) => {
+            const request = httpRequest(
+                { host: "127.0.0.1", port, path, method: "GET" },
+                (response) => {
+                    let body = "";
+                    response.setEncoding("utf8");
+                    response.on("data", (chunk: string) => {
+                        body += chunk;
+                    });
+                    response.on("end", () => resolve({ status: response.statusCode ?? 0, body }));
+                },
+            );
+            request.on("error", reject);
+            request.end();
         });
     } finally {
         await new Promise<void>((resolve, reject) =>
@@ -118,6 +150,105 @@ function recordingAccept(outcome: AcceptOutcome = "accepted") {
             return outcome;
         },
     };
+}
+
+/**
+ * One hand-written connection, answered with its status line.
+ *
+ * `send` owns everything written, so a case can stop mid-body — which is
+ * the point: an answer that arrives while the client is still sending is
+ * an answer given without reading what was promised.
+ */
+async function statusLineFor(
+    handler: RequestHandler,
+    send: (socket: Socket, host: string) => void,
+): Promise<string> {
+    const server = createServer(handler);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    const socket = netConnect(port, "127.0.0.1");
+    socket.on("error", () => undefined);
+    try {
+        await new Promise<void>((resolve) => socket.once("connect", resolve));
+        send(socket, `127.0.0.1:${String(port)}`);
+        return await new Promise<string>((resolve, reject) => {
+            let seen = "";
+            const timer = setTimeout(
+                () => reject(new Error(`no status line arrived; read ${JSON.stringify(seen)}`)),
+                5_000,
+            );
+            socket.on("data", (chunk: Buffer) => {
+                seen += chunk.toString("utf8");
+                const end = seen.indexOf("\r\n");
+                if (end === -1) return;
+                clearTimeout(timer);
+                resolve(seen.slice(0, end));
+            });
+            socket.on("close", () => {
+                clearTimeout(timer);
+                reject(new Error(`the connection closed unanswered; read ${JSON.stringify(seen)}`));
+            });
+        });
+    } finally {
+        socket.destroy();
+        await new Promise<void>((resolve, reject) =>
+            server.close((error) => (error ? reject(error) : resolve())),
+        );
+    }
+}
+
+/**
+ * A POST of `size` bytes that declares no length: without content-length
+ * node frames the body as chunked, which is the case no header can refuse
+ * early and only the streaming cap can answer.
+ *
+ * `size` is one byte over the cap on purpose. The receiver destroys the
+ * request the moment it caps, so a body with megabytes still to send would
+ * lose its own answer to the reset — over by exactly one, the client has
+ * finished writing before the cap is reached, as in the case above.
+ */
+async function postChunked(handler: RequestHandler, size: number): Promise<number> {
+    const server = createServer(handler);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+        const { port } = server.address() as AddressInfo;
+        return await new Promise<number>((resolve, reject) => {
+            let settled = false;
+            const request = httpRequest(
+                {
+                    host: "127.0.0.1",
+                    port,
+                    path: "/",
+                    method: "POST",
+                    headers: {
+                        [SIGNATURE_HEADER]: signBody(SECRET, BODY),
+                        "x-github-delivery": GUID,
+                        "x-github-event": "issues",
+                    },
+                },
+                (response) => {
+                    response.resume();
+                    response.on("end", () => {
+                        settled = true;
+                        resolve(response.statusCode ?? 0);
+                    });
+                },
+            );
+            request.on("error", (error) => {
+                if (!settled) reject(error);
+            });
+            const megabyte = Buffer.alloc(1024 * 1024, 0x63);
+            let written = 0;
+            for (; written + megabyte.length <= size; written += megabyte.length) {
+                request.write(megabyte);
+            }
+            request.end(Buffer.alloc(size - written, 0x64));
+        });
+    } finally {
+        await new Promise<void>((resolve, reject) =>
+            server.close((error) => (error ? reject(error) : resolve())),
+        );
+    }
 }
 
 async function interruptRealRequest(mode: "client-abort" | "server-error"): Promise<number> {
@@ -316,6 +447,43 @@ describe("body limits and interrupted streams fail closed", () => {
         expect(calls).toHaveLength(1);
     }, 30_000);
 
+    /**
+     * The exposure this closes: 25 MB of unverified input buffered per
+     * connection before the signature can be checked. The proof that no
+     * body was read is the timing — the answer arrives while the client
+     * still owes 25 MB it never sends.
+     */
+    it("refuses a declared oversize body before reading it", async () => {
+        const { calls, accept } = recordingAccept();
+        const status = await statusLineFor(
+            createReceiver({ secret: SECRET, accept }),
+            (socket, host) => {
+                socket.write(
+                    "POST / HTTP/1.1\r\n" +
+                        `Host: ${host}\r\n` +
+                        `Content-Length: ${String(25 * 1024 * 1024 + 1)}\r\n` +
+                        `${SIGNATURE_HEADER}: ${signBody(SECRET, BODY)}\r\n` +
+                        `x-github-delivery: ${GUID}\r\n` +
+                        "x-github-event: issues\r\n\r\n" +
+                        "only-these-few-bytes",
+                );
+            },
+        );
+        expect(status).toContain("413");
+        expect(calls).toEqual([]);
+    });
+
+    /**
+     * A chunked body declares no length to pre-refuse, so the streaming
+     * cap is the only thing that can answer it — and it is still there.
+     */
+    it("caps an oversized chunked body that declares no length", async () => {
+        const { calls, accept } = recordingAccept();
+        const receiver = createReceiver({ secret: SECRET, accept });
+        expect(await postChunked(receiver, 25 * 1024 * 1024 + 1)).toBe(413);
+        expect(calls).toEqual([]);
+    }, 30_000);
+
     it.each(["client-abort", "server-error"] as const)(
         "settles a real %s request without accepting partial input",
         async (mode) => {
@@ -352,6 +520,44 @@ describe("body limits and interrupted streams fail closed", () => {
         await completion;
         expect(recorded.status()).toBeUndefined();
         expect(recorded.ended()).toBe(false);
+    });
+});
+
+describe("the liveness probe", () => {
+    it("answers /healthz with a static body, and consults nothing", async () => {
+        const { calls, accept } = recordingAccept();
+        const answer = await probe(createReceiver({ secret: SECRET, accept }), "/healthz");
+        expect(answer).toEqual({ status: 200, body: "ok\n" });
+        expect(calls).toEqual([]);
+    });
+
+    it("ignores the query string a prober appends", async () => {
+        const answer = await probe(
+            createReceiver({ secret: SECRET, accept: () => "accepted" }),
+            "/healthz?ts=1755000000",
+        );
+        expect(answer.status).toBe(200);
+    });
+
+    /** Everything else a GET can be is the 405 it always was. */
+    it.each(["/", "/healthzz", "/healthz/deep", "/HEALTHZ"])(
+        "still 405s a GET %s",
+        async (path) => {
+            const { calls, accept } = recordingAccept();
+            expect(await probe(createReceiver({ secret: SECRET, accept }), path)).toMatchObject({
+                status: 405,
+            });
+            expect(calls).toEqual([]);
+        },
+    );
+
+    it("keeps out of the webhook's way: a signed POST to it is a delivery", async () => {
+        const { calls, accept } = recordingAccept();
+        const status = await post(createReceiver({ secret: SECRET, accept }), {
+            path: "/healthz",
+        });
+        expect(status).toBe(202);
+        expect(calls).toHaveLength(1);
     });
 });
 

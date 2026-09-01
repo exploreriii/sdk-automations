@@ -11,7 +11,10 @@
  * decided on.
  *
  * `handle` below is stations ① and ② of this package's README table, one
- * named step per station, each answering for itself.
+ * named step per station, each answering for itself. Two steps run before
+ * them and answer for nothing: a liveness probe, which reads nothing about
+ * the request, and the refusal of a body the sender declares too large,
+ * which is the one thing worth knowing before the bytes are buffered.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -24,6 +27,9 @@ import {
 
 /** GitHub caps webhook payloads at 25 MB; anything larger is not GitHub. */
 const MAX_BODY_BYTES = 25 * 1024 * 1024;
+
+/** Liveness only, so a hosting platform can probe without a secret. */
+const HEALTH_PATH = "/healthz";
 
 export interface AcceptedDelivery {
     readonly deliveryId: DeliveryGuid;
@@ -64,8 +70,20 @@ async function handle(
     response: ServerResponse,
     options: ReceiverOptions,
 ): Promise<void> {
+    if (isHealthProbe(request)) {
+        response.writeHead(200, { "content-type": "text/plain" }).end("ok\n");
+        return;
+    }
     if (request.method !== "POST") {
         response.writeHead(405).end();
+        return;
+    }
+    if (declaresOversizeBody(request)) {
+        // Refused before a byte is read: buffering 25 MB of unverified
+        // input to learn what the sender already told us is the exposure.
+        // The body is never consumed here — node discards what still
+        // arrives — so the sender gets a truthful status either way.
+        response.writeHead(413).end();
         return;
     }
     const body = await readBody(request, response);
@@ -80,6 +98,30 @@ async function handle(
         return;
     }
     acceptThenAck({ ...identity, payload: body }, response, options);
+}
+
+/**
+ * The liveness probe: a GET at exactly the health path. The query string
+ * is ignored, because probes append cache-busters, and nothing else about
+ * the request is read — the answer is a constant, so a prober learns only
+ * that a process is listening.
+ */
+function isHealthProbe(request: IncomingMessage): boolean {
+    if (request.method !== "GET") return false;
+    // Stryker disable next-line all: a server request always carries a
+    // url, so the fallback is a type obligation with no behaviour.
+    const url = request.url ?? "";
+    return url.split("?")[0] === HEALTH_PATH;
+}
+
+/**
+ * A body the sender itself declares too large. This is an early exit, not
+ * the limit: `content-length` is a claim, so an absent, repeated or
+ * unparsable one reads as NaN here — never greater than anything — and
+ * meets the streaming cap in `readBody` as every chunked body does.
+ */
+function declaresOversizeBody(request: IncomingMessage): boolean {
+    return Number(request.headers["content-length"]) > MAX_BODY_BYTES;
 }
 
 /**

@@ -43,8 +43,14 @@ const LOOPBACK = "127.0.0.1";
 const UNBINDABLE = "203.0.113.1";
 
 const SECRET = "main-test-secret";
-const OWNER = "owner-sandbox";
-const REPO = "automation-sandbox";
+/**
+ * The repository the captured fixtures name. The shell refuses a payload
+ * from anywhere else, so the endpoint under test has to be started for the
+ * repository the deliveries below actually come from — the mismatch is its
+ * own case at the end of this file.
+ */
+const OWNER = "scrubbed-1";
+const REPO = "scrubbed-2";
 const GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a69";
 const UNREADABLE_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6a";
 const FIXTURE = capture("issues.opened.json").bytes();
@@ -106,6 +112,8 @@ interface Shell {
     readonly exit: Promise<number | null>;
     /** Settled in the same sense: gone, and its output all here. */
     exited(): boolean;
+    /** Ask it to stop the way a hosting platform does. */
+    signal(name: NodeJS.Signals): void;
 }
 
 async function until<T>(probe: () => T | undefined, what: string): Promise<T> {
@@ -296,6 +304,9 @@ async function withShell<T>(
             stderr: () => error,
             exit,
             exited: () => done,
+            signal: (name) => {
+                child.kill(name);
+            },
         });
     } finally {
         clearTimeout(hardKill);
@@ -556,6 +567,49 @@ describe("the sandbox entry point, as a process", () => {
         TEST_TIMEOUT_MS,
     );
 
+    /**
+     * `Number("nope")` is NaN, and node reads NaN as "any free port": the
+     * unvalidated version bound a port nobody could predict and announced
+     * it as `:NaN`. 0 is the same request spelled deliberately, and is
+     * refused for the same reason — an endpoint GitHub cannot reach.
+     */
+    it.each(["nope", "", "0", "-1", "8790.5", "65536", " "])(
+        "fails closed when PORT is %j",
+        async (port) => {
+            await withShell({ ...bootEnvironment(), PORT: port }, async (shell) => {
+                await until(
+                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
+                    "the port to be refused",
+                );
+                expect(shell.stdout()).toBe("");
+                expect(await shell.exit).toBe(1);
+                expect(shell.stderr().trim()).toBe(
+                    "PORT must be a whole number between 1 and 65535.",
+                );
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /** An empty HOST is a typo for absent, and node answers it by resolving. */
+    it(
+        "fails closed when HOST is empty",
+        async () => {
+            await withShell({ ...bootEnvironment(), HOST: "" }, async (shell) => {
+                await until(
+                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
+                    "the empty host to be refused",
+                );
+                expect(shell.stdout()).toBe("");
+                expect(await shell.exit).toBe(1);
+                expect(shell.stderr().trim()).toBe(
+                    "HOST must be a host name or address, or unset to bind every interface.",
+                );
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
     it(
         "fails closed when PRIVATE_KEY_PATH names no readable file",
         async () => {
@@ -796,6 +850,82 @@ describe("the sandbox entry point, as a process", () => {
                         const decided = await persisted(storeFile, GUID);
                         expect(decided.kind).toBe("decision");
                         expect(codes(decided)).toEqual(["killSwitch", "killSwitch"]);
+                    },
+                );
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /**
+     * A killed shell must not leave a claim behind: a delivery interrupted
+     * mid-decision is invisible for the full stale-claim window, and the
+     * point of the handler is that the process finishes what it holds and
+     * says so before it goes.
+     */
+    it.each(["SIGTERM", "SIGINT"] as const)(
+        "stops cleanly on %s, exit 0",
+        async (signal) => {
+            await withPaths(async ({ configFile, storeFile }) => {
+                const port = await freePort();
+                await withShell(
+                    {
+                        ...bootEnvironment(),
+                        CONFIG_FILE: configFile,
+                        STORE_PATH: storeFile,
+                        PORT: String(port),
+                    },
+                    async (shell) => {
+                        await listeningLine(shell);
+                        expect(await post(port, GUID, FIXTURE)).toBe(202);
+                        await persisted(storeFile, GUID);
+
+                        // Twice: impatience is not new information, and a
+                        // second shutdown would close a closed store.
+                        shell.signal(signal);
+                        shell.signal(signal);
+                        expect(await shell.exit).toBe(0);
+                        expect(
+                            shell.stdout().split(`shell: stopped cleanly on ${signal}`),
+                        ).toHaveLength(2);
+                        expect(shell.stderr()).toBe("");
+                    },
+                );
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /**
+     * The endpoint serves exactly one repository, and a delivery from
+     * another is refused before its configuration is even read — the
+     * report it would otherwise carry would name the wrong repository, and
+     * the write path it will one day reach would act on it.
+     */
+    it(
+        "refuses a delivery from a repository it was not started for",
+        async () => {
+            await withPaths(async ({ configFile, storeFile }) => {
+                const port = await freePort();
+                await withShell(
+                    {
+                        ...bootEnvironment(),
+                        REPO_NAME: "a-repository-this-endpoint-does-not-serve",
+                        CONFIG_FILE: configFile,
+                        STORE_PATH: storeFile,
+                        PORT: String(port),
+                    },
+                    async (shell) => {
+                        await listeningLine(shell);
+                        expect(await post(port, GUID, FIXTURE)).toBe(202);
+
+                        const record = await persisted(storeFile, GUID);
+                        expect(record).toMatchObject({
+                            kind: "repositoryMismatch",
+                            deliveryId: GUID,
+                            event: "issues",
+                        });
+                        expect(record).not.toHaveProperty("report");
                     },
                 );
             });

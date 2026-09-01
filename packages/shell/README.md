@@ -91,6 +91,8 @@ KILL_SWITCH=1               # optional; refuse everything, loudly
 pnpm --filter @hiero-hackers/automation-shell start
 ```
 
+`GET /healthz` answers `200 ok` for platform liveness probes; every other GET is still 405.
+
 Point the existing smee channel at it and open an issue on the sandbox. The canonical report and
 delivery completion are committed together in `shell.sqlite`. Startup still starts draining pending
 SQLite deliveries before listening. Automatic filesystem projection is not supported, and a polished

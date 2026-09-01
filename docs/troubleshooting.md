@@ -44,10 +44,11 @@ one, please open an issue with the code.
 ## It never got as far as deciding
 
 These are not decision codes. They are the kinds of record the App stores when it finishes a delivery
-without deciding anything, so no capability, item or intent is named in them — the cause is the file,
-not the work.
+without deciding anything, so no capability, item or intent is named in them — the cause is the file
+or the delivery, not the work.
 
 | Kind | In plain terms |
 |---|---|
 | `configRejected` | Your `automations.yml` did not parse or did not validate; the errors are named in [Every way the file can be wrong](configuration.md#every-way-the-file-can-be-wrong), and redelivering the same event cannot repair a file |
 | `modeUnsupported` | Your file says `mode: active`, which is reserved and rejected before a decision because the runnable shell has no GitHub write path yet; choose `observe` or `dry-run` |
+| `repositoryMismatch` | The delivery came from a different repository than the one this endpoint was started for, so nothing about it was read — point the webhook at the right endpoint, or start the endpoint for the right repository (`REPO_OWNER`/`REPO_NAME`) |

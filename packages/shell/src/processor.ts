@@ -3,12 +3,12 @@
  * mode or call the one verb, then commit the outcome with completion. The
  * receiver acknowledged long ago; GitHub never observes retries here.
  *
- * The reading key: a claimed delivery always ends as exactly ONE of three
- * records — `configRejected`, `modeUnsupported`, or a decision — and there
- * is no fourth exit. The try/catch in `attemptNext` is routing, not
- * handling: any throw becomes a counted failed attempt, and the retry
- * policy above IS the recovery logic — a bounded, spaced reclaim, ending
- * in the store's dead letter when the budget runs out.
+ * The reading key: a claimed delivery always ends as exactly ONE of four
+ * records — `repositoryMismatch`, `configRejected`, `modeUnsupported`, or
+ * a decision — and there is no fifth exit. The try/catch in `attemptNext`
+ * is routing, not handling: any throw becomes a counted failed attempt,
+ * and the retry policy above IS the recovery logic — a bounded, spaced
+ * reclaim, ending in the store's dead letter when the budget runs out.
  *
  * `recordFor` below is stations ③ to ⑤ of this package's README table,
  * one named step per station.
@@ -68,9 +68,9 @@ export interface ProcessorOptions {
     readonly externals: ExternalsForDelivery;
     /**
      * The shell's routing knowledge (`DecideInput` asks for it): the one
-     * repository this endpoint serves. When a payload is readable the
-     * engine names the repository from the observation instead; this is
-     * the name an unreadable delivery's report carries.
+     * repository this endpoint serves. It is the name an unreadable
+     * delivery's report carries, and — see `recordFor` — the name every
+     * readable payload is held to.
      */
     readonly repository: RepositoryRef;
     readonly worker: string;
@@ -101,7 +101,21 @@ type ShellRecord =
           /** The runnable shell has no external effect path. */
           readonly kind: "modeUnsupported";
           readonly reason: string;
+      })
+    | (RecordIdentity & {
+          /** The payload names a repository this endpoint does not serve. */
+          readonly kind: "repositoryMismatch";
+          /** `owner/repo`, as configured and as the payload named it. */
+          readonly expected: string;
+          readonly observed: string;
       });
+
+/**
+ * Stamped when a record was reached without consulting the configuration,
+ * as `repositoryMismatch` is: the file of a repository this endpoint does
+ * not serve is not the file that would have been read.
+ */
+const CONFIG_NOT_CONSULTED_REVISION = "sha256:unconsulted";
 
 /**
  * Invalid JSON flows onward as an unreadable payload — the normalizer's
@@ -117,10 +131,44 @@ function parsePayload(bytes: Uint8Array): unknown {
     }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The `owner/repo` a payload readably names, or `null` when it names none.
+ *
+ * These are the same three fields core's normalizer reads
+ * (packages/core/src/engine/events.ts), deliberately: a payload this
+ * cannot read is one core reports on as `payloadNotObject` or
+ * `repositoryUnreadable`, and the shell must not pre-empt that with a
+ * refusal of its own.
+ */
+function repositoryNamedBy(payload: unknown): string | null {
+    if (!isRecord(payload)) return null;
+    const repository = payload["repository"];
+    if (!isRecord(repository)) return null;
+    const owner = repository["owner"];
+    if (!isRecord(owner) || typeof owner["login"] !== "string") return null;
+    if (typeof repository["name"] !== "string") return null;
+    return `${owner["login"]}/${repository["name"]}`;
+}
+
+/**
+ * Case-insensitively, because GitHub's names are: no two repositories
+ * differ only in case, so a differently-cased `REPO_OWNER` names the same
+ * repository and refusing it would refuse the truth.
+ */
+function sameRepository(named: string, served: string): boolean {
+    return named.toLowerCase() === served.toLowerCase();
+}
+
 /** What the worker exposes: one pass, or pump until the queue is empty. */
 export interface Processor {
     processOnce(): Promise<boolean>;
     drain(): Promise<void>;
+    /** The drain in flight, if any; resolved at once when none is. */
+    settled(): Promise<void>;
 }
 
 /**
@@ -223,9 +271,9 @@ export function createProcessor(options: ProcessorOptions): Processor {
      * the parenthesis. */
     const decideOn = async (
         claimed: ClaimedDelivery,
+        payload: unknown,
         config: RepositoryConfig,
     ): Promise<Decision> => {
-        const payload = parsePayload(claimed.payload);
         // Built per delivery: the live path binds its ordering-evidence
         // memo to exactly this delivery. A rejection here is a counted
         // failed attempt, like any other failure before completion.
@@ -237,8 +285,31 @@ export function createProcessor(options: ProcessorOptions): Processor {
         );
     };
 
-    /** Build one delivery's canonical record, stations ③ to ⑤ in reading order. */
+    const served = `${repository.owner}/${repository.repo}`;
+
+    /**
+     * Build one delivery's canonical record, stations ③ to ⑤ in reading
+     * order — after the one question no station asks.
+     *
+     * The repository comes FIRST, before the configuration is even read.
+     * This endpoint serves exactly one repository, and a payload naming
+     * another is a permanent property of the delivery's own bytes: it must
+     * end the delivery whatever the config source is doing, or a config
+     * outage would turn a refusal into four retries and a dead letter. It
+     * mislabels a report today; the day active mode lands it would be
+     * write authority over a repository nobody configured.
+     */
     const recordFor = async (claimed: ClaimedDelivery): Promise<ShellRecord> => {
+        const payload = parsePayload(claimed.payload);
+        const named = repositoryNamedBy(payload);
+        if (named !== null && !sameRepository(named, served)) {
+            return {
+                kind: "repositoryMismatch",
+                ...identityFor(claimed, CONFIG_NOT_CONSULTED_REVISION, clock()),
+                expected: served,
+                observed: named,
+            };
+        }
         const config = await loadConfig();
         // One instant serves as the record's `decidedAt` AND the gates'
         // clock, so the journal never disagrees with the decision it holds.
@@ -256,7 +327,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
                 reason: "active mode is unsupported by the runnable shell",
             };
         }
-        const decision = await decideOn(claimed, config.result.config);
+        const decision = await decideOn(claimed, payload, config.result.config);
         return { kind: "decision", ...identity, report: decision.report };
     };
 
@@ -347,6 +418,15 @@ export function createProcessor(options: ProcessorOptions): Processor {
                 }
             })();
             return draining;
+        },
+        /**
+         * What a shutdown waits for. It cannot be `drain()`: with no pass
+         * in flight that would START one, claiming work the process is
+         * about to walk away from — the stranded claim this exists to
+         * prevent.
+         */
+        settled(): Promise<void> {
+            return draining ?? Promise.resolve();
         },
     };
 }

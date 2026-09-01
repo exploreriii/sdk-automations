@@ -17,13 +17,19 @@ import {
     projectCapabilityView,
     screenIntent,
     type AnyIntent,
+    type CapabilityView,
     type ItemRef,
     type ObservationCatalogue,
     type RepositoryRef,
     type TypedDeclaration,
 } from "../capability/index.js";
 import type { PermissionGrant } from "../github/index.js";
-import { EngineHandle, type EngineCapability, type ResolverSource } from "./invoke.js";
+import {
+    EngineHandle,
+    thrownDetail,
+    type EngineCapability,
+    type ResolverSource,
+} from "./invoke.js";
 import { normalizeDelivery } from "./events.js";
 import type { MappableMeaning, RepositoryConfig } from "../config/index.js";
 import type { ObservationProjection } from "../workflow/index.js";
@@ -113,6 +119,25 @@ const projectionOf = (observation: EngineObservation): EngineProjection =>
     observation.kind === "staleItemsDue" ? null : observation.position;
 
 /**
+ * The ordering evidence for one item, with the lookup CONTAINED.
+ *
+ * A seam that threw established nothing, and D51 rules an unestablished
+ * ordering a conflict — so the contained value is `"unknown"`, which the rules
+ * already refuse fail-closed. The detail rides alongside because "checked and
+ * could not tell" and "the lookup broke" need different fixes.
+ */
+async function orderingFor(
+    item: ItemRef,
+    externals: DecideExternals,
+): Promise<{ readonly value: HumanChangeOrdering; readonly defect: string | null }> {
+    try {
+        return { value: await externals.latestHumanChangeAt(item), defect: null };
+    } catch (thrown) {
+        return { value: "unknown", defect: thrownDetail(thrown) };
+    }
+}
+
+/**
  * One intent through every gate — screen, derived world, verdict —
  * returning its findings and, if it may act, the intent itself. Async for
  * exactly one fact: the ordering evidence, awaited after the screen so a
@@ -147,15 +172,26 @@ async function gateIntent(
             change: describeChange(intent),
         },
     };
+    const ordering = await orderingFor(intent.item, externals);
     const context = {
         killSwitchActive: externals.killSwitchActive,
         installationGrants: externals.installationGrants,
-        latestHumanChangeAt: await externals.latestHumanChangeAt(intent.item),
+        latestHumanChangeAt: ordering.value,
         world: deriveWorld(projection, intent.expected),
     };
     const verdict = evaluateWrite(request, config, context);
 
     const findings: Finding[] = [];
+    if (ordering.defect !== null) {
+        findings.push(
+            finding(
+                "problem",
+                "humanOrderingLookupFailed",
+                `the human-change ordering lookup threw: ${ordering.defect}`,
+                subject,
+            ),
+        );
+    }
     // Acting intents tell their story; refusals keep their reasons alone (D92 3d).
     if (verdict.outcome !== "refuse") {
         findings.push(explanationFinding(intent.explanation, subject));
@@ -171,14 +207,45 @@ async function gateIntent(
     return { findings, approved: verdict.outcome === "apply" ? intent : null };
 }
 
+/**
+ * One capability's intents, with the CALL contained.
+ *
+ * A capability is ordinary code and may throw. The engine is total, so a
+ * throw becomes a recorded defect and that capability simply contributes
+ * nothing — the same bargain `EngineHandle` already makes for an undeclared
+ * resolver. Whatever the capability explained before it broke is kept: the
+ * handle holds it, and it is the only account of what it was doing.
+ */
+async function intentsFrom(
+    capability: EngineCapability,
+    observation: EngineObservation,
+    view: CapabilityView<TypedDeclaration>,
+    handle: EngineHandle,
+): Promise<{ readonly intents: readonly AnyIntent[]; readonly defect: string | null }> {
+    try {
+        // The `never`s are `toEngine`'s erasure showing through; its
+        // docstring owns the soundness argument, once, for all three.
+        const intents = await capability.evaluate(
+            observation as never,
+            view as never,
+            handle as never,
+        );
+        return { intents, defect: null };
+    } catch (thrown) {
+        return { intents: [], defect: thrownDetail(thrown) };
+    }
+}
+
 // ─── The verb ────────────────────────────────────────────────────────
 
 /**
  * The front door: a delivery becomes a report, plus the intents that may act.
  *
- * Total by construction. An unreadable payload, a capability asking for an
- * undeclared resolver, and a refused write are all findings — a shell that
- * cannot get a report back has nothing to record.
+ * Total: every fallible seam is contained, so a report always comes back. An
+ * unreadable payload, a capability that asks for an undeclared resolver or
+ * throws, a resolver source or ordering lookup that rejects, and a refused
+ * write are all findings. A shell that cannot get a report back cannot record
+ * one, and in a reclaiming shell that loses the delivery for good.
  */
 export async function decide(
     input: DecideInput,
@@ -228,13 +295,7 @@ export async function decide(
 
             const handle = new EngineHandle(declaration, externals.resolve);
             const view = projectCapabilityView(declaration, config);
-            // The `never`s are `toEngine`'s erasure showing through; its
-            // docstring owns the soundness argument, once, for all three.
-            const intents = await capability.evaluate(
-                observation as never,
-                view as never,
-                handle as never,
-            );
+            const evaluated = await intentsFrom(capability, observation, view, handle);
 
             for (const explanation of handle.explanations) {
                 findings.push(
@@ -254,8 +315,28 @@ export async function decide(
                     ),
                 );
             }
+            for (const failure of handle.failures) {
+                findings.push(
+                    finding(
+                        "problem",
+                        "resolverFailed",
+                        `the resolver source threw answering "${declaration.name}" — ${failure}`,
+                        { kind: "capability", capability: declaration.name },
+                    ),
+                );
+            }
+            if (evaluated.defect !== null) {
+                findings.push(
+                    finding(
+                        "problem",
+                        "capabilityFailed",
+                        `"${declaration.name}" threw during evaluation: ${evaluated.defect}`,
+                        { kind: "capability", capability: declaration.name },
+                    ),
+                );
+            }
 
-            for (const intent of intents) {
+            for (const intent of evaluated.intents) {
                 const gated = await gateIntent(intent, declaration, projection, config, externals);
                 findings.push(...gated.findings);
                 if (gated.approved !== null) approved.push(gated.approved);

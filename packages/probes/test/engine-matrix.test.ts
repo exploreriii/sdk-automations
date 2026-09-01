@@ -155,6 +155,68 @@ describe("P3 through the engine", () => {
     });
 });
 
+/**
+ * The cross-layer half of prQuality's conflict claim. The capability reads no
+ * position, so nothing in `prQuality.ts` stops a conflicted pull request — and
+ * for a month its docstring said one "still gets its comment". The engine is
+ * where that is settled: `deriveWorld` establishes no precondition from a
+ * conflicted projection, so the preflight refuses before any rule runs.
+ */
+describe("prQuality on a conflicted pull request", () => {
+    const conflicted: AnyObservation = {
+        kind: "pullRequestUpdated",
+        repository: REPO,
+        item: { kind: "pullRequest", number: 12 },
+        position: {
+            kind: "conflict",
+            positions: ["needsReview", "readyToMerge"],
+            blocked: false,
+            closedBy: null,
+            ignored: [],
+        },
+        observedAt: AT,
+    };
+
+    it("refuses preconditionStale and approves nothing", async () => {
+        const decision = await decide(
+            { kind: "observation", observation: conflicted },
+            configEnabling(["prQuality"], NAMES, SETTINGS),
+            ALL,
+            externals,
+        );
+
+        expect(decision.approved).toEqual([]);
+        expect(decision.report.findings.map((finding) => finding.code)).toEqual([
+            "preconditionStale",
+        ]);
+    });
+
+    /**
+     * Merged counts as closed, and prQuality declines before the resolver
+     * rather than at the gate — the `itemClosed` rule changed nothing here,
+     * which is the point of asserting it.
+     */
+    it("says nothing at all about a merged pull request", async () => {
+        const merged: AnyObservation = {
+            ...conflicted,
+            position: {
+                kind: "position",
+                state: { meaning: null, blocked: false, closedBy: "merged" },
+                ignored: [],
+            },
+        };
+        const decision = await decide(
+            { kind: "observation", observation: merged },
+            configEnabling(["prQuality"], NAMES, SETTINGS),
+            ALL,
+            externals,
+        );
+
+        expect(decision.approved).toEqual([]);
+        expect(decision.report.findings).toEqual([]);
+    });
+});
+
 describe("intake conflict behavior", () => {
     it("reports a conflicted item in dry-run without approving a repair", async () => {
         const config = {

@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    deriveIdempotencyKey,
     idempotencyOf,
     projectCapabilityView,
     screenIntent,
@@ -135,8 +136,16 @@ describe("intent screening", () => {
         expected: { meaningsPresent: [], meaningsAbsent: [], closed: false },
         cause: { cause: "c", observedAt: new Date("2026-08-03T00:00:00.000Z") },
         explanation: { capability: "intake", summary: "s", detail: [] },
-        idempotencyKey: "k",
     } as const;
+    /**
+     * The candidate under test, keyed the way the platform keys it. A literal
+     * key would be refused by the idempotency screen before any of the
+     * screens below it ever ran.
+     */
+    const candidate = (over: Record<string, unknown>): AnyIntent => {
+        const draft = { ...base, ...over } as unknown as Parameters<typeof deriveIdempotencyKey>[0];
+        return { ...draft, idempotencyKey: deriveIdempotencyKey(draft) } as AnyIntent;
+    };
     const position = {
         kind: "position" as const,
         state: { meaning: null, blocked: false, closedBy: null },
@@ -144,37 +153,31 @@ describe("intent screening", () => {
     };
 
     it("refuses an intent the capability did not declare", () => {
-        const candidate = {
-            ...base,
-            operation: "unassign",
-            desired: { login: "someone" },
-        } as AnyIntent;
-        expect(screenIntent(candidate, intake.declaration, position)).toMatchObject({
+        const undeclared = candidate({ operation: "unassign", desired: { login: "someone" } });
+        expect(screenIntent(undeclared, intake.declaration, position)).toMatchObject({
             ok: false,
             code: "undeclaredIntent",
         });
     });
 
     it("refuses an intent attributed to another capability", () => {
-        const candidate = {
-            ...base,
+        const foreign = candidate({
             capability: "prQuality",
             operation: "applyMappedLabel",
             desired: { meaning: "awaitingTriage", cause: "intakeObserved" },
-        } as AnyIntent;
-        expect(screenIntent(candidate, intake.declaration, position)).toMatchObject({
+        });
+        expect(screenIntent(foreign, intake.declaration, position)).toMatchObject({
             ok: false,
             code: "foreignCapability",
         });
     });
 
     it("refuses a label transition when authoritative position is unavailable", () => {
-        const candidate = {
-            ...base,
+        const unprojected = candidate({
             operation: "applyMappedLabel",
             desired: { meaning: "awaitingTriage", cause: "intakeObserved" },
-        } as AnyIntent;
-        expect(screenIntent(candidate, intake.declaration, null)).toMatchObject({
+        });
+        expect(screenIntent(unprojected, intake.declaration, null)).toMatchObject({
             ok: false,
             code: "authoritativePositionUnavailable",
         });

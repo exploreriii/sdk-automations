@@ -40,11 +40,15 @@ export const prQuality: Capability<PrQualityDeclaration> = {
 
     async evaluate(observation, config, platform) {
         /**
-         * A conflicted pull request still gets its comment — this capability
-         * reads no position, so a conflict tells it nothing. But closure is
-         * carried on BOTH branches (D59), and reading it only from the
-         * position branch would have commented on a merged pull request whose
-         * labels happened to conflict.
+         * Closure is carried on BOTH projection branches (D59), and reading it
+         * only from the position branch would have asked for a comment on a
+         * merged pull request whose labels happened to conflict.
+         *
+         * A conflict is not checked here, because this capability reads no
+         * position. It does not follow that a conflicted pull request gets a
+         * comment: `deriveWorld` establishes no precondition from a conflicted
+         * projection, so the engine refuses every intent on one with
+         * `preconditionStale`.
          */
         if (closureOf(observation.position) !== null) return [];
 

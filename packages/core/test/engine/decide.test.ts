@@ -18,6 +18,7 @@ import {
     toEngine,
     type AnyIntent,
     type Capability,
+    type ClosureReason,
     type DecideExternals,
     type EngineCapability,
     type Intent,
@@ -565,6 +566,225 @@ describe("paths the delivery tests never walk", () => {
             externals,
         );
         expect(decision.report.findings).toEqual([]);
+    });
+});
+
+/**
+ * Pause was platform-enforced and closure was not: the only thing standing
+ * between a capability and a closed item was `expected.closed: false`, which
+ * `intentFactory` defaults to no claim at all. These run a capability that
+ * makes no claim whatsoever, so nothing but the rule can refuse it.
+ */
+describe("closure is a platform fact, not a capability's claim", () => {
+    const commenter = declareCapability({ ...declaration, intents: ["postManagedComment"] });
+
+    /** Every `expected` field left to its default, which is "I claim nothing". */
+    const claimless: EngineCapability = {
+        declaration: commenter as never,
+        async evaluate(observation: never): Promise<readonly AnyIntent[]> {
+            const o = observation as {
+                repository: { owner: string; repo: string };
+                item: { kind: "issue"; number: number };
+                observedAt: Date;
+            };
+            return [
+                intentFactory("triage", {
+                    repository: o.repository,
+                    item: o.item,
+                    observedAt: o.observedAt,
+                })({
+                    operation: "postManagedComment",
+                    desired: { marker: "<!-- claimless -->", body: "b" },
+                    cause: "sawTheItem",
+                    explain: { summary: "Saw the item." },
+                }),
+            ];
+        },
+    };
+
+    const observedAs = (closedBy: ClosureReason | null) =>
+        ({
+            kind: "issueUpdated",
+            repository: { owner: "o", repo: "r" },
+            item: { kind: "issue", number: 7 },
+            position: {
+                kind: "position",
+                state: { meaning: null, blocked: false, closedBy },
+                ignored: [],
+            },
+            observedAt: new Date("2026-08-07T00:00:00Z"),
+        }) as const;
+
+    it.each(["closedByHuman", "completedByLinkedMerge"] as const)(
+        "refuses a write to an item closed as %s",
+        async (closedBy) => {
+            const decision = await decide(
+                { kind: "observation", observation: observedAs(closedBy) },
+                configIn("active"),
+                [claimless],
+                externals,
+            );
+            expect(decision.approved).toEqual([]);
+            expect(decision.report.findings.map((f) => f.code)).toEqual(["itemClosed"]);
+        },
+    );
+
+    /** The other half: nothing about an OPEN item changed. */
+    it("the same capability still acts on the same item while it is open", async () => {
+        const decision = await decide(
+            { kind: "observation", observation: observedAs(null) },
+            configIn("active"),
+            [claimless],
+            externals,
+        );
+        expect(decision.approved).toHaveLength(1);
+        expect(decision.report.findings.map((f) => f.code)).toEqual([
+            "capabilityExplained",
+            "applied",
+        ]);
+    });
+});
+
+/**
+ * `decide()` claims to be total, and a shell that cannot get a report back
+ * reclaims the delivery for good. Three seams can throw — the capability, the
+ * resolver source, the ordering lookup — and each becomes a recorded defect
+ * instead. The neighbour in each run is the second half of the claim: one
+ * capability's crash is not the platform's.
+ */
+describe("every fallible seam is contained", () => {
+    const brittle = declareCapability({ ...declaration, name: "brittle", intents: [] });
+    const twoCapabilities = configWith({
+        capabilities: ["triage", "brittle"],
+        labels: TRIAGE_LABELS,
+        revision: REV,
+    });
+
+    it("a capability that throws is a problem finding, and its neighbour still decides", async () => {
+        const exploding: EngineCapability = {
+            declaration: brittle as never,
+            async evaluate(): Promise<readonly AnyIntent[]> {
+                throw new TypeError("cannot read properties of undefined");
+            },
+        };
+        const decision = await decide(
+            delivery("issues.opened.json"),
+            twoCapabilities,
+            [exploding, triage],
+            externals,
+        );
+        expect(decision.report.findings.map((f) => f.code)).toEqual([
+            "capabilityFailed",
+            "capabilityExplained",
+            "applied",
+        ]);
+        expect(problems(decision.report)).toHaveLength(1);
+        expect(problems(decision.report)[0]).toMatchObject({
+            code: "capabilityFailed",
+            subject: { kind: "capability", capability: "brittle" },
+            // The thrown message survives into the finding. Without it the
+            // report says only that something broke, which is unactionable.
+            summary: expect.stringContaining("cannot read properties of undefined"),
+        });
+        expect(decision.approved).toHaveLength(1);
+    });
+
+    it("a resolver source that rejects answers unavailable, and is a problem finding", async () => {
+        const asker: EngineCapability = {
+            declaration: declareCapability({
+                ...brittle,
+                resolvers: ["linkedIssues"],
+            }) as never,
+            async evaluate(_o: never, _c: never, platform: never): Promise<readonly AnyIntent[]> {
+                const handle = platform as {
+                    resolve(q: string, i: unknown): Promise<{ ok: boolean; reason?: string }>;
+                };
+                // resolvers.md §6: a broken lookup is never an empty answer.
+                expect(
+                    await handle.resolve("linkedIssues", { item: { kind: "issue", number: 1 } }),
+                ).toMatchObject({ ok: false, reason: "unavailable" });
+                return [];
+            },
+        };
+        const decision = await decide(
+            delivery("issues.opened.json"),
+            twoCapabilities,
+            [asker, triage],
+            {
+                ...externals,
+                resolve: async () => {
+                    throw new Error("socket hang up");
+                },
+            },
+        );
+        expect(decision.report.findings.map((f) => f.code)).toEqual([
+            "resolverFailed",
+            "capabilityExplained",
+            "applied",
+        ]);
+        expect(problems(decision.report)[0]!.summary).toContain("socket hang up");
+        expect(decision.approved).toHaveLength(1);
+    });
+
+    /**
+     * A lookup that threw established NOTHING, so the ordering becomes
+     * `"unknown"` — D51's conflict, not `null`'s "checked and found none".
+     * Reporting the absence would silently restore the unsafe behaviour the
+     * package README names as a standing debt.
+     */
+    it.each([
+        [
+            "throws synchronously",
+            (): never => {
+                throw new Error("timeline unreadable");
+            },
+        ],
+        ["rejects", () => Promise.reject(new Error("timeline unreadable"))],
+    ])(
+        "an ordering lookup that %s refuses fail-closed and records the defect",
+        async (_n, fail) => {
+            const decision = await decide(
+                delivery("issues.opened.json"),
+                configIn("active"),
+                [triage],
+                {
+                    ...externals,
+                    latestHumanChangeAt: fail,
+                },
+            );
+            expect(decision.approved).toEqual([]);
+            expect(decision.report.findings.map((f) => f.code)).toEqual([
+                "humanOrderingLookupFailed",
+                "humanOrderingUnknown",
+            ]);
+            expect(decision.report.findings[0]).toMatchObject({
+                severity: "problem",
+                summary: expect.stringContaining("timeline unreadable"),
+                subject: { kind: "item", capability: "triage" },
+            });
+        },
+    );
+
+    /** Anything is throwable; a non-`Error` must still produce a report. */
+    it("contains a thrown value that is not an Error", async () => {
+        const rude: EngineCapability = {
+            declaration: brittle as never,
+            async evaluate(): Promise<readonly AnyIntent[]> {
+                throw "just a string";
+            },
+        };
+        const decision = await decide(
+            delivery("issues.opened.json"),
+            twoCapabilities,
+            [rude],
+            externals,
+        );
+        expect(decision.report.findings).toEqual([
+            expect.objectContaining({
+                code: "capabilityFailed",
+                summary: expect.stringContaining("just a string"),
+            }),
+        ]);
     });
 });
 

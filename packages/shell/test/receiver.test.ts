@@ -17,8 +17,18 @@ import {
     type AcceptOutcome,
     type RequestHandler,
 } from "../src/receiver.js";
+import type { Log, ShellEvent } from "../src/log.js";
 
 const SECRET = "shell-test-secret";
+
+/** The log seam, for the cases that are not about what it was told. */
+const silent: Log = () => undefined;
+
+/** A log that keeps what it was told, for the cases that are. */
+function recordingLog(): { events: ShellEvent[]; log: Log } {
+    const events: ShellEvent[] = [];
+    return { events, log: (event) => events.push(event) };
+}
 const GUID = "72d3162e-cc78-11e3-81ab-4c9367dc0958";
 const BODY = JSON.stringify({ action: "opened" });
 
@@ -263,6 +273,7 @@ async function interruptRealRequest(mode: "client-abort" | "server-error"): Prom
     });
     const receiver = createReceiver({
         secret: SECRET,
+        log: silent,
         accept: () => {
             acceptCalls += 1;
             return "accepted";
@@ -309,7 +320,7 @@ async function interruptRealRequest(mode: "client-abort" | "server-error"): Prom
 describe("verification comes first", () => {
     it("an unsigned delivery is 401 and never reaches accept", async () => {
         const { calls, accept } = recordingAccept();
-        const status = await post(createReceiver({ secret: SECRET, accept }), {
+        const status = await post(createReceiver({ secret: SECRET, log: silent, accept }), {
             signature: null,
         });
         expect(status).toBe(401);
@@ -318,7 +329,7 @@ describe("verification comes first", () => {
 
     it("a wrongly signed delivery is 401 and never reaches accept", async () => {
         const { calls, accept } = recordingAccept();
-        const status = await post(createReceiver({ secret: SECRET, accept }), {
+        const status = await post(createReceiver({ secret: SECRET, log: silent, accept }), {
             signature: signBody("some-other-secret", BODY),
         });
         expect(status).toBe(401);
@@ -334,7 +345,7 @@ describe("acceptance comes before the acknowledgement", () => {
             Buffer.from([0x00, 0xff, 0x80]),
             Buffer.from('"\n}', "utf8"),
         ]);
-        const status = await post(createReceiver({ secret: SECRET, accept }), {
+        const status = await post(createReceiver({ secret: SECRET, log: silent, accept }), {
             body: raw,
         });
         expect(status).toBe(202);
@@ -347,6 +358,7 @@ describe("acceptance comes before the acknowledgement", () => {
     it("a failed accept is 500, not 202 — unstored means unacknowledged", async () => {
         const receiver = createReceiver({
             secret: SECRET,
+            log: silent,
             accept: () => {
                 throw new Error("store unavailable");
             },
@@ -356,12 +368,51 @@ describe("acceptance comes before the acknowledgement", () => {
 
     it("a duplicate is 202 — the redelivery already has its durable row", async () => {
         const { accept } = recordingAccept("duplicate");
-        expect(await post(createReceiver({ secret: SECRET, accept }))).toBe(202);
+        expect(await post(createReceiver({ secret: SECRET, log: silent, accept }))).toBe(202);
     });
 
     it("a conflict is 409 — same GUID, different bytes, never acknowledged", async () => {
         const { accept } = recordingAccept("conflict");
-        expect(await post(createReceiver({ secret: SECRET, accept }))).toBe(409);
+        expect(await post(createReceiver({ secret: SECRET, log: silent, accept }))).toBe(409);
+    });
+
+    /**
+     * The three answers the store can give, and the fourth outcome where it
+     * gave none, each named under the delivery they answer for. A refusal
+     * BEFORE the store is deliberately silent: those are reachable without
+     * the secret, and a log an anonymous caller can fill is unreadable.
+     */
+    it.each([
+        { outcome: "accepted", event: "deliveryAccepted", status: 202 },
+        { outcome: "duplicate", event: "deliveryDuplicate", status: 202 },
+        { outcome: "conflict", event: "deliveryConflict", status: 409 },
+    ] as const)("logs a $outcome delivery under its own id", async ({ outcome, event, status }) => {
+        const { accept } = recordingAccept(outcome);
+        const { events, log } = recordingLog();
+
+        expect(await post(createReceiver({ secret: SECRET, log, accept }))).toBe(status);
+        expect(events).toEqual([{ event, deliveryId: GUID, eventName: "issues" }]);
+    });
+
+    it("logs a delivery the store could not take, and says nothing about one it refused", async () => {
+        const { events, log } = recordingLog();
+        const receiver = createReceiver({
+            secret: SECRET,
+            log,
+            accept: () => {
+                throw new Error("store unavailable");
+            },
+        });
+
+        expect(await post(receiver)).toBe(500);
+        expect(await post(receiver, { signature: null })).toBe(401);
+        expect(events).toEqual([
+            {
+                event: "acceptFailed",
+                deliveryId: GUID,
+                detail: expect.stringContaining("store unavailable"),
+            },
+        ]);
     });
 
     it("the pump fires only after an acknowledged delivery", async () => {
@@ -369,6 +420,7 @@ describe("acceptance comes before the acknowledgement", () => {
         const { accept } = recordingAccept();
         const receiver = createReceiver({
             secret: SECRET,
+            log: silent,
             accept,
             onAccepted: () => {
                 pumped += 1;
@@ -385,6 +437,7 @@ describe("acceptance comes before the acknowledgement", () => {
         let pumpCalls = 0;
         const receiver = createReceiver({
             secret: SECRET,
+            log: silent,
             accept: () => "accepted",
             onAccepted: () => {
                 expect(finishObserved).toBe(true);
@@ -437,7 +490,7 @@ describe("acceptance comes before the acknowledgement", () => {
 describe("body limits and interrupted streams fail closed", () => {
     it("accepts exactly 25 MiB and rejects the next byte", async () => {
         const { calls, accept } = recordingAccept();
-        const receiver = createReceiver({ secret: SECRET, accept });
+        const receiver = createReceiver({ secret: SECRET, log: silent, accept });
         const atLimit = Buffer.alloc(25 * 1024 * 1024, 0x61);
         expect(await post(receiver, { body: atLimit })).toBe(202);
         expect(calls[0]?.payload.byteLength).toBe(atLimit.length);
@@ -456,7 +509,7 @@ describe("body limits and interrupted streams fail closed", () => {
     it("refuses a declared oversize body before reading it", async () => {
         const { calls, accept } = recordingAccept();
         const status = await statusLineFor(
-            createReceiver({ secret: SECRET, accept }),
+            createReceiver({ secret: SECRET, log: silent, accept }),
             (socket, host) => {
                 socket.write(
                     "POST / HTTP/1.1\r\n" +
@@ -479,7 +532,7 @@ describe("body limits and interrupted streams fail closed", () => {
      */
     it("caps an oversized chunked body that declares no length", async () => {
         const { calls, accept } = recordingAccept();
-        const receiver = createReceiver({ secret: SECRET, accept });
+        const receiver = createReceiver({ secret: SECRET, log: silent, accept });
         expect(await postChunked(receiver, 25 * 1024 * 1024 + 1)).toBe(413);
         expect(calls).toEqual([]);
     }, 30_000);
@@ -497,7 +550,7 @@ describe("body limits and interrupted streams fail closed", () => {
             const { calls, accept } = recordingAccept();
             const request = requestStream();
             const recorded = responseRecorder();
-            const completion = createReceiver({ secret: SECRET, accept })(
+            const completion = createReceiver({ secret: SECRET, log: silent, accept })(
                 request,
                 recorded.response,
             );
@@ -514,6 +567,7 @@ describe("body limits and interrupted streams fail closed", () => {
         const recorded = responseRecorder(true);
         const completion = createReceiver({
             secret: SECRET,
+            log: silent,
             accept: () => "accepted",
         })(request, recorded.response);
         request.emit("error", new Error("late socket error"));
@@ -526,14 +580,17 @@ describe("body limits and interrupted streams fail closed", () => {
 describe("the liveness probe", () => {
     it("answers /healthz with a static body, and consults nothing", async () => {
         const { calls, accept } = recordingAccept();
-        const answer = await probe(createReceiver({ secret: SECRET, accept }), "/healthz");
+        const answer = await probe(
+            createReceiver({ secret: SECRET, log: silent, accept }),
+            "/healthz",
+        );
         expect(answer).toEqual({ status: 200, body: "ok\n" });
         expect(calls).toEqual([]);
     });
 
     it("ignores the query string a prober appends", async () => {
         const answer = await probe(
-            createReceiver({ secret: SECRET, accept: () => "accepted" }),
+            createReceiver({ secret: SECRET, log: silent, accept: () => "accepted" }),
             "/healthz?ts=1755000000",
         );
         expect(answer.status).toBe(200);
@@ -544,7 +601,9 @@ describe("the liveness probe", () => {
         "still 405s a GET %s",
         async (path) => {
             const { calls, accept } = recordingAccept();
-            expect(await probe(createReceiver({ secret: SECRET, accept }), path)).toMatchObject({
+            expect(
+                await probe(createReceiver({ secret: SECRET, log: silent, accept }), path),
+            ).toMatchObject({
                 status: 405,
             });
             expect(calls).toEqual([]);
@@ -553,7 +612,7 @@ describe("the liveness probe", () => {
 
     it("keeps out of the webhook's way: a signed POST to it is a delivery", async () => {
         const { calls, accept } = recordingAccept();
-        const status = await post(createReceiver({ secret: SECRET, accept }), {
+        const status = await post(createReceiver({ secret: SECRET, log: silent, accept }), {
             path: "/healthz",
         });
         expect(status).toBe(202);
@@ -575,7 +634,10 @@ describe("malformed requests get truthful statuses", () => {
         ["a signed delivery with an empty event name", 400, { event: "" }],
     ] as const)("%s is %i", async (_name, expectedStatus, overrides) => {
         const { calls, accept } = recordingAccept();
-        const status = await post(createReceiver({ secret: SECRET, accept }), overrides);
+        const status = await post(
+            createReceiver({ secret: SECRET, log: silent, accept }),
+            overrides,
+        );
         expect(status).toBe(expectedStatus);
         expect(calls).toEqual([]);
     });
@@ -593,7 +655,10 @@ describe("malformed requests get truthful statuses", () => {
             [header]: [...value],
         };
         const recorded = responseRecorder();
-        const completion = createReceiver({ secret: SECRET, accept })(request, recorded.response);
+        const completion = createReceiver({ secret: SECRET, log: silent, accept })(
+            request,
+            recorded.response,
+        );
         request.end(BODY);
         await completion;
         expect(recorded.status()).toBe(expectedStatus);

@@ -24,6 +24,7 @@ import {
     verifyBody,
     type DeliveryGuid,
 } from "@hiero-hackers/automation-core";
+import { detailOf, type Log } from "./log.js";
 
 /** GitHub caps webhook payloads at 25 MB; anything larger is not GitHub. */
 const MAX_BODY_BYTES = 25 * 1024 * 1024;
@@ -47,6 +48,13 @@ export interface ReceiverOptions {
      * returning — the 202 is written on the strength of this return.
      */
     readonly accept: (delivery: AcceptedDelivery) => AcceptOutcome;
+    /**
+     * One line per delivery that got as far as the store. Nothing refused
+     * before that is logged: a 401, a 400 or a 413 is reachable by anyone
+     * who can open a socket, and a log an unauthenticated caller can fill
+     * is a log an operator cannot read.
+     */
+    readonly log: Log;
     /** Fire-and-forget processing pump, called after an acknowledgement. */
     readonly onAccepted?: () => void;
 }
@@ -183,19 +191,27 @@ function acceptThenAck(
     response: ServerResponse,
     options: ReceiverOptions,
 ): void {
+    const deliveryId = String(delivery.deliveryId);
+    const eventName = delivery.eventName;
     let outcome: AcceptOutcome;
     try {
         outcome = options.accept(delivery);
     } catch (error) {
         // Not durable, so never acknowledged: GitHub redelivers.
-        console.error(`shell: accept failed for ${delivery.deliveryId}`, error);
+        options.log({ event: "acceptFailed", deliveryId, detail: detailOf(error) });
         response.writeHead(500).end();
         return;
     }
     if (outcome === "conflict") {
+        options.log({ event: "deliveryConflict", deliveryId, eventName });
         response.writeHead(409).end();
         return;
     }
+    options.log({
+        event: outcome === "duplicate" ? "deliveryDuplicate" : "deliveryAccepted",
+        deliveryId,
+        eventName,
+    });
     if (options.onAccepted !== undefined) {
         // The pump starts only after the ack is on the wire, so processing
         // latency can never delay the 202 GitHub is waiting for.

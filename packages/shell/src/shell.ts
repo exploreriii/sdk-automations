@@ -22,6 +22,7 @@ import { createReceiver } from "./receiver.js";
 import { createProcessor, STALE_CLAIM_MINUTES } from "./processor.js";
 import type { ConfigSource } from "./config.js";
 import type { ExternalsForDelivery } from "./externals.js";
+import { contained, createLogger, detailOf, type Log } from "./log.js";
 
 /** How often the shell requeues stale claims and drains, absent an override. */
 export const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
@@ -51,6 +52,13 @@ export interface ShellOptions {
     readonly worker?: string;
     readonly clock?: () => Date;
     readonly sweepIntervalMs?: number;
+    /**
+     * Where the receiver, the processor and the sweep say what they did.
+     * Optional here and required of both of them: this is the composition
+     * root's own seam, so it defaults to the production log rather than to
+     * silence, and a component that forgot to take one cannot compile.
+     */
+    readonly log?: Log;
 }
 
 export interface Shell {
@@ -75,6 +83,7 @@ export function createShell(options: ShellOptions): Shell {
         throw new Error(`invalid capability declarations: ${errors.join("; ")}`);
     }
     const clock = options.clock ?? (() => new Date());
+    const log = contained(options.log ?? createLogger({ clock }));
     const processor = createProcessor({
         store: options.store,
         capabilities: options.capabilities,
@@ -83,9 +92,11 @@ export function createShell(options: ShellOptions): Shell {
         repository: options.repository,
         worker: options.worker ?? "shell-1",
         clock,
+        log,
     });
     const handler = createReceiver({
         secret: options.secret,
+        log,
         accept: ({ deliveryId, eventName, payload }) =>
             options.store.acceptDelivery({
                 deliveryId,
@@ -94,8 +105,8 @@ export function createShell(options: ShellOptions): Shell {
                 receivedAt: clock().toISOString(),
             }).outcome,
         onAccepted: () => {
-            void processor.drain().catch((error) => {
-                console.error("shell: processing failed; inspect durable store state", error);
+            void processor.drain().catch((error: unknown) => {
+                log({ event: "drainFailed", phase: "accepted", detail: detailOf(error) });
             });
         },
     });
@@ -111,15 +122,21 @@ export function createShell(options: ShellOptions): Shell {
         try {
             const staleBefore = new Date(clock().getTime() - STALE_CLAIM_MINUTES * 60_000);
             const requeued = options.store.requeueStuckDeliveries(staleBefore.toISOString());
+            // A sweep that requeued nothing changed nothing, and a line
+            // every interval forever would bury the ones that did.
             if (requeued.length > 0) {
-                console.error(`shell: requeued stale delivery claims: ${requeued.join(", ")}`);
+                log({
+                    event: "sweepRequeued",
+                    requeued: requeued.length,
+                    deliveryIds: requeued.map(String),
+                });
             }
         } catch (error) {
-            console.error("shell: sweep failed; inspect durable store state", error);
+            log({ event: "sweepFailed", detail: detailOf(error) });
             return;
         }
         void processor.drain().catch((error: unknown) => {
-            console.error("shell: swept drain failed; inspect durable store state", error);
+            log({ event: "drainFailed", phase: "sweep", detail: detailOf(error) });
         });
     };
     const ticking = setInterval(sweep, options.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS);

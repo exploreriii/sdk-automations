@@ -22,7 +22,14 @@ import {
 import { Store } from "@hiero-hackers/automation-store";
 import { intake, prQuality } from "@hiero-hackers/automation-probes";
 import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
-import { createShell, fileConfigSource, stubbedExternals, type Shell } from "../src/index.js";
+import {
+    createShell,
+    fileConfigSource,
+    stubbedExternals,
+    type Log,
+    type Shell,
+    type ShellEvent,
+} from "../src/index.js";
 
 const SECRET = "shell-test-secret";
 const GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a69";
@@ -51,12 +58,16 @@ let store: Store;
 let configFile: string;
 /** Every shell built here, so its sweep stops with the test that made it. */
 let running: Shell[];
+/** Every shell built here logs into this, cleared per test. */
+let logged: ShellEvent[];
+const log: Log = (event) => logged.push(event);
 
 beforeEach(() => {
     configFile = temp.file("automations.yml");
     writeFileSync(configFile, CONFIG);
     store = new Store(temp.file("store.sqlite"));
     running = [];
+    logged = [];
 });
 afterEach(() => {
     for (const shell of running) shell.stopSweep();
@@ -79,6 +90,7 @@ function buildShell(
         repository,
         clock: () => new Date(BASE.getTime() + 1000 * tick++),
         sweepIntervalMs,
+        log,
     });
     running.push(shell);
     return shell;
@@ -373,7 +385,6 @@ describe("the first slice, end to end", () => {
         // A closed store is the sweep's worst case: a throw inside a timer
         // callback is an unhandled exception, and this shell keeps serving.
         const doomed = new Store(temp.file("doomed.sqlite"));
-        const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
         running.push(
             createShell({
                 secret: SECRET,
@@ -383,16 +394,84 @@ describe("the first slice, end to end", () => {
                 externals: () => stubbedExternals(),
                 repository: REPOSITORY,
                 sweepIntervalMs: 5,
+                log,
             }),
         );
         doomed.close();
 
         await vi.waitFor(() =>
-            expect(reported).toHaveBeenCalledWith(
-                "shell: sweep failed; inspect durable store state",
-                expect.anything(),
+            expect(logged).toContainEqual(
+                expect.objectContaining({ event: "sweepFailed", detail: expect.any(String) }),
             ),
         );
+    });
+
+    /**
+     * The log is the only account of a lane GitHub stopped watching at the
+     * 202, so one uneventful delivery has to be readable end to end: what
+     * arrived, what claimed it, and what it became — under one id.
+     */
+    it("tells one delivery's whole story under its own id", async () => {
+        const shell = buildShell();
+        expect(await deliver(shell)).toBe(202);
+        await shell.drain();
+
+        expect(logged).toEqual([
+            { event: "deliveryAccepted", deliveryId: GUID, eventName: "issues" },
+            { event: "deliveryClaimed", deliveryId: GUID, eventName: "issues", attempts: 0 },
+            { event: "deliveryCompleted", deliveryId: GUID, kind: "decision" },
+        ]);
+    });
+
+    /**
+     * A shell built without one still logs. The default is the production
+     * logger, never silence: a composition root that forgot the seam must
+     * not be the quietest one.
+     */
+    it("writes to stdout when no log was injected", async () => {
+        const lines: string[] = [];
+        const written = vi
+            .spyOn(process.stdout, "write")
+            .mockImplementation((chunk: string | Uint8Array) => {
+                lines.push(String(chunk));
+                return true;
+            });
+        const shell = createShell({
+            secret: SECRET,
+            store,
+            capabilities: [toEngine(intake)],
+            configSource: fileConfigSource(configFile),
+            externals: () => stubbedExternals(),
+            repository: REPOSITORY,
+        });
+        running.push(shell);
+        expect(await deliver(shell)).toBe(202);
+        await shell.drain();
+        written.mockRestore();
+
+        expect(lines.map((line) => (JSON.parse(line) as ShellEvent).event)).toContain(
+            "deliveryAccepted",
+        );
+    });
+
+    /** A log that throws is a broken diagnostic, not a lost delivery. */
+    it("keeps deciding when the injected log throws", async () => {
+        const shell = createShell({
+            secret: SECRET,
+            store,
+            capabilities: [toEngine(intake)],
+            configSource: fileConfigSource(configFile),
+            externals: () => stubbedExternals(),
+            repository: REPOSITORY,
+            log: () => {
+                throw new Error("the log itself is broken");
+            },
+        });
+        running.push(shell);
+
+        expect(await deliver(shell)).toBe(202);
+        await shell.drain();
+        expect(records()).toHaveLength(1);
     });
 
     it("a broken config fails closed: recorded, completed, nothing decided", async () => {

@@ -33,6 +33,7 @@ import type {
 } from "@hiero-hackers/automation-store";
 import type { ConfigSource } from "./config.js";
 import type { ExternalsForDelivery } from "./externals.js";
+import { detailOf, type Log } from "./log.js";
 
 /**
  * A processing claim older than this is presumed dead and taken over.
@@ -75,6 +76,8 @@ export interface ProcessorOptions {
     readonly repository: RepositoryRef;
     readonly worker: string;
     readonly clock: () => Date;
+    /** Every line here names its delivery: this is the lane that retries. */
+    readonly log: Log;
 }
 
 /** What every persisted record says about which delivery it answers. */
@@ -186,20 +189,36 @@ type PassOutcome =
           readonly release: ReleaseDeliveryAfterFailureResult;
       };
 
-/** What the failure did to the delivery, for the line an operator reads. */
-function dispositionOf(release: ReleaseDeliveryAfterFailureResult): string {
+/**
+ * What the failure did to the delivery, as the fields its line carries.
+ *
+ * `attempts` is `null` for exactly one disposition: a lost claim counts
+ * nothing, so reporting a number there would invent one.
+ */
+function dispositionOf(release: ReleaseDeliveryAfterFailureResult): {
+    readonly disposition: ReleaseDeliveryAfterFailureResult["outcome"];
+    readonly attempts: number | null;
+    readonly maxAttempts: number;
+    readonly retryNotBefore: string | null;
+} {
+    const common = { disposition: release.outcome, maxAttempts: MAX_DELIVERY_ATTEMPTS };
     switch (release.outcome) {
         case "retryScheduled":
-            return `attempt ${String(release.attempts)} of ${String(MAX_DELIVERY_ATTEMPTS)}, retrying after ${release.retryNotBefore}`;
+            return {
+                ...common,
+                attempts: release.attempts,
+                retryNotBefore: release.retryNotBefore,
+            };
         case "deadLettered":
-            return `attempt ${String(release.attempts)} of ${String(MAX_DELIVERY_ATTEMPTS)}, dead-lettered for inspection`;
+            return { ...common, attempts: release.attempts, retryNotBefore: null };
         case "notOwned":
-            return "the claim was already lost, so this attempt was not counted";
+            return { ...common, attempts: null, retryNotBefore: null };
     }
 }
 
 export function createProcessor(options: ProcessorOptions): Processor {
-    const { store, capabilities, configSource, externals, repository, worker, clock } = options;
+    const { store, capabilities, configSource, externals, repository, worker, clock, log } =
+        options;
     let draining: Promise<void> | null = null;
 
     const claimNext = (): ClaimedDelivery | undefined => {
@@ -283,7 +302,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
             { kind: "delivery", repository, event: claimed.eventName, payload },
             config,
             capabilities,
-            await externals({ payload }),
+            await externals({ payload, deliveryId: String(claimed.deliveryId) }),
         );
     };
 
@@ -361,6 +380,13 @@ export function createProcessor(options: ProcessorOptions): Processor {
     const attemptNext = async (): Promise<PassOutcome> => {
         const claimed = claimNext();
         if (claimed === undefined) return { kind: "idle" };
+        const deliveryId = String(claimed.deliveryId);
+        log({
+            event: "deliveryClaimed",
+            deliveryId,
+            eventName: claimed.eventName,
+            attempts: claimed.attempts,
+        });
         try {
             const record = await recordFor(claimed);
             const completion = store.completeDeliveryWithReport({
@@ -374,14 +400,22 @@ export function createProcessor(options: ProcessorOptions): Processor {
             if (completion.outcome !== "completed") {
                 throw new Error(`delivery report was not committed: ${completion.outcome}`);
             }
+            log({ event: "deliveryCompleted", deliveryId, kind: record.kind });
             return { kind: "completed" };
         } catch (error) {
-            return {
-                kind: "failed",
-                deliveryId: String(claimed.deliveryId),
-                error,
-                release: recordFailure(claimed),
-            };
+            const release = recordFailure(claimed);
+            log({
+                event: "deliveryAttemptFailed",
+                deliveryId,
+                ...dispositionOf(release),
+                detail: detailOf(error),
+            });
+            // A second line, because this is where a delivery STOPS: the
+            // one an operator greps for is not one of five failed attempts.
+            if (release.outcome === "deadLettered") {
+                log({ event: "deliveryDeadLettered", deliveryId, attempts: release.attempts });
+            }
+            return { kind: "failed", deliveryId, error, release };
         }
     };
 
@@ -408,12 +442,12 @@ export function createProcessor(options: ProcessorOptions): Processor {
                     for (;;) {
                         const outcome = await attemptNext();
                         if (outcome.kind === "idle") return;
-                        if (outcome.kind !== "failed") continue;
-                        console.error(
-                            `shell: delivery ${outcome.deliveryId} failed to process (${dispositionOf(outcome.release)})`,
-                            outcome.error,
-                        );
-                        if (outcome.release.outcome === "notOwned") return;
+                        // The failure is already logged, where the store's
+                        // answer to it was known; here it is only a routing
+                        // question — can this pass prove progress?
+                        if (outcome.kind === "failed" && outcome.release.outcome === "notOwned") {
+                            return;
+                        }
                     }
                 } finally {
                     draining = null;

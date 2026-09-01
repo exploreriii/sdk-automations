@@ -25,6 +25,15 @@ import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
 import { createProcessor } from "../src/processor.js";
 import { stubbedExternals } from "../src/externals.js";
 import type { ConfigSource } from "../src/config.js";
+import type { Log, ShellEvent } from "../src/log.js";
+
+/**
+ * Every processor here logs into one list, cleared per test. The event
+ * stream is the operator's only view of a lane GitHub stopped watching at
+ * the 202, so several cases below assert on it rather than on the store.
+ */
+let logged: ShellEvent[] = [];
+const log: Log = (event) => logged.push(event);
 
 const GUID = asDeliveryGuid("94f5384a-ee9a-33a5-a3cd-6eb589fe2b7a")!;
 const SECOND_GUID = asDeliveryGuid("94f5384a-ee9a-33a5-a3cd-6eb589fe2b7b")!;
@@ -59,6 +68,7 @@ const BASE = new Date("2026-08-07T10:00:00.000Z");
 const temp = useTempDir("shell-processor-");
 let store: Store;
 beforeEach(() => {
+    logged = [];
     store = new Store(temp.file("store.sqlite"));
     store.acceptDelivery({
         deliveryId: GUID,
@@ -80,6 +90,7 @@ function processor(capability: EngineCapability, firstTickMs = 1_000) {
         externals: () => stubbedExternals(),
         repository: REPOSITORY,
         worker: "test-worker",
+        log,
         clock: () => new Date(BASE.getTime() + firstTickMs + 1000 * tick++),
     });
 }
@@ -99,6 +110,7 @@ describe("a config source that cannot answer", () => {
             externals: () => stubbedExternals(),
             repository: REPOSITORY,
             worker: "test-worker",
+            log,
             clock: () => new Date(BASE.getTime() + atMs),
         });
 
@@ -156,6 +168,7 @@ describe("a delivery from another repository", () => {
                 externals: () => stubbedExternals(),
                 repository: serves,
                 worker: "test-worker",
+                log,
                 clock: () => new Date(BASE.getTime() + 1000),
             }),
         };
@@ -255,6 +268,7 @@ describe("a crash counts an attempt", () => {
             },
             repository: REPOSITORY,
             worker: "test-worker",
+            log,
             clock: () => new Date(BASE.getTime() + 1000),
         });
         await expect(failing.processOnce()).rejects.toThrow("live externals unavailable");
@@ -287,6 +301,7 @@ describe("a crash counts an attempt", () => {
             },
             repository: REPOSITORY,
             worker: "test-worker",
+            log,
             clock: () => new Date(BASE.getTime() + 1000),
         });
 
@@ -402,6 +417,7 @@ describe("a poison delivery", () => {
             },
             repository: REPOSITORY,
             worker: "test-worker",
+            log,
             clock: () => new Date(BASE.getTime() + offsetMs),
         }).drain();
     }
@@ -415,6 +431,27 @@ describe("a poison delivery", () => {
             receivedAt: new Date(BASE.getTime() + 1000).toISOString(),
         });
     });
+
+    /** When each attempt is made, in the order the ladder makes them. */
+    const LADDER = [10_000, 40_000, 100_000, 220_000, 460_000];
+
+    /** The failure line the poison delivery earns on its `attempt`th try. */
+    function attemptFailure(attempt: number): Record<string, unknown> {
+        const failedAt = BASE.getTime() + LADDER[attempt - 1]!;
+        const deadLettered = attempt === LADDER.length;
+        return {
+            event: "deliveryAttemptFailed",
+            deliveryId: GUID as string,
+            disposition: deadLettered ? "deadLettered" : "retryScheduled",
+            attempts: attempt,
+            maxAttempts: 5,
+            // The wait doubles per attempt already spent, from thirty seconds.
+            retryNotBefore: deadLettered
+                ? null
+                : new Date(failedAt + 30_000 * 2 ** (attempt - 1)).toISOString(),
+            detail: expect.stringContaining("live externals unavailable"),
+        };
+    }
 
     it("backs off, lets the queue behind it through, and dead-letters at five attempts", async () => {
         // The poison delivery is the OLDEST, so the queue behind it only
@@ -453,5 +490,28 @@ describe("a poison delivery", () => {
         await drainAt(24 * 60 * 60_000);
         expect(consulted).toBe(0);
         expect(records()).toHaveLength(1);
+    });
+
+    /**
+     * The same ladder, read as an operator reads it. Every attempt is on
+     * the record with the number it spent and the instant it may be tried
+     * again, and the delivery that STOPPED says so in a line of its own —
+     * a dead letter nothing reports is a delivery that just went quiet.
+     */
+    it("counts every attempt in the log and names the delivery that stopped", async () => {
+        for (const at of LADDER) await drainAt(at);
+
+        expect(logged.filter((event) => event.event === "deliveryAttemptFailed")).toEqual(
+            LADDER.map((_at, index) => attemptFailure(index + 1)),
+        );
+        expect(logged.filter((event) => event.event === "deliveryDeadLettered")).toEqual([
+            { event: "deliveryDeadLettered", deliveryId: GUID as string, attempts: 5 },
+        ]);
+        // The healthy delivery behind it completed, and never failed.
+        expect(logged).toContainEqual({
+            event: "deliveryCompleted",
+            deliveryId: SECOND_GUID as string,
+            kind: "decision",
+        });
     });
 });

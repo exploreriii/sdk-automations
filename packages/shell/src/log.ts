@@ -14,10 +14,11 @@
  * instead, for the operator who watches only one of the two.
  *
  * No dependency, and none wanted: a logging library arrives with
- * transports, levels and configuration for a surface of sixteen events.
+ * transports, levels and configuration for a surface of nineteen events.
  */
 
 import type { ReleaseDeliveryAfterFailureResult } from "@hiero-hackers/automation-store";
+import type { EffectOutcomeCode } from "./effects.js";
 
 /**
  * Every line the shell may write.
@@ -89,6 +90,31 @@ export type ShellEvent =
       }
     | { readonly event: "orderingUnknown"; readonly deliveryId: string; readonly detail: string }
     | {
+          /**
+           * A recovery pass closed an effect's open call — the write landed
+           * after all, or a resend made it land. The delivery lane reports its
+           * own effects in the record instead; only the sweep says it here.
+           */
+          readonly event: "effectApplied";
+          readonly effectId: string;
+          readonly seq: number;
+      }
+    | {
+          /** A recovery pass refused an effect's open call and closed the row. */
+          readonly event: "effectRefused";
+          readonly effectId: string;
+          readonly seq: number;
+          readonly code: EffectOutcomeCode | null;
+          readonly detail: string | null;
+      }
+    | {
+          /** The attempt cap ran out: the row is closed and nothing will resend it. */
+          readonly event: "effectAbandoned";
+          readonly effectId: string;
+          readonly seq: number;
+          readonly attempts: number;
+      }
+    | {
           readonly event: "sweepRequeued";
           readonly requeued: number;
           readonly deliveryIds: readonly string[];
@@ -111,7 +137,11 @@ export type Log = (event: ShellEvent) => void;
  *
  * `sweepRequeued` and `deliveryConflict` are here on purpose: a requeue
  * means some worker died holding a claim, and a conflict means one delivery
- * GUID arrived under two different bodies.
+ * GUID arrived under two different bodies. `effectRefused` and
+ * `effectAbandoned` join them for the same reason: each is a repository change
+ * this platform decided on, journalled, and then did not make.
+ * `effectApplied` stays on stdout — a recovery that worked is the recovery
+ * doing its job.
  */
 const PROBLEM_EVENTS: ReadonlySet<ShellEvent["event"]> = new Set([
     "legacyStoreFound",
@@ -120,6 +150,8 @@ const PROBLEM_EVENTS: ReadonlySet<ShellEvent["event"]> = new Set([
     "deliveryAttemptFailed",
     "deliveryDeadLettered",
     "orderingUnknown",
+    "effectRefused",
+    "effectAbandoned",
     "sweepRequeued",
     "sweepFailed",
     "drainFailed",
@@ -164,8 +196,8 @@ export interface LoggerOptions {
 
 /**
  * The production log. Serialization cannot fail: every field in the union
- * above is a string, a number, a boolean or a list of strings, so there is
- * no cycle for `JSON.stringify` to meet and no `undefined` to drop.
+ * above is a string, a number, a boolean, `null`, or a list of strings, so
+ * there is no cycle for `JSON.stringify` to meet and no `undefined` to drop.
  */
 export function createLogger(options: LoggerOptions = {}): Log {
     const clock = options.clock ?? (() => new Date());

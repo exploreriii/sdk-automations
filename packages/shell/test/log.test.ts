@@ -83,7 +83,7 @@ describe("one line per event", () => {
  * name the events they happen to use.
  *
  * `ROUTING` is exhaustive by construction: `ShellEvent["event"]` keys it, so
- * a seventeenth event fails to compile here until this table admits it.
+ * a twentieth event fails to compile here until this table admits it.
  */
 const ROUTING: Record<
     ShellEvent["event"],
@@ -157,6 +157,24 @@ const ROUTING: Record<
             deliveryId: "guid-1",
             detail: "GitHub refused the read",
         },
+        problem: true,
+    },
+    effectApplied: {
+        event: { event: "effectApplied", effectId: "effect-1", seq: 1 },
+        problem: false,
+    },
+    effectRefused: {
+        event: {
+            event: "effectRefused",
+            effectId: "effect-1",
+            seq: 1,
+            code: "killSwitch",
+            detail: "a kill switch is active",
+        },
+        problem: true,
+    },
+    effectAbandoned: {
+        event: { event: "effectAbandoned", effectId: "effect-1", seq: 2, attempts: 5 },
         problem: true,
     },
     sweepRequeued: {

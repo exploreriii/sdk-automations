@@ -2,8 +2,9 @@
  * What GitHub says the item looks like now, and when "absent" may be believed.
  *
  * A write is a promise; a read-back is the proof (`design/guides/effects.md`).
- * Two resources are read here because those are the two stage C confirms: an
- * item's comments, for marker matching, and an item's current labels.
+ * Three resources are read here because those are the three stage C needs: an
+ * item's comments, for marker matching; an item's current labels; and the item
+ * itself, which is what an apply-time re-gate rebuilds its projection from.
  *
  * The freshness rule is D46's, and it is asymmetric on purpose. Presence is
  * answered on FIRST sight, because a visible effect is a landed effect.
@@ -18,7 +19,7 @@
 
 import type { ItemRef, RepositoryRef } from "@hiero-hackers/automation-core";
 import { describeFailure, lastPageFromLink, repoPath, type GitHubHttpClient } from "./http.js";
-import { field, jsonArrayOf } from "./untrusted.js";
+import { field, jsonArrayOf, jsonRecordOf } from "./untrusted.js";
 
 // ─── The chosen bounds ───────────────────────────────────────────────
 
@@ -76,6 +77,21 @@ export interface CommentFact {
     readonly authoredByApp: boolean;
 }
 
+/**
+ * The item itself, as an apply-time re-gate reads it.
+ *
+ * `labels` are the repository's own label strings; core maps them to meanings.
+ * `merged` rides alongside `closed` rather than being inferred from it: a
+ * merged pull request and one a person closed unmerged are different closures
+ * (D47), and a caller holding only `closed` would have to guess. It is always
+ * `false` for an issue, which has no merge to report.
+ */
+export interface ItemFacts {
+    readonly labels: readonly string[];
+    readonly closed: boolean;
+    readonly merged: boolean;
+}
+
 /** A read that answered, or the reason it established nothing. */
 export type ReadBackOutcome<T> =
     { readonly ok: true; readonly value: T } | { readonly ok: false; readonly detail: string };
@@ -86,10 +102,12 @@ export type ReadBackOutcome<T> =
  */
 export type Presence = "present" | "absent" | "unknown";
 
-/** The two resources stage C confirms, read raw or read as a presence. */
+/** The three resources stage C reads, raw or as a presence. */
 export interface ReadBack {
     comments(item: ItemRef): Promise<ReadBackOutcome<readonly CommentFact[]>>;
     labels(item: ItemRef): Promise<ReadBackOutcome<readonly string[]>>;
+    /** The item's own current facts — one read, no presence rule involved. */
+    item(item: ItemRef): Promise<ReadBackOutcome<ItemFacts>>;
     /** Is a comment matching `matches` there? Absence obeys the gap above. */
     commentPresence(item: ItemRef, matches: (comment: CommentFact) => boolean): Promise<Presence>;
     /** Is this exact label name there? Absence obeys the gap above. */
@@ -144,6 +162,37 @@ function commentFactOf(entry: unknown, identity: AppIdentity): CommentFact | nul
 function labelNameOf(entry: unknown): string | null {
     const name = field(entry, "name");
     return typeof name === "string" && name.length > 0 ? name : null;
+}
+
+/**
+ * One item's facts, or `null` when the body does not carry all of them.
+ *
+ * Whole or nothing, the same rule `readMapped` follows: a projection built
+ * from a label list that silently dropped an unreadable entry would answer a
+ * position question from a shorter world than the item's.
+ *
+ * `merged` is read only for a pull request, and required there. The issue
+ * endpoint does not carry the field at all, and inventing `false` for a
+ * resource that never reports it would make a merged pull request read as
+ * closed by a person if this were ever asked the wrong URL.
+ */
+function itemFactsOf(body: string, kind: ItemRef["kind"]): ItemFacts | null {
+    const record = jsonRecordOf(body);
+    if (record === null) return null;
+    const state = field(record, "state");
+    if (state !== "open" && state !== "closed") return null;
+    const entries = field(record, "labels");
+    if (!Array.isArray(entries)) return null;
+    const labels: string[] = [];
+    for (const entry of entries) {
+        const name = labelNameOf(entry);
+        if (name === null) return null;
+        labels.push(name);
+    }
+    const closed = state === "closed";
+    if (kind === "issue") return { labels, closed, merged: false };
+    const merged = field(record, "merged");
+    return typeof merged === "boolean" ? { labels, closed, merged } : null;
 }
 
 // ─── The read-back ───────────────────────────────────────────────────
@@ -237,6 +286,32 @@ export function createReadBack({
         readMapped(`${issuePath(item)}/labels`, labelNameOf, "label");
 
     /**
+     * The item, from the endpoint that reports its own kind.
+     *
+     * A pull request is readable at `/issues/{n}` too, and that spelling would
+     * save a branch — but it answers without `merged`, and closure is exactly
+     * what this read exists to establish. So each kind is read where its own
+     * facts live, and the URL says which resource was asked.
+     */
+    const readItem = async (item: ItemRef): Promise<ReadBackOutcome<ItemFacts>> => {
+        const resource = item.kind === "issue" ? "issues" : "pulls";
+        const outcome = await http.request({
+            url: `${repoPath(repository)}/${resource}/${String(item.number)}`,
+            method: "GET",
+        });
+        if (!outcome.ok) {
+            return {
+                ok: false,
+                detail: `GitHub refused the read: ${describeFailure(outcome.failure)}`,
+            };
+        }
+        const facts = itemFactsOf(outcome.body, item.kind);
+        return facts === null
+            ? { ok: false, detail: "GitHub returned an unreadable item" }
+            : { ok: true, value: facts };
+    };
+
+    /**
      * D46 over one predicate: present on first sight, absent only after a
      * second read the clock agrees was a full gap later.
      *
@@ -279,6 +354,7 @@ export function createReadBack({
     return {
         comments,
         labels,
+        item: readItem,
         commentPresence: (item, matches) => presenceOf(() => comments(item), matches),
         // Exact names. GitHub stores the case a label was created with, and
         // this asks about the managed name the platform itself wrote (D4).

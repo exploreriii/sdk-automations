@@ -46,6 +46,7 @@ export {
     createReadBack,
     type AppIdentity,
     type CommentFact,
+    type ItemFacts,
     type Presence,
     type ReadBack,
     type ReadBackOptions,

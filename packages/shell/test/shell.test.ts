@@ -23,13 +23,16 @@ import { Store } from "@hiero-hackers/automation-store";
 import { intake, prQuality } from "@hiero-hackers/automation-probes";
 import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
 import {
+    createApplier,
     createShell,
     fileConfigSource,
+    serializeCall,
     stubbedExternals,
     type Log,
     type Shell,
     type ShellEvent,
 } from "../src/index.js";
+import { fakeGitHub } from "./effect-harness.js";
 
 const SECRET = "shell-test-secret";
 const GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a69";
@@ -128,7 +131,11 @@ interface RecordIdentity {
 
 type StoredRecord = RecordIdentity &
     (
-        | { readonly kind: "decision"; readonly report: Report }
+        | {
+              readonly kind: "decision";
+              readonly report: Report;
+              readonly effects: readonly unknown[];
+          }
         | { readonly kind: "configRejected"; readonly errors: readonly unknown[] }
         | { readonly kind: "modeUnsupported"; readonly reason: string }
         | { readonly kind: "repositoryMismatch"; readonly expected: string }
@@ -578,5 +585,186 @@ describe("the first slice, end to end", () => {
         if (entry?.kind !== "decision") throw new Error("expected a decision");
         expect(entry.report.mode).toBe("observe");
         expect(entry.configRevision).toBe("sha256:absent");
+    });
+});
+
+/**
+ * The sweep's second job: an effect a worker journalled and never closed.
+ *
+ * Nothing here delivers anything. That is the claim — in a quiet repository
+ * the only thing that could ever resolve a lost write is the clock, and these
+ * cases prove it does, and that it does not when the composition root wired no
+ * write path.
+ */
+describe("recovering effects on the clock, with no delivery to wake anything", () => {
+    const ACTIVE_CONFIG = `schemaVersion: 1
+mode: active
+capabilities:
+  intake:
+    enabled: true
+    settings:
+      announce: true
+mappings:
+  labels:
+    awaitingTriage: "status: triage"
+`;
+
+    const LABEL = "status: triage";
+    const EFFECT_ID = "orphan-effect";
+
+    /** The row a crashed worker left, older than one lease window. */
+    function orphanRow(): void {
+        store.intent(
+            EFFECT_ID,
+            1,
+            serializeCall({
+                capability: "intake",
+                item: { kind: "issue", number: 164 },
+                call: { verb: "addLabel", label: LABEL },
+            }),
+            new Date(BASE.getTime() - 60 * 60_000).toISOString(),
+            "rev-1",
+        );
+    }
+
+    const openRows = (): number =>
+        store.openIntents(new Date(BASE.getTime() + 60 * 60_000).toISOString()).length;
+
+    function shellWithWritePath(github: ReturnType<typeof fakeGitHub>): Shell {
+        let tick = 0;
+        const clock = (): Date => new Date(BASE.getTime() + 1000 * tick++);
+        const shell = createShell({
+            secret: SECRET,
+            store,
+            capabilities: [toEngine(intake)],
+            configSource: fileConfigSource(configFile),
+            externals: () => stubbedExternals(),
+            repository: REPOSITORY,
+            clock,
+            sweepIntervalMs: 5,
+            log,
+            applier: createApplier({
+                store,
+                writer: github.writer,
+                reader: github.reader,
+                externals: () => stubbedExternals(),
+                worker: "sweep-worker",
+                clock,
+                log,
+            }),
+        });
+        running.push(shell);
+        return shell;
+    }
+
+    it("resends what GitHub never had, and closes the row", async () => {
+        writeFileSync(configFile, ACTIVE_CONFIG);
+        orphanRow();
+        const github = fakeGitHub();
+
+        shellWithWritePath(github);
+
+        await vi.waitFor(() =>
+            expect(logged).toContainEqual({ event: "effectApplied", effectId: EFFECT_ID, seq: 1 }),
+        );
+        expect(github.world.labels).toEqual([LABEL]);
+        expect(openRows()).toBe(0);
+        // No delivery was involved in any of that.
+        expect(records()).toEqual([]);
+        expect(logged.filter((event) => event.event === "deliveryClaimed")).toEqual([]);
+    });
+
+    it("closes a row for good once the repository has left active mode", async () => {
+        orphanRow();
+        const github = fakeGitHub();
+
+        shellWithWritePath(github);
+
+        await vi.waitFor(() =>
+            expect(logged).toContainEqual(
+                expect.objectContaining({ event: "effectRefused", code: "modeRecordsOnly" }),
+            ),
+        );
+        expect(github.calls).toEqual([]);
+        expect(openRows()).toBe(0);
+    });
+
+    it("closes the row when the absent file puts the repository in observe mode", async () => {
+        rmSync(configFile);
+        orphanRow();
+        const github = fakeGitHub();
+
+        shellWithWritePath(github);
+        // An absent file decides in observe mode, which is a real answer and
+        // therefore a refusal — what must not happen is a resend.
+        await vi.waitFor(() =>
+            expect(logged.some((event) => event.event === "effectRefused")).toBe(true),
+        );
+        expect(github.calls).toEqual([]);
+    });
+
+    /**
+     * A file nobody can parse is not a repository saying anything. The row is
+     * left exactly as it was, for a tick where the file has been fixed.
+     */
+    it("leaves every row alone while the configuration does not parse", async () => {
+        writeFileSync(configFile, "schemaVersion: 9");
+        orphanRow();
+        const github = fakeGitHub();
+        const worklist = vi.spyOn(store, "openIntents");
+
+        shellWithWritePath(github);
+
+        await vi.waitFor(() => expect(worklist.mock.calls.length).toBeGreaterThan(1));
+        expect(github.calls).toEqual([]);
+        expect(logged.filter((event) => event.event.startsWith("effect"))).toEqual([]);
+        expect(openRows()).toBe(1);
+    });
+
+    it("reports a recovery pass it could not run, and keeps serving", async () => {
+        writeFileSync(configFile, ACTIVE_CONFIG);
+        orphanRow();
+        running.push(
+            createShell({
+                secret: SECRET,
+                store,
+                capabilities: [toEngine(intake)],
+                configSource: fileConfigSource(configFile),
+                externals: () => stubbedExternals(),
+                repository: REPOSITORY,
+                clock: () => BASE,
+                sweepIntervalMs: 5,
+                log,
+                applier: {
+                    applyAll: () => Promise.resolve([]),
+                    recover: () => Promise.reject(new Error("the store is closed")),
+                },
+            }),
+        );
+
+        await vi.waitFor(() =>
+            expect(logged).toContainEqual(
+                expect.objectContaining({
+                    event: "sweepFailed",
+                    detail: expect.stringContaining("the store is closed") as string,
+                }),
+            ),
+        );
+        expect(openRows()).toBe(1);
+    });
+
+    it("does not even look for open rows when no write path was wired", async () => {
+        writeFileSync(configFile, ACTIVE_CONFIG);
+        orphanRow();
+        const requeues = vi.spyOn(store, "requeueStuckDeliveries");
+        const worklist = vi.spyOn(store, "openIntents");
+
+        buildShell(toEngine(intake), 5);
+
+        // Two ticks of the same sweep that would have found the row.
+        await vi.waitFor(() => expect(requeues.mock.calls.length).toBeGreaterThan(1));
+        expect(worklist).not.toHaveBeenCalled();
+        expect(logged.filter((event) => event.event.startsWith("effect"))).toEqual([]);
+        expect(openRows()).toBe(1);
     });
 });

@@ -1,7 +1,8 @@
 /**
  * The worker half: claim a durable delivery, prepare, reject an unsupported
- * mode or call the one verb, then commit the outcome with completion. The
- * receiver acknowledged long ago; GitHub never observes retries here.
+ * mode or call the one verb, apply what it approved, then commit the outcome
+ * with completion. The receiver acknowledged long ago; GitHub never observes
+ * retries here.
  *
  * The reading key: a claimed delivery always ends as exactly ONE of four
  * records — `repositoryMismatch`, `configRejected`, `modeUnsupported`, or
@@ -11,7 +12,8 @@
  * reclaim, ending in the store's dead letter when the budget runs out.
  *
  * `recordFor` below is stations ③ to ⑤ of this package's README table,
- * one named step per station.
+ * one named step per station, plus the applier this file hands the approved
+ * effects to while the delivery's claim is still held (`apply.ts`).
  */
 
 import {
@@ -31,7 +33,9 @@ import type {
     ReleaseDeliveryAfterFailureResult,
     Store,
 } from "@hiero-hackers/automation-store";
+import type { Applier } from "./apply.js";
 import type { ConfigSource } from "./config.js";
+import type { EffectOutcome } from "./effects.js";
 import type { ExternalsForDelivery } from "./externals.js";
 import { detailOf, type Log } from "./log.js";
 
@@ -78,6 +82,17 @@ export interface ProcessorOptions {
     readonly clock: () => Date;
     /** Every line here names its delivery: this is the lane that retries. */
     readonly log: Log;
+    /**
+     * The write path, when a composition root has wired one.
+     *
+     * Absent is the shipped composition. `main.ts` supplies no applier, so
+     * `mode: active` still ends as `modeUnsupported` before `decide()` runs —
+     * the shell genuinely has no effect path, which is what that record has
+     * always said. Wiring one is how the gate lifts, and that is stage E's
+     * decision to make at the composition root rather than a branch anyone
+     * deletes here.
+     */
+    readonly applier?: Applier;
 }
 
 /** What every persisted record says about which delivery it answers. */
@@ -94,6 +109,8 @@ type ShellRecord =
     | (RecordIdentity & {
           readonly kind: "decision";
           readonly report: Report;
+          /** What became of each approved effect. Empty outside active mode. */
+          readonly effects: readonly EffectOutcome[];
       })
     | (RecordIdentity & {
           /** The config failed to parse. Fail-closed: nothing was decided. */
@@ -171,6 +188,18 @@ export interface Processor {
     drain(): Promise<void>;
     /** The drain in flight, if any; resolved at once when none is. */
     settled(): Promise<void>;
+    /**
+     * The current configuration as this lane reads it, or `null` when it
+     * cannot be read or does not parse.
+     *
+     * Exposed for the sweep's effect recovery, which has to gate a resend on
+     * the same file the deliveries are gated on. A second reader with its own
+     * source and its own parser would be the one fact in two places this
+     * repository keeps finding — and the two could disagree about whether a
+     * repository is still in active mode, which is the disagreement that
+     * writes to GitHub.
+     */
+    configuration(): Promise<RepositoryConfig | null>;
 }
 
 /**
@@ -216,8 +245,17 @@ function dispositionOf(release: ReleaseDeliveryAfterFailureResult): {
 }
 
 export function createProcessor(options: ProcessorOptions): Processor {
-    const { store, capabilities, configSource, externals, repository, worker, clock, log } =
-        options;
+    const {
+        store,
+        capabilities,
+        configSource,
+        externals,
+        repository,
+        worker,
+        clock,
+        log,
+        applier,
+    } = options;
     let draining: Promise<void> | null = null;
 
     const claimNext = (): ClaimedDelivery | undefined => {
@@ -340,7 +378,8 @@ export function createProcessor(options: ProcessorOptions): Processor {
             // config — the fixed file arrives as its own future delivery.
             return { kind: "configRejected", ...identity, errors: config.result.errors };
         }
-        if (config.result.config.mode === "active") {
+        const active = config.result.config.mode === "active";
+        if (active && applier === undefined) {
             return {
                 kind: "modeUnsupported",
                 ...identity,
@@ -348,7 +387,15 @@ export function createProcessor(options: ProcessorOptions): Processor {
             };
         }
         const decision = await decideOn(claimed, payload, config.result.config);
-        return { kind: "decision", ...identity, report: decision.report };
+        // Station 6: the approved effects, applied while this delivery's claim
+        // is still held. Only in active mode — nothing else ever approves one,
+        // and saying so here means a future mode cannot acquire a write path
+        // by accident.
+        const effects =
+            active && applier !== undefined
+                ? await applier.applyAll(decision.approved, config.result.config)
+                : [];
+        return { kind: "decision", ...identity, report: decision.report, effects };
     };
 
     /**
@@ -462,6 +509,20 @@ export function createProcessor(options: ProcessorOptions): Processor {
          */
         settled(): Promise<void> {
             return draining ?? Promise.resolve();
+        },
+        /**
+         * A read, never a decision: a source that cannot answer and a file
+         * that does not parse are both `null`, because the sweep's response to
+         * either is the same — gate nothing on a configuration nobody could
+         * read, and try again next tick.
+         */
+        async configuration(): Promise<RepositoryConfig | null> {
+            try {
+                const loaded = await loadConfig();
+                return loaded.result.ok ? loaded.result.config : null;
+            } catch {
+                return null;
+            }
         },
     };
 }

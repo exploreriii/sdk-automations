@@ -132,6 +132,100 @@ describe("reading an item's labels", () => {
     });
 });
 
+describe("reading the item itself", () => {
+    const PR = { kind: "pullRequest", number: 132 } as const;
+    const PULL = "https://api.github.com/repos/hiero-hackers/sdk-automations/pulls/132";
+
+    it("reads an issue at the issues endpoint, with no merge to report", async () => {
+        const { readBack, scripted } = harness([
+            listed('{"state":"open","labels":[{"name":"status: triage"}]}'),
+        ]);
+
+        const outcome = await readBack.item(ITEM);
+
+        expect(outcome).toEqual({
+            ok: true,
+            value: { labels: ["status: triage"], closed: false, merged: false },
+        });
+        expect(scripted.calls[0]!.url).toBe(ISSUE);
+    });
+
+    it("reads a pull request at the pulls endpoint, which is where `merged` lives", async () => {
+        const { readBack, scripted } = harness([
+            listed('{"state":"closed","labels":[{"name":"status: review"}],"merged":true}'),
+        ]);
+
+        const outcome = await readBack.item(PR);
+
+        expect(outcome).toEqual({
+            ok: true,
+            value: { labels: ["status: review"], closed: true, merged: true },
+        });
+        expect(scripted.calls[0]!.url).toBe(PULL);
+    });
+
+    it("tells a closed-unmerged pull request from a merged one", async () => {
+        const { readBack } = harness([listed('{"state":"closed","labels":[],"merged":false}')]);
+
+        expect(await readBack.item(PR)).toEqual({
+            ok: true,
+            value: { labels: [], closed: true, merged: false },
+        });
+    });
+
+    it("reports a closed issue as closed", async () => {
+        const { readBack } = harness([listed('{"state":"closed","labels":[]}')]);
+
+        expect(await readBack.item(ITEM)).toEqual({
+            ok: true,
+            value: { labels: [], closed: true, merged: false },
+        });
+    });
+
+    it.each([
+        ["a body that is not an object", "[]"],
+        ["a body that is not JSON", "not json"],
+        ["a missing state", '{"labels":[]}'],
+        ["a state GitHub does not use", '{"state":"draft","labels":[]}'],
+        ["missing labels", '{"state":"open"}'],
+        ["labels that are not an array", '{"state":"open","labels":{}}'],
+        ["one nameless label", '{"state":"open","labels":[{"name":"a"},{}]}'],
+    ])("refuses the whole read on %s", async (_label, body) => {
+        const { readBack } = harness([listed(body)]);
+
+        const outcome = await readBack.item(ITEM);
+
+        expect(outcome.ok).toBe(false);
+        expect(outcome.ok ? "" : outcome.detail).toBe("GitHub returned an unreadable item");
+    });
+
+    it("refuses a pull request whose merge fact is missing or not a boolean", async () => {
+        const missing = harness([listed('{"state":"closed","labels":[]}')]);
+        const wrongType = harness([listed('{"state":"closed","labels":[],"merged":"true"}')]);
+
+        expect((await missing.readBack.item(PR)).ok).toBe(false);
+        expect((await wrongType.readBack.item(PR)).ok).toBe(false);
+    });
+
+    it("names GitHub's refusal rather than inventing an open, unlabelled item", async () => {
+        const { readBack } = harness([failure(404, "Not Found")]);
+
+        const outcome = await readBack.item(ITEM);
+
+        expect(outcome.ok).toBe(false);
+        expect(outcome.ok ? "" : outcome.detail).toContain("notFoundOrNotInstalled");
+    });
+
+    it("asks once — the item read carries no presence rule and no pause", async () => {
+        const { readBack, scripted, sleeps } = harness([listed('{"state":"open","labels":[]}')]);
+
+        await readBack.item(ITEM);
+
+        expect(scripted.calls).toHaveLength(1);
+        expect(sleeps).toEqual([]);
+    });
+});
+
 describe("a list longer than one page", () => {
     /** Page one names the last page; later pages carry the rest. */
     const paged =

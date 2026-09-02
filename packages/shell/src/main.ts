@@ -29,7 +29,10 @@ import {
     githubConfigSource,
     githubMintInstallationToken,
     liveExternalsForDelivery,
+    type ReadBack,
+    type WriteVerbs,
 } from "@hiero-hackers/automation-adapter";
+import type { EffectReader, EffectWriter } from "./apply.js";
 import { createShell, DEFAULT_SWEEP_INTERVAL_MS } from "./shell.js";
 import { CONFIG_PATH, fileConfigSource, type ConfigSource } from "./config.js";
 import { stubbedExternals, type ExternalsForDelivery } from "./externals.js";
@@ -39,6 +42,23 @@ import { createShutdown } from "./shutdown.js";
 
 /** The port this endpoint takes when PORT says nothing. */
 const DEFAULT_PORT = 8790;
+
+/**
+ * The applier's seams, held against the adapter objects that will fill them.
+ *
+ * No applier is wired below, on purpose: with none, `mode: active` still ends
+ * as `modeUnsupported` before a decision, which is the gate stage E lifts by
+ * passing one here. But this is the ONLY file allowed to see both the shell's
+ * seam and the adapter's surface (`.dependency-cruiser.cjs`), so it is also
+ * the only place a drift between them can be caught. Erased at runtime.
+ *
+ * A CONSTRAINT rather than a conditional: `Given extends Contract` in the
+ * parameter list is what makes a mismatch an error, where
+ * `A extends B ? true : never` would quietly evaluate to `never` and compile.
+ */
+type Satisfies<Contract, Given extends Contract> = Given;
+type _WriterSeamIsTheAdapterSurface = Satisfies<EffectWriter, WriteVerbs>;
+type _ReaderSeamIsTheAdapterSurface = Satisfies<EffectReader, ReadBack>;
 
 const env = process.env;
 const secret = env["WEBHOOK_SECRET"];

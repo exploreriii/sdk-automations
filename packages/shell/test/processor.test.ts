@@ -18,11 +18,17 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { asDeliveryGuid, toEngine, type EngineCapability } from "@hiero-hackers/automation-core";
+import {
+    asDeliveryGuid,
+    toEngine,
+    type ApprovedEffect,
+    type EngineCapability,
+} from "@hiero-hackers/automation-core";
 import { Store } from "@hiero-hackers/automation-store";
 import { intake, intakeDeclaration } from "@hiero-hackers/automation-probes";
 import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
 import { createProcessor } from "../src/processor.js";
+import type { Applier } from "../src/apply.js";
 import { stubbedExternals } from "../src/externals.js";
 import type { ConfigSource } from "../src/config.js";
 import type { Log, ShellEvent } from "../src/log.js";
@@ -137,6 +143,22 @@ describe("a config source that cannot answer", () => {
                         message: "unreadable before parsing: the config file is not valid UTF-8",
                     }),
                 ],
+            }),
+        ]);
+    });
+
+    it("stamps the unreadable revision when the source could not name one", async () => {
+        const nameless = withSource(async () => ({
+            ok: false,
+            permanent: true,
+            detail: "the config file is not valid UTF-8",
+        }));
+
+        expect(await nameless.processOnce()).toBe(true);
+        expect(records()).toEqual([
+            expect.objectContaining({
+                kind: "configRejected",
+                configRevision: "sha256:unreadable",
             }),
         ]);
     });
@@ -538,5 +560,152 @@ describe("a poison delivery", () => {
             deliveryId: SECOND_GUID as string,
             kind: "decision",
         });
+    });
+});
+
+/**
+ * The write path's wiring, and the gate that is deliberately still shut.
+ *
+ * `main.ts` supplies no applier, so `mode: active` still ends as
+ * `modeUnsupported` before a decision is even attempted — that is the shipped
+ * behaviour and the first case below is what holds it there. Everything after
+ * it is what a composition root that DOES supply one gets, which is how this
+ * lane is tested without opening the gate.
+ */
+describe("the effects a decision approved", () => {
+    const ACTIVE_CONFIG = CONFIG_TEXT.replace("mode: dry-run", "mode: active");
+
+    /** An applier that records what it was handed and reports one outcome. */
+    function recordingApplier() {
+        const passes: { effects: readonly ApprovedEffect[]; revision: string }[] = [];
+        const applier: Applier = {
+            applyAll: (effects, config) => {
+                passes.push({ effects, revision: config.revision });
+                return Promise.resolve(
+                    effects.map((effect) => ({
+                        effectId: effect.intent.idempotencyKey,
+                        capability: effect.intent.capability,
+                        operation: effect.intent.operation,
+                        item: effect.intent.item,
+                        outcome: "applied" as const,
+                        code: null,
+                        detail: null,
+                    })),
+                );
+            },
+            recover: () => Promise.resolve(),
+        };
+        return { applier, passes };
+    }
+
+    function withConfig(text: string, applier?: Applier) {
+        return createProcessor({
+            store,
+            capabilities: [toEngine(intake)],
+            configSource: {
+                load: async () => ({ ok: true, document: { revision: "rev-a", text } }),
+            },
+            externals: () => stubbedExternals(),
+            repository: REPOSITORY,
+            worker: "test-worker",
+            log,
+            clock: () => new Date(BASE.getTime() + 1000),
+            ...(applier === undefined ? {} : { applier }),
+        });
+    }
+
+    it("still refuses active mode before deciding when nothing wired a write path", async () => {
+        expect(await withConfig(ACTIVE_CONFIG).processOnce()).toBe(true);
+
+        expect(records()).toEqual([
+            expect.objectContaining({
+                kind: "modeUnsupported",
+                reason: "active mode is unsupported by the runnable shell",
+            }),
+        ]);
+    });
+
+    it("hands the approved effects to a wired applier, under the same configuration", async () => {
+        const wired = recordingApplier();
+
+        expect(await withConfig(ACTIVE_CONFIG, wired.applier).processOnce()).toBe(true);
+
+        expect(wired.passes).toHaveLength(1);
+        expect(wired.passes[0]!.revision).toBe("rev-a");
+        expect(wired.passes[0]!.effects.map((effect) => effect.intent.operation)).toEqual([
+            "applyMappedLabel",
+        ]);
+        const [entry] = records();
+        expect(entry).toMatchObject({ kind: "decision", configRevision: "rev-a" });
+        expect(entry?.["effects"]).toEqual([
+            expect.objectContaining({ operation: "applyMappedLabel", outcome: "applied" }),
+        ]);
+    });
+
+    it("records an empty effect list outside active mode, and calls no applier", async () => {
+        const wired = recordingApplier();
+
+        expect(await withConfig(CONFIG_TEXT, wired.applier).processOnce()).toBe(true);
+
+        expect(wired.passes).toEqual([]);
+        expect(records()).toEqual([expect.objectContaining({ kind: "decision", effects: [] })]);
+    });
+
+    /** A record kind is not added: the decision arm simply says more. */
+    it("stays a decision record, effects and all", async () => {
+        const wired = recordingApplier();
+
+        await withConfig(ACTIVE_CONFIG, wired.applier).processOnce();
+
+        expect(logged).toContainEqual({
+            event: "deliveryCompleted",
+            deliveryId: GUID as string,
+            kind: "decision",
+        });
+    });
+});
+
+/**
+ * The one read the sweep borrows from this lane. It exists so a recovery pass
+ * gates on the same file a delivery would, rather than growing a second reader
+ * that could disagree about whether a repository is still in active mode.
+ */
+describe("the configuration this lane reads", () => {
+    const reading = (load: ConfigSource["load"]) =>
+        createProcessor({
+            store,
+            capabilities: [toEngine(intake)],
+            configSource: { load },
+            externals: () => stubbedExternals(),
+            repository: REPOSITORY,
+            worker: "test-worker",
+            log,
+            clock: () => BASE,
+        });
+
+    it("answers with the parsed configuration", async () => {
+        expect(await reading(configSource.load).configuration()).toMatchObject({
+            mode: "dry-run",
+            revision: "rev-test-1",
+        });
+    });
+
+    it("answers null when the file does not parse", async () => {
+        const broken = async () => ({
+            ok: true as const,
+            document: { revision: "rev-x", text: "schemaVersion: 9" },
+        });
+
+        expect(await reading(broken).configuration()).toBeNull();
+    });
+
+    it("answers null when the source could not be reached at all", async () => {
+        const unreachable = async () => ({
+            ok: false as const,
+            permanent: false,
+            detail: "config read failed: transient",
+        });
+
+        expect(await reading(unreachable).configuration()).toBeNull();
     });
 });

@@ -38,6 +38,7 @@ price every crash:
 | before the durable row | nothing — no 202 was sent, so GitHub redelivers |
 | after the 202 | nothing — the row waits; the next drain (or next start) finds it |
 | mid-decision | nothing — the claim stales after 15 minutes and is reclaimed |
+| mid-effect, once a call was sent | nothing lands twice — the journal row stays open, and the sweep reads GitHub back before it ever resends |
 
 The counterfactual is the reason: handle a delivery in memory and there is a window between the
 202 and the finished work where a crash loses it **permanently** — and experiment 6.2 measured
@@ -124,8 +125,12 @@ points `STORE_PATH` back at it is still writing raw payloads and real repository
   remain separate work.
 - **Active mode** — the runnable shell supports disabled, observe and dry-run and rejects active
   configuration.
-  Active GitHub writes are not implemented yet; each real effect will need its own write and durable
-  recovery path before active behavior can be enabled.
+  The write path itself is built: [`src/effects.ts`](src/effects.ts) plans the calls one approved
+  effect takes and defines the journal row a resend reads, and [`src/apply.ts`](src/apply.ts) drives
+  them — lease, journal before send, an apply-time re-gate against a live read, and a read-back that
+  proves each call landed. `main.ts` wires no applier, so `mode: active` still ends as
+  `modeUnsupported` before a decision. Supplying one at the composition root is what enables active
+  behaviour, and that is its own reviewed step.
 - **Multi-repository routing** — one endpoint, one configured repository, matching the sandbox.
 
 The capture receiver in `packages/dev/lab/src/capture.ts` was this package's embryo: same verify-first line,

@@ -6,7 +6,8 @@
  *
  * Plus one clock. A webhook arrival is the only other thing that ever
  * drains, so work a drain left behind — a stale claim from a killed
- * worker, a delivery waiting out its backoff — would sit until the next
+ * worker, a delivery waiting out its backoff, an effect whose answer was
+ * lost between the send and the acknowledgement — would sit until the next
  * delivery happened to arrive. The sweep is what makes those recover on
  * their own in a quiet repository.
  */
@@ -20,6 +21,7 @@ import {
 import type { Store } from "@hiero-hackers/automation-store";
 import { createReceiver } from "./receiver.js";
 import { createProcessor, STALE_CLAIM_MINUTES } from "./processor.js";
+import { EFFECT_LEASE_STALE_MINUTES, type Applier } from "./apply.js";
 import type { ConfigSource } from "./config.js";
 import type { ExternalsForDelivery } from "./externals.js";
 import { contained, createLogger, detailOf, type Log } from "./log.js";
@@ -52,6 +54,12 @@ export interface ShellOptions {
     readonly worker?: string;
     readonly clock?: () => Date;
     readonly sweepIntervalMs?: number;
+    /**
+     * The write path, when one is wired. See `ProcessorOptions.applier`: with
+     * none, active mode is still refused before `decide()` and the sweep's
+     * recovery pass has nothing to recover with.
+     */
+    readonly applier?: Applier;
     /**
      * Where the receiver, the processor and the sweep say what they did.
      * Optional here and required of both of them: this is the composition
@@ -93,6 +101,7 @@ export function createShell(options: ShellOptions): Shell {
         worker: options.worker ?? "shell-1",
         clock,
         log,
+        ...(options.applier === undefined ? {} : { applier: options.applier }),
     });
     const handler = createReceiver({
         secret: options.secret,
@@ -111,12 +120,39 @@ export function createShell(options: ShellOptions): Shell {
         },
     });
     /**
-     * One tick: hand back claims their worker died holding, then pump.
+     * The effects a worker journalled and never closed.
+     *
+     * The window is one lease: a row younger than that may still belong to a
+     * pass that is running right now, and the lease is what serialises the two
+     * anyway — asking about them would only be work the claim refuses. Every
+     * row is re-driven through the applier's own dispatch, which reads GitHub
+     * before it resends anything, so a sweep can never turn a landed write
+     * into a second one.
+     *
+     * Nothing happens without a configuration this run could read: a resend is
+     * gated on the repository still being in active mode, and a config outage
+     * is not a repository saying yes.
+     */
+    const recoverEffects = async (): Promise<void> => {
+        const applier = options.applier;
+        if (applier === undefined) return;
+        const before = new Date(clock().getTime() - EFFECT_LEASE_STALE_MINUTES * 60_000);
+        const open = options.store.openIntents(before.toISOString());
+        if (open.length === 0) return;
+        const config = await processor.configuration();
+        if (config === null) return;
+        for (const row of open) await applier.recover(row, config);
+    };
+
+    /**
+     * One tick: hand back claims their worker died holding, resolve the
+     * effects nobody closed, then pump.
      *
      * Contained, because a tick that throws inside a timer callback takes
      * the process down, and a store that cannot be swept is a thing to
      * report rather than a reason to stop serving webhooks. Overlapping
-     * ticks are already harmless: the processor's drain shares one loop.
+     * ticks are already harmless: the processor's drain shares one loop, and
+     * an effect's lease admits one worker at a time.
      */
     const sweep = (): void => {
         try {
@@ -135,6 +171,9 @@ export function createShell(options: ShellOptions): Shell {
             log({ event: "sweepFailed", detail: detailOf(error) });
             return;
         }
+        void recoverEffects().catch((error: unknown) => {
+            log({ event: "sweepFailed", detail: detailOf(error) });
+        });
         void processor.drain().catch((error: unknown) => {
             log({ event: "drainFailed", phase: "sweep", detail: detailOf(error) });
         });

@@ -316,6 +316,15 @@ describe("atomic report completion", () => {
                 reportJson: "not-json",
             }),
         ).toThrow("reportJson must be a JSON object");
+        expect(() =>
+            store.completeDeliveryWithReport({
+                ...input,
+                deliveryId: "not-a-guid" as typeof input.deliveryId,
+            }),
+        ).toThrow("deliveryId must be a valid GitHub delivery GUID");
+        expect(() =>
+            store.releaseDelivery("not-a-guid" as typeof input.deliveryId, claim.claimToken),
+        ).toThrow("deliveryId must be a valid GitHub delivery GUID");
         store.close();
     });
 

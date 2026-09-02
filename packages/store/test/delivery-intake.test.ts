@@ -458,9 +458,13 @@ describe("delivery claims and recovery", () => {
 
     it("returns every requeued delivery in deterministic GUID order", () => {
         const store = new Store(path);
-        accept(store, THIRD_ID);
-        accept(store, SECOND_ID);
-        accept(store, FIRST_ID);
+        // Staggered receipt instants in REVERSE GUID order, so the claim
+        // index hands rows back unsorted and the sort has to earn the
+        // assertion — with one shared instant the index pre-sorts by GUID
+        // and any comparator at all would pass.
+        accept(store, THIRD_ID, "issues", Buffer.from("work"), "2026-08-01T10:00:00.000Z");
+        accept(store, SECOND_ID, "issues", Buffer.from("work"), "2026-08-01T10:00:01.000Z");
+        accept(store, FIRST_ID, "issues", Buffer.from("work"), "2026-08-01T10:00:02.000Z");
         for (const worker of ["worker-a", "worker-b", "worker-c"]) {
             expect(
                 store.claimNextDelivery(

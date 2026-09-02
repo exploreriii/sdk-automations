@@ -177,6 +177,10 @@ export class Store {
             `);
             migrateStorageSchema(this.db, this.injectFault);
         } catch (error) {
+            // Stryker disable next-line BlockStatement,CallExpression: an
+            // unclosed handle on the failure path leaks a file descriptor,
+            // which no black-box assertion can observe from outside the
+            // class — the close is resource hygiene, not visible behavior.
             try {
                 this.db.close();
             } catch {
@@ -550,9 +554,11 @@ export class Store {
         return (
             rows
                 .map((row) => row.delivery_id as DeliveryGuid)
-                // Binary order, matching every ORDER BY in this file — a locale
-                // comparison can disagree with SQLite's BINARY collation.
-                .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+                // Default sort: UTF-16 code-unit order, which for these
+                // lowercase-hex GUIDs IS SQLite's BINARY collation. A locale
+                // comparator can disagree with it; a hand-written one breeds
+                // equivalent mutants on an equal branch no unique key reaches.
+                .sort()
         );
     }
 

@@ -547,9 +547,13 @@ export class Store {
             `,
             )
             .all(claimedBefore) as { delivery_id: string }[];
-        return rows
-            .map((row) => row.delivery_id as DeliveryGuid)
-            .sort((left, right) => left.localeCompare(right));
+        return (
+            rows
+                .map((row) => row.delivery_id as DeliveryGuid)
+                // Binary order, matching every ORDER BY in this file — a locale
+                // comparison can disagree with SQLite's BINARY collation.
+                .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+        );
     }
 
     /** Read canonical reports in deterministic completion and delivery order. */

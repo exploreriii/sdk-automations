@@ -124,7 +124,9 @@ A safety warning must state all five facts.
 
 ## 9. Questions that remain open
 
-- The project must choose the marker and metadata schema after the sandbox experiment.
+- ~~The project must choose the marker and metadata schema after the sandbox experiment.~~
+  Decided by D125 (2026-09-02): platform-owned, carrying schema version, capability, comment kind,
+  and the effect id — the 6.5 harness's proven shape.
 - The project must decide which output types use comments, issues, checks, or operator-only records.
 - SQLite is the owned operational store; the executor design must define the exact command and safety
   progress records while comments remain user-facing receipts, not coordination state.

@@ -32,11 +32,11 @@
 import {
     deriveWorld,
     describeChange,
+    evaluateStandingRules,
     evaluateWrite,
     INTENT_OPERATIONS,
     matchesManagedComment,
     meaningsOfLabels,
-    missingPermissions,
     projectIssueObservation,
     projectPrObservation,
     type AnyIntent,
@@ -313,38 +313,38 @@ export function createApplier(options: ApplierOptions): Applier {
      * the kill switch, the repository's mode, whether the capability is
      * enabled, and whether the installation still grants the permission.
      *
-     * These are the ladder's rules that do not depend on the item's own state,
-     * and they are the whole gate a RESUME passes. The full ladder is not
-     * re-run on a resume, and the reason is add-then-remove: a half-done label
-     * swap leaves the item holding two position labels, which projects as a
-     * conflict, which `deriveWorld` reports as no authoritative precondition —
-     * so `evaluateWrite` could only ever answer `preconditionStale` there. The
-     * conflict is this platform's own intermediate, and the remaining call is
-     * exactly what clears it; refusing would leave the item conflicted for
-     * good, which is worse for a human than finishing the move they can then
-     * re-edit.
+     * Core's own rules, run by core (`evaluateStandingRules`) — not a copy.
+     * The five checks were written out here once, and a shell that restates a
+     * safety ladder is a second ladder waiting to disagree with the first
+     * about whether a repository still says yes. What the shell decides is
+     * WHICH rules to run; how each one answers, in what order, and under which
+     * code stays core's.
+     *
+     * The subset is the item-independent half, and it is the whole gate a
+     * RESUME passes. The full ladder is not re-run on a resume, and the reason
+     * is add-then-remove: a half-done label swap leaves the item holding two
+     * position labels, which projects as a conflict, which `deriveWorld`
+     * reports as no authoritative precondition — so `evaluateWrite` could only
+     * ever answer `preconditionStale` there. The conflict is this platform's
+     * own intermediate, and the remaining call is exactly what clears it;
+     * refusing would leave the item conflicted for good, which is worse for a
+     * human than finishing the move they can then re-edit.
      */
     const brakes = (pass: Pass, operation: IntentOperation, facts: ShellExternals): GateVerdict => {
-        if (facts.killSwitchActive) return refuse("killSwitch", "a kill switch is active");
-        if (pass.config.mode === "disabled") {
-            return refuse("modeDisabled", "the repository mode is disabled");
-        }
-        if (pass.config.mode !== "active") {
-            return refuse(
-                "modeRecordsOnly",
-                `repository mode is ${pass.config.mode}; the effect is recorded, not applied`,
-            );
-        }
-        if (pass.config.capabilities[pass.capability]?.enabled !== true) {
-            return refuse("capabilityDisabled", "the repository did not enable this capability");
-        }
-        const missing = missingPermissions(
-            [INTENT_OPERATIONS[operation].permission],
-            facts.installationGrants,
+        const operationFacts = INTENT_OPERATIONS[operation];
+        const verdict = evaluateStandingRules(
+            {
+                capability: pass.capability,
+                actionClass: operationFacts.actionClassFloor,
+                requiredPermissions: [operationFacts.permission],
+            },
+            pass.config,
+            {
+                killSwitchActive: facts.killSwitchActive,
+                installationGrants: facts.installationGrants,
+            },
         );
-        return missing.length === 0
-            ? { ok: true }
-            : refuse("permissionMissing", `the installation lacks ${missing.join(", ")}`);
+        return verdict.outcome === "apply" ? { ok: true } : refuse(verdict.code, verdict.reason);
     };
 
     /** The brakes, over externals read fresh for this pass. */

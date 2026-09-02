@@ -60,6 +60,11 @@ export const MERGE_LABEL = "status: ready to merge";
  * Parsed rather than built as a literal: `RepositoryConfig` carries a revision
  * and a validated shape, and a hand-made one would let a test pass against a
  * document the real parser would have rejected.
+ *
+ * `intake` is enabled in EVERY mode, including `disabled`. The two are
+ * separate refusals with separate codes, and the capability rule runs first —
+ * so a `disabled` document that also turned the capability off would refuse
+ * under `capabilityDisabled` and never exercise the mode rule at all.
  */
 export function configFor(mode: RepositoryMode = "active", revision = "rev-1"): RepositoryConfig {
     const result = parseConfigDocument(
@@ -67,7 +72,7 @@ export function configFor(mode: RepositoryMode = "active", revision = "rev-1"): 
 mode: ${mode}
 capabilities:
   intake:
-    enabled: ${mode === "disabled" ? "false" : "true"}
+    enabled: true
     settings:
       announce: false
 mappings:

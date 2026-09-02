@@ -48,6 +48,7 @@ import {
     verdictFinding,
     type Finding,
     type Report,
+    type Subject,
 } from "../report/index.js";
 
 // ─── What goes in, what comes out ────────────────────────────────────
@@ -157,6 +158,31 @@ async function orderingFor(
 }
 
 /**
+ * What dry-run would have done, said once per intent that got that far.
+ *
+ * This is the whole difference between the two record-only modes. `observe`
+ * reports that a repository in a recording mode recorded; `dry-run` also names
+ * the change, so the ladder's middle rung is a rehearsal an operator can read
+ * before promoting the repository to `active` (safety rule 10's rollout half).
+ *
+ * It DESCRIBES rather than prepares. No managed identity is minted here and
+ * none is minted anywhere else in this mode: a marker is the name a landed
+ * write is found again under, and a write that will not happen has nothing to
+ * find (D125). The change is spelled in `describeChange`'s words, so the
+ * rehearsal and the active-mode safety record name the same change identically.
+ */
+function wouldApplyFinding(intent: AnyIntent, subject: Subject): Finding {
+    return finding(
+        "info",
+        "wouldApply",
+        `dry-run: ${intent.capability} would ${intent.operation} on ` +
+            `${intent.repository.owner}/${intent.repository.repo}#${String(intent.item.number)} — ` +
+            `${describeChange(intent)}. Nothing was written.`,
+        subject,
+    );
+}
+
+/**
  * The managed-comment identity for an intent that has one, minted from the
  * intent's OWN fields — the capability it is attributed to, the purpose it
  * asked for, and the idempotency key the screen has already re-derived.
@@ -230,14 +256,22 @@ async function gateIntent(
     if (verdict.outcome !== "refuse") {
         findings.push(explanationFinding(intent.explanation, subject));
     }
-    findings.push(
-        verdictFinding(verdict, {
-            kind: "effect",
-            capability: declaration.name,
-            item: intent.item,
-            operation: intent.operation,
-        }),
-    );
+    const effectSubject = {
+        kind: "effect",
+        capability: declaration.name,
+        item: intent.item,
+        operation: intent.operation,
+    } as const;
+    findings.push(verdictFinding(verdict, effectSubject));
+    // After the verdict, because it elaborates on it: the verdict says the
+    // mode recorded rather than applied, and this says what it recorded.
+    if (
+        config.mode === "dry-run" &&
+        verdict.outcome === "record-only" &&
+        verdict.code === "modeRecordsOnly"
+    ) {
+        findings.push(wouldApplyFinding(intent, effectSubject));
+    }
     return {
         findings,
         approved:

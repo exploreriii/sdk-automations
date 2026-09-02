@@ -121,12 +121,13 @@ describe("one real delivery, end to end", () => {
         expect(problems(decision.report)).toEqual([]);
     });
 
-    it("dry-run tells the same story without applying it", async () => {
+    it("dry-run tells the same story, and names what it would have done", async () => {
         const decision = await send("dry-run");
         expect(decision.approved).toEqual([]);
         expect(decision.report.findings.map((f) => `${f.code}:${f.severity}`)).toEqual([
             "capabilityExplained:info",
             "modeRecordsOnly:notice",
+            "wouldApply:info",
         ]);
     });
 

@@ -69,6 +69,14 @@ assert both layers directly: kill switch → authoritative precondition → obse
 permission → closure → pause → human conflict → mode. Precedence decides which code a maintainer
 sees and is therefore policy rather than style.
 
+Each rule also carries its **scope**: `standing` rules read only the repository's file and the
+installation, `itemState` rules read the derived world, the ordering evidence or the cause's
+timestamp. `evaluateStandingRules` runs the kill switch plus the `standing` subset, in the same
+order, for a caller that holds no item — the write path's resume gate, which re-checks the brakes
+between deciding and applying and would otherwise restate five rules of its own. The barrel exports
+it for that one caller; the argument for running a subset there belongs at the call site, and lives
+in `shell/src/apply.ts`.
+
 The write-path rules in [`design/guides/effects.md`](../../../../design/guides/effects.md) are absent here on purpose — postcondition verification, unclear-outcome
 reconciliation, tested rollback and staged rollout cannot be decided from a single request. They
 belong to a future write path and to process.

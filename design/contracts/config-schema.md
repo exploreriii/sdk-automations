@@ -96,7 +96,7 @@ Unknown keys are rejected at the top level, inside `mappings`, and inside each c
 |---|---|
 | `disabled` | Core still evaluates enabled capabilities and declared resolvers, then refuses every screened intent with `modeDisabled`; it approves no effect. |
 | `observe` | Core records findings and record-only intent explanations, never an effect to apply. This is the safe default. |
-| `dry-run` | Currently the same record-only decision path as `observe`; a distinct output/rollout treatment is deferred. |
+| `dry-run` | The same record-only decision path as `observe`, plus a `wouldApply` finding naming each effect that reached the mode rule. No identity is minted and nothing is prepared. |
 | `active` | A valid core mode, but the current shell intercepts it as `modeUnsupported` because no GitHub write path exists. |
 
 For modes that reach `decide()`, the process kill switch is the first safety verdict for each returned

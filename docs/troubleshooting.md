@@ -16,7 +16,7 @@ Nothing to fix — this is your configuration, or our caution, behaving as speci
 |---|---|
 | `killSwitch` | The intent-level emergency brake is on; returned intents are refused after capability evaluation |
 | `modeDisabled` | Your file says `disabled`; enabled capabilities may be evaluated, but every screened intent is refused |
-| `modeRecordsOnly` | Your file says `observe` or `dry-run` — currently both record the action instead of applying it |
+| `modeRecordsOnly` | Your file says `observe` or `dry-run` — both record the action instead of applying it, and `dry-run` also names what it would have done in a `wouldApply` line beside this one |
 | `observation` | It was only ever a read; there was nothing to apply |
 | `capabilityDisabled` | The capability is `enabled: false` (or absent) in your file |
 | `itemBlocked` | A human marked the item `blocked`, so the App keeps its hands off |
@@ -50,5 +50,5 @@ or the delivery, not the work.
 | Kind | In plain terms |
 |---|---|
 | `configRejected` | Your `automations.yml` did not parse or did not validate; the errors are named in [Every way the file can be wrong](configuration.md#every-way-the-file-can-be-wrong), and redelivering the same event cannot repair a file |
-| `modeUnsupported` | Your file says `mode: active`, which is reserved and rejected before a decision because the runnable shell has no GitHub write path yet; choose `observe` or `dry-run` |
+| `modeUnsupported` | Your file says `mode: active`, and the endpoint serving it was started as a composition that wires no write path — so it is rejected before a decision rather than acted on. That is still the shipped default: writes are armed only when the endpoint is given the App's identity as well as its credentials (`APP_SLUG`, see the shell's README). Until then, choose `observe` or `dry-run` |
 | `repositoryMismatch` | The delivery came from a different repository than the one this endpoint was started for, so nothing about it was read — point the webhook at the right endpoint, or start the endpoint for the right repository (`REPO_OWNER`/`REPO_NAME`) |

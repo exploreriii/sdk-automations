@@ -67,8 +67,9 @@ migration/deprecation policy for any future version remains deliberately undecid
 | Default | `observe` |
 | Allowed | `disabled`, `observe`, `dry-run`, `active` |
 
-Core recognizes all four values, but the runnable shell supports the three non-active modes. Active is
-reserved and rejected before a decision, recorded as `modeUnsupported` and explained in
+Core recognizes all four values. Whether `active` is honoured depends on the composition the endpoint
+was started as: one that wires no write path — the shipped default — rejects it before a decision and
+records `modeUnsupported`, explained in
 [Troubleshooting](troubleshooting.md#it-never-got-as-far-as-deciding). Values are case-sensitive, and
 unquoted `no` is a YAML boolean rather than a mode — quote anything you are unsure of.
 
@@ -76,12 +77,18 @@ unquoted `no` is a YAML boolean rather than a mode — quote anything you are un
 |---|---|---|---|---|
 | `disabled` | yes | findings plus `modeDisabled` refusals | no | no |
 | `observe` | yes | yes | yes—record-only | no |
-| `dry-run` | yes | yes | yes—currently the same path as `observe` | no |
+| `dry-run` | yes | yes | yes—record-only, plus a `wouldApply` line naming each change | no |
 | `active` | configuration only | unsupported-mode rejection | no | no |
 
 Enabled capabilities and their declared resolvers run before the mode verdict, including in `disabled`.
-The distinction between `observe` and `dry-run` is reserved but not implemented in decision output yet.
-Active GitHub writes and effect recovery are not implemented.
+`observe` and `dry-run` refuse identically; the difference is what they say. For every effect that
+reaches the mode rule, `dry-run` adds one `wouldApply` finding naming the capability, the operation,
+the item and the exact change — a rehearsal to read before promoting a repository to `active`. An
+effect an earlier rule refused is never rehearsed, and nothing is prepared: no comment marker is
+minted for a write that will not happen.
+
+`active` is rejected before a decision by any composition that wires no write path, which is the
+shipped default. See [Troubleshooting](troubleshooting.md#it-never-got-as-far-as-deciding).
 
 `mode:` with no value after it is an error, not a default — the App will not pick a mode for you.
 

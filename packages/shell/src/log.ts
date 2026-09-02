@@ -37,6 +37,12 @@ export type ShellEvent =
           readonly configSource: "live" | "local";
           readonly configPath: string;
           readonly storePath: string;
+          /**
+           * Whether this composition wired a write path. `absent` is the
+           * shipped default and the reason `mode: active` records
+           * `modeUnsupported`; see `main.ts` on `APP_SLUG`.
+           */
+          readonly writes: "armed" | "absent";
       }
     | { readonly event: "shutdown"; readonly signal: string }
     | {

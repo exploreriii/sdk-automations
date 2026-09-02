@@ -70,6 +70,17 @@ const PULL_REQUEST_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6b";
 const READ_ONLY_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6c";
 /** Seeded straight into a running child's store, where only a sweep can find it. */
 const SWEPT_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6d";
+/** The one active-mode delivery, whose effects reach the fake GitHub below. */
+const ACTIVE_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6e";
+
+/** The issue `issues.opened.json` carries, which the write routes answer for. */
+const ISSUE_NUMBER = 164;
+/** The App the child is told it is: the id it authenticates as, and its slug. */
+const APP_ID = "123";
+const APP_SLUG = "hiero-hackers-sandbox";
+const TRIAGE_LABEL = "status: triage";
+/** The default timeline's one human label — later than any fixture's cause. */
+const TIMELINE_AT = "2026-08-06T23:10:51Z";
 
 const MISSING_VARIABLES =
     "WEBHOOK_SECRET, REPO_OWNER and REPO_NAME are required (the sandbox App's secret and the repository this endpoint serves).";
@@ -93,6 +104,25 @@ capabilities:
     enabled: true
 `;
 
+/**
+ * The write path's own configuration. `announce: false` on purpose: intake's
+ * second intent claims the triage meaning is ABSENT, and by the time it is
+ * gated the first effect has already put the label there — so the comment
+ * would be refused as `preconditionStale` and the case would be about that
+ * instead of about the composition.
+ */
+const ACTIVE_CONFIG = `schemaVersion: 1
+mode: active
+capabilities:
+  intake:
+    enabled: true
+    settings:
+      announce: false
+mappings:
+  labels:
+    awaitingTriage: "${TRIAGE_LABEL}"
+`;
+
 /** Everything main.ts reads, cleared from the inherited environment. */
 const SHELL_VARIABLES = [
     "WEBHOOK_SECRET",
@@ -100,6 +130,7 @@ const SHELL_VARIABLES = [
     "REPO_NAME",
     "CONFIG_FILE",
     "APP_ID",
+    "APP_SLUG",
     "PRIVATE_KEY_PATH",
     "INSTALLATION_ID",
     "STORE_PATH",
@@ -427,6 +458,13 @@ interface StoredRecord {
     readonly deliveryId: string;
     readonly event: string;
     readonly report?: Report;
+    /** What became of each approved effect. Present on a decision record. */
+    readonly effects?: readonly {
+        readonly capability: string;
+        readonly operation: string;
+        readonly outcome: string;
+        readonly code: string | null;
+    }[];
 }
 
 /** A locked database is the child mid-commit — the answer is "not yet". */
@@ -489,15 +527,35 @@ interface FakeGitHub {
     readonly issuesPermission?: string;
     /** The timeline is the last route: anything unmatched is one. */
     readonly timelineStatus?: number;
+    /**
+     * The timeline entries the item's reads answer with. The default is one
+     * human label, which is what makes an ordinary delivery report
+     * `newerHumanChange`; the write case passes `[]` so the ladder gets past
+     * the ordering rule and reaches the applier.
+     */
+    readonly timeline?: readonly unknown[];
 }
 
-/** A child-only fetch double: it proves live composition without network access. */
+/**
+ * A child-only fetch double: it proves live composition without network
+ * access.
+ *
+ * The label and comment routes are STATEFUL, held in the child's own module
+ * scope for the life of the process. A stateless double cannot exercise the
+ * write path at all: the applier reads the item back before it gates, sends,
+ * and then reads again to prove the postcondition held — so a GitHub that
+ * answered the same thing before and after a write would either refuse the
+ * write it was about to make or fail to confirm the one it made.
+ */
 function writeFetchPreload(path: string, logPath: string, github: FakeGitHub = {}): void {
     const {
         mintStatus = 201,
         config = CONFIG,
         issuesPermission = "write",
         timelineStatus = 200,
+        timeline = [
+            { event: "labeled", actor: { type: "User", login: "human" }, created_at: TIMELINE_AT },
+        ],
     } = github;
     const configBody = JSON.stringify({
         type: "file",
@@ -508,15 +566,56 @@ function writeFetchPreload(path: string, logPath: string, github: FakeGitHub = {
     writeFileSync(
         path,
         `import { appendFileSync } from "node:fs";
+const labels = new Set();
+const comments = [];
+let nextCommentId = 1;
+const ITEM = ${JSON.stringify(`/issues/${String(ISSUE_NUMBER)}`)};
+const labelList = () => [...labels].map((name) => ({ name }));
 globalThis.fetch = async (input, init = {}) => {
+    const url = String(input);
+    const method = init.method ?? "GET";
     const headers = Object.fromEntries(new Headers(init.headers).entries());
     appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({
-        url: String(input),
-        method: init.method ?? "GET",
+        url,
+        method,
         authorization: headers.authorization ?? null,
         body: init.body ?? null,
     }) + "\\n");
-    if (String(input).includes("/access_tokens")) {
+    if (url.includes(ITEM + "/labels")) {
+        if (method === "POST") {
+            for (const name of JSON.parse(init.body).labels) labels.add(name);
+            return new Response(JSON.stringify(labelList()), { status: 200 });
+        }
+        if (method === "DELETE") {
+            labels.delete(decodeURIComponent(url.split(ITEM + "/labels/")[1]));
+            return new Response(JSON.stringify(labelList()), { status: 200 });
+        }
+        return new Response(JSON.stringify(labelList()), { status: 200 });
+    }
+    if (url.includes(ITEM + "/comments")) {
+        if (method === "POST") {
+            comments.push({
+                id: nextCommentId++,
+                body: JSON.parse(init.body).body,
+                performed_via_github_app: { id: ${String(APP_ID)} },
+            });
+            return new Response(JSON.stringify(comments.at(-1)), { status: 201 });
+        }
+        return new Response(JSON.stringify(comments), { status: 200 });
+    }
+    if (url.includes("/timeline")) {
+        if (${String(timelineStatus)} !== 200) {
+            return new Response("nope", { status: ${String(timelineStatus)} });
+        }
+        return new Response(${JSON.stringify(JSON.stringify(timeline))}, { status: 200 });
+    }
+    if (new URL(url).pathname.endsWith(ITEM)) {
+        return new Response(
+            JSON.stringify({ state: "open", labels: labelList() }),
+            { status: 200 },
+        );
+    }
+    if (url.includes("/access_tokens")) {
         if (${String(mintStatus)} !== 201) return new Response("{}", { status: ${String(mintStatus)} });
         return new Response(JSON.stringify({
             token: "shell-test-installation-token",
@@ -535,17 +634,80 @@ globalThis.fetch = async (input, init = {}) => {
             } },
         } } }), { status: 200 });
     }
+    // The last route: anything unmatched is a timeline, as it always was.
     if (${String(timelineStatus)} !== 200) {
         return new Response("nope", { status: ${String(timelineStatus)} });
     }
-    return new Response(JSON.stringify([{
-        event: "labeled",
-        actor: { type: "User", login: "human" },
-        created_at: "2026-08-06T23:10:51Z",
-    }]), { status: 200 });
+    return new Response(${JSON.stringify(JSON.stringify(timeline))}, { status: 200 });
 };
 `,
     );
+}
+
+/** One line of the fetch log — what the child asked GitHub for, and how. */
+interface LoggedRequest {
+    readonly url: string;
+    readonly method: string;
+    readonly authorization: string | null;
+    readonly body: string | null;
+}
+
+function requestsIn(logPath: string): LoggedRequest[] {
+    return readFileSync(logPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as LoggedRequest);
+}
+
+/** What a live-composition case gets to look at. */
+interface LiveShell {
+    readonly shell: Shell;
+    readonly port: number;
+    readonly storeFile: string;
+    readonly fetchLog: string;
+}
+
+/**
+ * A child wired to App credentials and a scripted GitHub, for the duration of
+ * `body`.
+ *
+ * A real RSA key is generated per case rather than committed: the child signs
+ * a genuine App assertion with it, and a fixture key in the tree is a secret
+ * shaped like a secret.
+ */
+async function withLiveGitHub(
+    github: FakeGitHub & { readonly slug?: string },
+    body: (live: LiveShell) => Promise<void>,
+): Promise<void> {
+    await withPaths(async ({ configFile, privateKeyFile, storeFile }) => {
+        // Deliberately not the config GitHub serves: a local copy that could
+        // satisfy the case would hide a live read that never happened.
+        writeFileSync(configFile, "schemaVersion: 1\nmode: observe\n");
+        const { privateKey } = generateKeyPairSync("rsa", {
+            modulusLength: 2048,
+            privateKeyEncoding: { type: "pkcs8", format: "pem" },
+            publicKeyEncoding: { type: "spki", format: "pem" },
+        });
+        writeFileSync(privateKeyFile, privateKey);
+        const fetchLog = `${privateKeyFile}.fetch.log`;
+        const preload = `${privateKeyFile}.fetch.mjs`;
+        writeFetchPreload(preload, fetchLog, github);
+        const port = await freePort();
+        await withShell(
+            {
+                ...bootEnvironment(),
+                APP_ID,
+                PRIVATE_KEY_PATH: privateKeyFile,
+                INSTALLATION_ID: "789",
+                CONFIG_FILE: configFile,
+                STORE_PATH: storeFile,
+                PORT: String(port),
+                ...(github.slug === undefined ? {} : { APP_SLUG: github.slug }),
+            },
+            (shell) => body({ shell, port, storeFile, fetchLog }),
+            preload,
+        );
+    });
 }
 
 describe("the sandbox entry point, as a process", () => {
@@ -728,7 +890,7 @@ describe("the sandbox entry point, as a process", () => {
                 await withShell(
                     {
                         ...bootEnvironment(),
-                        APP_ID: "123",
+                        APP_ID,
                         PRIVATE_KEY_PATH: privateKeyFile,
                         INSTALLATION_ID: "789",
                     },
@@ -810,7 +972,7 @@ describe("the sandbox entry point, as a process", () => {
                 await withShell(
                     {
                         ...bootEnvironment(),
-                        APP_ID: "123",
+                        APP_ID,
                         PRIVATE_KEY_PATH: privateKeyFile,
                         INSTALLATION_ID: "789",
                         CONFIG_FILE: configFile,
@@ -832,17 +994,7 @@ describe("the sandbox entry point, as a process", () => {
                             const decided = await persisted(storeFile, deliveryId);
                             expect(decided.report?.mode).toBe("dry-run");
                             expect(codes(decided)).toEqual(expectedCodes);
-                            const requests = readFileSync(fetchLog, "utf8")
-                                .trim()
-                                .split("\n")
-                                .map(
-                                    (line) =>
-                                        JSON.parse(line) as {
-                                            url: string;
-                                            method: string;
-                                            authorization: string | null;
-                                        },
-                                );
+                            const requests = requestsIn(fetchLog);
                             const mint = requests.find((request) =>
                                 request.url.endsWith("/app/installations/789/access_tokens"),
                             );
@@ -920,7 +1072,7 @@ describe("the sandbox entry point, as a process", () => {
                 await withShell(
                     {
                         ...bootEnvironment(),
-                        APP_ID: "123",
+                        APP_ID,
                         PRIVATE_KEY_PATH: privateKeyFile,
                         INSTALLATION_ID: "789",
                         CONFIG_FILE: configFile,
@@ -949,6 +1101,124 @@ describe("the sandbox entry point, as a process", () => {
                     preload,
                 );
             });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    // ── APP_SLUG: the variable that arms the write path ──────────────
+
+    /**
+     * The slug becomes `"<slug>[bot]"`, the login a read-back recognises the
+     * App's own comment by. A value that cannot spell one is a typo that
+     * would otherwise be discovered as the App failing to recognise its own
+     * writing — which is how a capability posts a second comment.
+     */
+    it.each(["", "   ", "sandbox[bot]", " sandbox"])(
+        "fails closed when APP_SLUG is %j",
+        async (slug) => {
+            await withShell({ ...bootEnvironment(), APP_SLUG: slug }, async (shell) => {
+                await until(
+                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
+                    "the slug to be refused",
+                );
+                expect(shell.stdout()).toBe("");
+                expect(await shell.exit).toBe(1);
+                expect(shell.stderr().trim()).toBe(
+                    'APP_SLUG must be the App\'s URL slug, with no surrounding spaces and no brackets — the bot login is derived from it as "<slug>[bot]".',
+                );
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /** An identity with nothing to write with is a half-typed live setup. */
+    it(
+        "fails closed when APP_SLUG arrives without the credentials to write with",
+        async () => {
+            await withShell({ ...bootEnvironment(), APP_SLUG }, async (shell) => {
+                await until(
+                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
+                    "the credential-free slug to be refused",
+                );
+                expect(shell.stdout()).toBe("");
+                expect(await shell.exit).toBe(1);
+                expect(shell.stderr().trim()).toBe(
+                    "APP_SLUG arms the write path and needs APP_ID, PRIVATE_KEY_PATH and INSTALLATION_ID to write with.",
+                );
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /**
+     * The credential triad buys READS. Without a slug there is no identity, so
+     * no read-back can verify authorship, so no applier exists — and `active`
+     * is still refused before a decision, exactly as it shipped. The startup
+     * line says so before any delivery arrives.
+     */
+    it(
+        "boots the live read path with no slug, and still refuses active mode",
+        async () => {
+            await withLiveGitHub({ config: ACTIVE_CONFIG }, async ({ port, shell, storeFile }) => {
+                expect(await listening(shell)).toMatchObject({
+                    configSource: "live",
+                    writes: "absent",
+                });
+                expect(await post(port, ACTIVE_GUID, FIXTURE)).toBe(202);
+
+                const record = await persisted(storeFile, ACTIVE_GUID);
+                expect(record).toMatchObject({
+                    kind: "modeUnsupported",
+                    deliveryId: ACTIVE_GUID,
+                });
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /**
+     * The whole composition, end to end and in one process: an active-mode
+     * delivery is decided, its approved effect is journalled, sent to the fake
+     * GitHub, and read back — and the canonical record says `applied`.
+     *
+     * The label POST is asserted separately from the record because they prove
+     * different things. The record says the applier ran and believed itself;
+     * the request log says a write actually left the process, under the
+     * installation token, at the endpoint the matrix confirmed.
+     */
+    it(
+        "with APP_SLUG an active delivery reaches GitHub through the applier",
+        async () => {
+            await withLiveGitHub(
+                { config: ACTIVE_CONFIG, timeline: [], slug: APP_SLUG },
+                async ({ fetchLog, port, shell, storeFile }) => {
+                    expect(await listening(shell)).toMatchObject({ writes: "armed" });
+                    expect(await post(port, ACTIVE_GUID, FIXTURE)).toBe(202);
+
+                    const record = await persisted(storeFile, ACTIVE_GUID);
+                    expect(record.kind).toBe("decision");
+                    expect(record.effects).toEqual([
+                        expect.objectContaining({
+                            capability: "intake",
+                            operation: "applyMappedLabel",
+                            outcome: "applied",
+                            code: null,
+                        }),
+                    ]);
+
+                    const written = requestsIn(fetchLog).filter(
+                        (request) =>
+                            request.method === "POST" &&
+                            request.url.includes(`/issues/${String(ISSUE_NUMBER)}/labels`),
+                    );
+                    expect(written).toEqual([
+                        expect.objectContaining({
+                            authorization: "Bearer shell-test-installation-token",
+                            body: JSON.stringify({ labels: [TRIAGE_LABEL] }),
+                        }),
+                    ]);
+                },
+            );
         },
         TEST_TIMEOUT_MS,
     );
@@ -1072,6 +1342,9 @@ describe("the sandbox entry point, as a process", () => {
                             configSource: "local",
                             configPath: configFile,
                             storePath: storeFile,
+                            // No credentials, so no identity, so no applier:
+                            // the shipped composition writes nothing.
+                            writes: "absent",
                         });
 
                         expect(await post(port, GUID, FIXTURE)).toBe(202);
@@ -1092,8 +1365,10 @@ describe("the sandbox entry point, as a process", () => {
                         expect(codes(decided)).toEqual([
                             "capabilityExplained",
                             "modeRecordsOnly",
+                            "wouldApply",
                             "capabilityExplained",
                             "modeRecordsOnly",
+                            "wouldApply",
                         ]);
 
                         // An unreadable payload is the one report that has to

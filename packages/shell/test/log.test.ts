@@ -98,6 +98,7 @@ const ROUTING: Record<
             configSource: "local",
             configPath: "automations.yml",
             storePath: "shell.sqlite",
+            writes: "absent",
         },
         problem: false,
     },

@@ -26,6 +26,19 @@ export type ActionClass =
     | "immediatePreventive";
 
 /**
+ * The half of a write request that names no item and no instant.
+ *
+ * Split out because a resend judges a call it did not plan: it holds the
+ * capability and the operation, and nothing dated. `evaluateStandingRules` is
+ * the entry point that asks for exactly this much.
+ */
+export interface StandingRequest {
+    readonly requiredPermissions: readonly PermissionGrant[];
+    readonly actionClass: ActionClass;
+    readonly capability: string;
+}
+
+/**
  * What one write request states (`design/contracts/safety.md`).
  *
  * Nothing here comes from a capability's declaration. `decide()` fills
@@ -33,10 +46,7 @@ export type ActionClass =
  * capability cannot understate what its operation needs (D57); the remaining
  * fields come from the intent it returned.
  */
-export interface WriteRequest {
-    readonly requiredPermissions: readonly PermissionGrant[];
-    readonly actionClass: ActionClass;
-    readonly capability: string;
+export interface WriteRequest extends StandingRequest {
     /** Dated cause — when the triggering observation was made. */
     readonly causeObservedAt: Date;
     readonly cause: string;
@@ -52,18 +62,27 @@ export interface WriteRequest {
 export type HumanChangeOrdering = Date | null | "unknown";
 
 /**
- * The three facts a decision needs that are genuinely EXTERNAL, plus the
- * derived world. Nothing else.
+ * The facts that are true of every write in the repository at this instant,
+ * with no item in them.
  *
- * `installationGrants` is what GitHub GRANTED, not whether it is enough —
- * the engine computes sufficiency itself, so a refusal can name the missing
- * permission (D77). `latestHumanChangeAt` must exclude the causing event.
- * `world` cannot be asserted here, only derived (D92).
+ * `installationGrants` is what GitHub GRANTED, not whether it is enough — the
+ * engine computes sufficiency itself, so a refusal can name the missing
+ * permission (D77).
  */
-export interface WriteContext {
+export interface StandingContext {
     readonly installationGrants: readonly PermissionGrant[];
     /** Global / installation / repository / capability kill switches. */
     readonly killSwitchActive: boolean;
+}
+
+/**
+ * The three facts a decision needs that are genuinely EXTERNAL, plus the
+ * derived world. Nothing else.
+ *
+ * `latestHumanChangeAt` must exclude the causing event. `world` cannot be
+ * asserted here, only derived (D92).
+ */
+export interface WriteContext extends StandingContext {
     readonly latestHumanChangeAt: HumanChangeOrdering;
     readonly world: DerivedWorld;
 }

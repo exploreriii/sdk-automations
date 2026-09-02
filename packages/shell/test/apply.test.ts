@@ -459,6 +459,26 @@ describe("recovering an effect nobody closed", () => {
         ]);
     });
 
+    /**
+     * The brakes are core's rules, so their PRECEDENCE is core's too: with the
+     * repository disabled and the capability turned off at once, the code an
+     * operator reads is the one a fresh decision would have reported.
+     */
+    it("names the same code core would when two brakes trip together", async () => {
+        const github = fakeGitHub();
+        orphan({ verb: "addLabel", label: READY_LABEL });
+        const disabledAndOff = {
+            ...configFor("disabled"),
+            capabilities: { intake: { enabled: false, settings: {} } },
+        };
+
+        await applierOver(github).recover(openRow(), disabledAndOff);
+
+        expect(logged).toEqual([
+            expect.objectContaining({ event: "effectRefused", code: "capabilityDisabled" }),
+        ]);
+    });
+
     it("closes the row for good when a kill switch is active", async () => {
         const github = fakeGitHub();
         const effectId = orphan({ verb: "addLabel", label: READY_LABEL });

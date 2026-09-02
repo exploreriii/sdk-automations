@@ -15,6 +15,7 @@ import {
     deriveManagedMarker,
     intentFactory,
     deriveIdempotencyKey,
+    MANAGED_MARKER_PREFIX,
     matchesManagedComment,
     problems,
     toEngine,
@@ -79,7 +80,7 @@ const REV = "rev-engine-1";
 const TRIAGE_LABELS = { awaitingTriage: "status: triage" };
 
 /** The shared triage repository, stamped with this file's revision. */
-const configIn = (mode: "active" | "dry-run", enabled = true): RepositoryConfig =>
+const configIn = (mode: "active" | "dry-run" | "observe", enabled = true): RepositoryConfig =>
     triageConfig(mode, REV, enabled);
 
 const externals: DecideExternals = {
@@ -121,7 +122,7 @@ describe("the apply path, on a real delivery", () => {
         expect(decision.report.revision).toBe("rev-engine-1");
     });
 
-    it("dry-run tells the same story and approves nothing", async () => {
+    it("dry-run tells the same story, names the change, and approves nothing", async () => {
         const decision = await decide(
             delivery("issues.opened.json"),
             configIn("dry-run"),
@@ -132,6 +133,7 @@ describe("the apply path, on a real delivery", () => {
         expect(decision.report.findings.map((f) => `${f.code}:${f.severity}`)).toEqual([
             "capabilityExplained:info",
             "modeRecordsOnly:notice",
+            "wouldApply:info",
         ]);
     });
 
@@ -144,6 +146,123 @@ describe("the apply path, on a real delivery", () => {
         );
         expect(decision.approved).toEqual([]);
         expect(decision.report.findings).toEqual([]);
+    });
+});
+
+/**
+ * The one thing `dry-run` says that `observe` does not (stage E). The claim is
+ * narrow on purpose: a rehearsal DESCRIBES, so the mode still approves nothing
+ * and still mints no identity — the pin the marker suite states as its own.
+ */
+describe("dry-run rehearses, observe records", () => {
+    const observedAt = new Date("2026-08-07T00:00:00Z");
+    const item = { kind: "issue", number: 7 } as const;
+    const repository = { owner: "o", repo: "r" } as const;
+
+    /** One capability, two intents — so "one per intent" is observable. */
+    const noisy: EngineCapability = {
+        declaration: declareCapability({
+            ...declaration,
+            intents: ["applyMappedLabel", "postManagedComment"],
+        }) as never,
+        async evaluate(): Promise<readonly AnyIntent[]> {
+            const make = intentFactory("triage", { repository, item, observedAt });
+            return [
+                make({
+                    operation: "applyMappedLabel",
+                    desired: { meaning: "awaitingTriage", cause: "intakeObserved" },
+                    expected: { meaningsAbsent: ["awaitingTriage"] },
+                    cause: "issueWithoutPosition",
+                    explain: { summary: "New issue placed in triage." },
+                }),
+                make({
+                    operation: "postManagedComment",
+                    desired: { kind: "notice", body: "what the App would say" },
+                    cause: "issueWithoutPosition",
+                    explain: { summary: "New issue announced." },
+                }),
+            ];
+        },
+    };
+
+    const observation = {
+        kind: "issueUpdated",
+        repository,
+        item,
+        position: {
+            kind: "position",
+            state: { meaning: null, blocked: false, closedBy: null },
+            ignored: [],
+        },
+        observedAt,
+    } as const;
+
+    const rehearse = (mode: "dry-run" | "observe", capability = noisy) =>
+        decide({ kind: "observation", observation }, configIn(mode), [capability], externals);
+
+    it("names every intent that got as far as the mode rule, one finding each", async () => {
+        const decision = await rehearse("dry-run");
+        expect(decision.report.findings.map((f) => f.code)).toEqual([
+            "capabilityExplained",
+            "modeRecordsOnly",
+            "wouldApply",
+            "capabilityExplained",
+            "modeRecordsOnly",
+            "wouldApply",
+        ]);
+        const rehearsed = decision.report.findings.filter((f) => f.code === "wouldApply");
+        expect(rehearsed.map((f) => f.summary)).toEqual([
+            "dry-run: triage would applyMappedLabel on o/r#7 — set mapped position awaitingTriage. Nothing was written.",
+            "dry-run: triage would postManagedComment on o/r#7 — managed notice comment from triage. Nothing was written.",
+        ]);
+        // The subject is the effect arm, so an operator surface groups a
+        // rehearsal with the verdict that explains why it stayed one.
+        expect(rehearsed.map((f) => f.subject)).toEqual([
+            { kind: "effect", capability: "triage", item, operation: "applyMappedLabel" },
+            { kind: "effect", capability: "triage", item, operation: "postManagedComment" },
+        ]);
+    });
+
+    it("says nothing extra in observe: that mode's promise is unchanged", async () => {
+        const decision = await rehearse("observe");
+        expect(decision.report.findings.map((f) => f.code)).toEqual([
+            "capabilityExplained",
+            "modeRecordsOnly",
+            "capabilityExplained",
+            "modeRecordsOnly",
+        ]);
+    });
+
+    /**
+     * The rehearsal is what the mode rule reached, never what an earlier rule
+     * turned away. A refused intent that reported one would tell an operator
+     * promoting the repository to `active` that a write is coming which the
+     * ladder has already refused.
+     */
+    it("stays silent for an intent an earlier rule refused", async () => {
+        const decision = await decide(
+            { kind: "observation", observation },
+            configIn("dry-run"),
+            [noisy],
+            { ...externals, installationGrants: [] },
+        );
+        expect(decision.report.findings.map((f) => f.code)).toEqual([
+            "permissionMissing",
+            "permissionMissing",
+        ]);
+    });
+
+    /**
+     * The invariant D125 fixed, restated where the rehearsal could break it:
+     * a description that derived a marker would be minting the name of a write
+     * nobody is going to make.
+     */
+    it("derives no managed identity, and prints none", async () => {
+        const decision = await rehearse("dry-run");
+        expect(decision.approved).toEqual([]);
+        for (const found of decision.report.findings) {
+            expect(found.summary).not.toContain(MANAGED_MARKER_PREFIX);
+        }
     });
 });
 

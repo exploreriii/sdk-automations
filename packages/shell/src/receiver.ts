@@ -144,6 +144,7 @@ async function readBody(
     // `aborted` is deprecated and usually accompanied by a stream error,
     // but not always; folding it into destroy() sends the lone signal
     // through the same rejection path as every other failure.
+    // Stryker disable next-line StringLiteral: the reason never leaves this function — destroy() rejects the read, the 500 boundary answers it, and nothing before the store is ever logged.
     request.once("aborted", () => request.destroy(new Error("request aborted")));
     const chunks: Buffer[] = [];
     let size = 0;
@@ -151,6 +152,7 @@ async function readBody(
         size += chunk.length;
         if (size > MAX_BODY_BYTES) {
             response.writeHead(413).end();
+            // Stryker disable next-line CallExpression: leaving the for-await early destroys the request anyway (node's async-iterator teardown), so this only says out loud that the connection is finished with.
             request.destroy();
             return null;
         }
@@ -163,6 +165,7 @@ async function readBody(
  * else is even read. Total — a missing header is `false`, never a throw. */
 function isVerifiedDelivery(request: IncomingMessage, body: Buffer, secret: string): boolean {
     const signature = request.headers[SIGNATURE_HEADER];
+    // Stryker disable next-line ConditionalExpression: node folds repeated non-set-cookie headers into one comma-joined string, so the arm never runs off a socket — it is what makes the call typecheck.
     return verifyBody(secret, body, typeof signature === "string" ? signature : undefined);
 }
 
@@ -175,6 +178,7 @@ function deliveryIdentity(
     request: IncomingMessage,
 ): { deliveryId: DeliveryGuid; eventName: string } | null {
     const rawGuid = request.headers["x-github-delivery"];
+    // Stryker disable next-line ConditionalExpression: asDeliveryGuid checks the type itself and answers undefined for anything else, so the arm decides nothing; it is what makes the call typecheck.
     const deliveryId = typeof rawGuid === "string" ? asDeliveryGuid(rawGuid) : undefined;
     const eventName = request.headers["x-github-event"];
     if (deliveryId === undefined || typeof eventName !== "string" || eventName === "") {

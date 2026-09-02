@@ -38,6 +38,25 @@ describe("configuration source", () => {
         });
     });
 
+    /**
+     * Only the LEADING one. A U+FEFF anywhere else is a zero-width no-break
+     * space in the operator's own bytes \u2014 content, not an encoding artefact \u2014
+     * and the live source's decode leaves it alone too. Deleting it would
+     * hand the parser a document GitHub never held.
+     */
+    it("keeps a BOM that is not the first character", async () => {
+        await withTempDir("shell-config-", async (directory) => {
+            const path = join(directory, CONFIG_PATH);
+            const text = "mode: observe # a\uFEFFb\n";
+            writeFileSync(path, text);
+
+            await expect(fileConfigSource(path).load()).resolves.toMatchObject({
+                ok: true,
+                document: { text },
+            });
+        });
+    });
+
     it("maps only an absent file to the no-config document", async () => {
         await withTempDir("shell-config-", async (directory) => {
             await expect(fileConfigSource(join(directory, "missing.yml")).load()).resolves.toEqual({

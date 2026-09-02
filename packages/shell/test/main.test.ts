@@ -30,7 +30,12 @@ import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { signBody, SIGNATURE_HEADER, type Report } from "@hiero-hackers/automation-core";
+import {
+    asDeliveryGuid,
+    signBody,
+    SIGNATURE_HEADER,
+    type Report,
+} from "@hiero-hackers/automation-core";
 import { Store } from "@hiero-hackers/automation-store";
 import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
 
@@ -63,6 +68,8 @@ const FIXTURE = capture("issues.opened.json").bytes();
 const PULL_REQUEST_FIXTURE = capture("pull_request.opened.json").bytes();
 const PULL_REQUEST_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6b";
 const READ_ONLY_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6c";
+/** Seeded straight into a running child's store, where only a sweep can find it. */
+const SWEPT_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6d";
 
 const MISSING_VARIABLES =
     "WEBHOOK_SECRET, REPO_OWNER and REPO_NAME are required (the sandbox App's secret and the repository this endpoint serves).";
@@ -475,16 +482,23 @@ async function withPaths<T>(
     }
 }
 
-/** A child-only fetch double: it proves live composition without network access. */
-function writeFetchPreload(
-    path: string,
-    logPath: string,
-    mintStatus = 201,
-    config = CONFIG,
-    issuesPermission = "write",
+/** How one child's GitHub answers, for the cases that need it to misbehave. */
+interface FakeGitHub {
+    readonly mintStatus?: number;
+    readonly config?: string;
+    readonly issuesPermission?: string;
     /** The timeline is the last route: anything unmatched is one. */
-    timelineStatus = 200,
-): void {
+    readonly timelineStatus?: number;
+}
+
+/** A child-only fetch double: it proves live composition without network access. */
+function writeFetchPreload(path: string, logPath: string, github: FakeGitHub = {}): void {
+    const {
+        mintStatus = 201,
+        config = CONFIG,
+        issuesPermission = "write",
+        timelineStatus = 200,
+    } = github;
     const configBody = JSON.stringify({
         type: "file",
         encoding: "base64",
@@ -636,11 +650,35 @@ describe("the sandbox entry point, as a process", () => {
         TEST_TIMEOUT_MS,
     );
 
-    /** An empty HOST is a typo for absent, and node answers it by resolving. */
-    it(
-        "fails closed when HOST is empty",
-        async () => {
-            await withShell({ ...bootEnvironment(), HOST: "" }, async (shell) => {
+    /**
+     * Both ends of the range are IN it. A privileged 1 and the last port
+     * 65535 are values an operator may legitimately be handed, and what
+     * happens to them next is the operating system's business — a refusal
+     * here would be this shell inventing a narrower range than it documents.
+     */
+    it.each(["1", "65535"])(
+        "does not refuse PORT %j: the range includes both its ends",
+        async (port) => {
+            await withShell({ ...bootEnvironment(), PORT: port }, async (shell) => {
+                await until(
+                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
+                    "the boot to settle",
+                );
+                expect(shell.stderr()).not.toContain("PORT must be");
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /**
+     * An empty HOST is a typo for absent, and node answers it by resolving
+     * the empty host rather than by refusing. Whitespace is the same typo
+     * with a space in it, and reads the same way.
+     */
+    it.each(["", "   "])(
+        "fails closed when HOST is %j",
+        async (host) => {
+            await withShell({ ...bootEnvironment(), HOST: host }, async (shell) => {
                 await until(
                     () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
                     "the empty host to be refused",
@@ -649,6 +687,34 @@ describe("the sandbox entry point, as a process", () => {
                 expect(await shell.exit).toBe(1);
                 expect(shell.stderr().trim()).toBe(
                     "HOST must be a host name or address, or unset to bind every interface.",
+                );
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /**
+     * An UNSET host is the unnamed bind — the one value that is not a typo
+     * — so the boot has to walk past that check and reach the ones below
+     * it. Proved by refusing the next variable instead of by listening: a
+     * suite that bound every interface is a suite the machine asks its
+     * operator about.
+     */
+    it(
+        "reads an unset HOST as the unnamed bind and goes on to the next check",
+        async () => {
+            const environment = bootEnvironment();
+            delete environment["HOST"];
+
+            await withShell({ ...environment, SWEEP_INTERVAL_SECONDS: "0" }, async (shell) => {
+                await until(
+                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
+                    "the sweep interval to be refused",
+                );
+                expect(shell.stdout()).toBe("");
+                expect(await shell.exit).toBe(1);
+                expect(shell.stderr().trim()).toBe(
+                    "SWEEP_INTERVAL_SECONDS must be a whole number of seconds, 1 or more.",
                 );
             });
         },
@@ -739,7 +805,7 @@ describe("the sandbox entry point, as a process", () => {
                 writeFileSync(privateKeyFile, privateKey);
                 const fetchLog = `${privateKeyFile}.fetch.log`;
                 const preload = `${privateKeyFile}.fetch.mjs`;
-                writeFetchPreload(preload, fetchLog, mintStatus, config, issuesPermission);
+                writeFetchPreload(preload, fetchLog, { mintStatus, config, issuesPermission });
                 const port = await freePort();
                 await withShell(
                     {
@@ -844,16 +910,12 @@ describe("the sandbox entry point, as a process", () => {
                 });
                 writeFileSync(privateKeyFile, privateKey);
                 const preload = `${privateKeyFile}.fetch.mjs`;
-                writeFetchPreload(
-                    preload,
-                    `${privateKeyFile}.fetch.log`,
-                    201,
-                    PULL_REQUEST_CONFIG,
-                    "write",
+                writeFetchPreload(preload, `${privateKeyFile}.fetch.log`, {
+                    config: PULL_REQUEST_CONFIG,
                     // The timeline read is refused, so the item's ordering
                     // cannot be established from anything.
-                    500,
-                );
+                    timelineStatus: 500,
+                });
                 const port = await freePort();
                 await withShell(
                     {
@@ -885,6 +947,97 @@ describe("the sandbox entry point, as a process", () => {
                         expect(codes(decided)).toContain("humanOrderingUnknown");
                     },
                     preload,
+                );
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /**
+     * The state home is the operator's directory, and on the machines this
+     * default exists for — a fresh container, a volume mounted empty — none
+     * of it is there yet. Every missing segment on the way to the store is
+     * this process's to create, not just the last one.
+     */
+    it(
+        "creates the whole path to a state home that is not there yet",
+        async () => {
+            const home = join(state.dir, "not", "created", "yet");
+            const port = await freePort();
+
+            await withShell(
+                { ...bootEnvironment(), XDG_STATE_HOME: home, PORT: String(port) },
+                async (shell) => {
+                    const store = join(home, "sdk-automations", "shell.sqlite");
+                    expect(await listening(shell)).toMatchObject({ storePath: store });
+                    expect(existsSync(store)).toBe(true);
+                },
+            );
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /**
+     * SWEEP_INTERVAL_SECONDS is seconds. A shell told to sweep hourly and
+     * sweeping every few milliseconds instead looks like working software
+     * — the recovery is only ever early — while running a timer against
+     * the store a thousand times faster than the operator asked for.
+     */
+    it(
+        "sweeps on the interval in SECONDS, so an hour is not four milliseconds",
+        async () => {
+            await withPaths(async ({ configFile, storeFile }) => {
+                const port = await freePort();
+                await withShell(
+                    {
+                        ...bootEnvironment(),
+                        CONFIG_FILE: configFile,
+                        STORE_PATH: storeFile,
+                        PORT: String(port),
+                        SWEEP_INTERVAL_SECONDS: "3600",
+                    },
+                    async (shell) => {
+                        await listening(shell);
+                        // One delivery the ordinary way, so the drain a
+                        // start performs is demonstrably over before the
+                        // queue below is seeded behind the child's back.
+                        expect(await post(port, GUID, FIXTURE)).toBe(202);
+                        await persisted(storeFile, GUID);
+
+                        // Nothing will wake the child for this one: no
+                        // webhook arrives, and the next sweep is an hour off.
+                        const seeded = await until(
+                            () => ifUnlocked(() => new Store(storeFile)),
+                            `the store at ${storeFile}`,
+                        );
+                        try {
+                            expect(
+                                seeded.acceptDelivery({
+                                    deliveryId: asDeliveryGuid(SWEPT_GUID)!,
+                                    eventName: "issues",
+                                    payload: FIXTURE,
+                                    receivedAt: new Date().toISOString(),
+                                }),
+                            ).toMatchObject({ outcome: "accepted" });
+                        } finally {
+                            seeded.close();
+                        }
+                        await new Promise<void>((resolve) => {
+                            setTimeout(resolve, 1_000);
+                        });
+
+                        const store = await until(
+                            () => ifUnlocked(() => new Store(storeFile)),
+                            `the store at ${storeFile}`,
+                        );
+                        try {
+                            expect(
+                                store.deliveryReports().map((report) => String(report.deliveryId)),
+                            ).toEqual([GUID]);
+                        } finally {
+                            store.close();
+                        }
+                    },
                 );
             });
         },
@@ -1024,6 +1177,44 @@ describe("the sandbox entry point, as a process", () => {
                         expect(written.at(-1)).toMatchObject({ event: "shutdown" });
                         expect(shell.stderr()).toBe("");
                     },
+                );
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /**
+     * Why the exit is explicit rather than a hope. A handle something else
+     * in the process left open — a library's timer, a socket nobody closed
+     * — would keep a shut-down shell alive until the platform lost patience
+     * and killed it, which is a SIGKILL in the logs for a clean stop. The
+     * last line has left; the process goes.
+     */
+    it(
+        "leaves on time even when something else is still holding the event loop",
+        async () => {
+            await withPaths(async ({ configFile, storeFile }) => {
+                const port = await freePort();
+                const lingering = `${storeFile}.lingering.mjs`;
+                // Referenced on purpose: an unref'd timer would let node end
+                // the process on its own, which is the thing not being tested.
+                writeFileSync(lingering, "setInterval(() => undefined, 60_000);\n");
+
+                await withShell(
+                    {
+                        ...bootEnvironment(),
+                        CONFIG_FILE: configFile,
+                        STORE_PATH: storeFile,
+                        PORT: String(port),
+                    },
+                    async (shell) => {
+                        await listening(shell);
+                        shell.signal("SIGTERM");
+
+                        expect(await shell.exit).toBe(0);
+                        expect(events(shell.stdout()).at(-1)).toMatchObject({ event: "shutdown" });
+                    },
+                    lingering,
                 );
             });
         },

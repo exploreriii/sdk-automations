@@ -127,7 +127,16 @@ describe("a config source that cannot answer", () => {
             expect.objectContaining({
                 kind: "configRejected",
                 configRevision: "deadbeef",
-                errors: [expect.objectContaining({ code: "documentUnparseable" })],
+                errors: [
+                    expect.objectContaining({
+                        code: "documentUnparseable",
+                        // The code cannot distinguish a file that would not
+                        // parse from one that could not be read at all, so
+                        // the message is the only place that difference is
+                        // said — and the operator's only route to the fix.
+                        message: "unreadable before parsing: the config file is not valid UTF-8",
+                    }),
+                ],
             }),
         ]);
     });
@@ -223,6 +232,9 @@ describe("a delivery from another repository", () => {
      */
     it.each([
         ["not an object at all", "not json at all", "payloadNotObject"],
+        // `typeof null === "object"`, so null is the shape that reads as a
+        // record to anything that forgets to say otherwise.
+        ["a literal null", "null", "payloadNotObject"],
         ["no repository", '{"action":"opened"}', "repositoryUnreadable"],
         [
             "a repository that is not an object",
@@ -364,6 +376,19 @@ describe("a crash counts an attempt", () => {
             "delivery report was not committed: notOwned",
         );
         expect(records()).toEqual([]);
+        // A lost claim counted nothing, so the line reports no number: an
+        // attempts figure here would be one this delivery never spent.
+        expect(logged.filter((event) => event.event === "deliveryAttemptFailed")).toEqual([
+            {
+                event: "deliveryAttemptFailed",
+                deliveryId: GUID as string,
+                disposition: "notOwned",
+                attempts: null,
+                maxAttempts: 5,
+                retryNotBefore: null,
+                detail: expect.stringContaining("delivery report was not committed: notOwned"),
+            },
+        ]);
         expect(
             store.claimNextDelivery(
                 "next-worker",

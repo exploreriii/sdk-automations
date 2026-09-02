@@ -44,6 +44,7 @@ const PERMANENT_READ_ERRNOS: ReadonlySet<string> = new Set([
 ]);
 
 const isPermanentReadFailure = (code: string | undefined): boolean =>
+    // Stryker disable next-line ConditionalExpression: Set.has answers false for an undefined code already; the leading arm is for readers.
     code !== undefined && PERMANENT_READ_ERRNOS.has(code);
 
 /** The credential-free source: an operator-maintained local copy. */

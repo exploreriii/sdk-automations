@@ -92,12 +92,16 @@ async function post(handler: RequestHandler, overrides: PostOverrides = {}): Pro
 async function probe(
     handler: RequestHandler,
     path: string,
-): Promise<{ status: number; body: string }> {
+): Promise<{ status: number; body: string; contentType: string | undefined }> {
     const server = createServer(handler);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     try {
         const { port } = server.address() as AddressInfo;
-        return await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        return await new Promise<{
+            status: number;
+            body: string;
+            contentType: string | undefined;
+        }>((resolve, reject) => {
             const request = httpRequest(
                 { host: "127.0.0.1", port, path, method: "GET" },
                 (response) => {
@@ -106,7 +110,13 @@ async function probe(
                     response.on("data", (chunk: string) => {
                         body += chunk;
                     });
-                    response.on("end", () => resolve({ status: response.statusCode ?? 0, body }));
+                    response.on("end", () =>
+                        resolve({
+                            status: response.statusCode ?? 0,
+                            body,
+                            contentType: response.headers["content-type"],
+                        }),
+                    );
                 },
             );
             request.on("error", reject);
@@ -537,6 +547,30 @@ describe("body limits and interrupted streams fail closed", () => {
         expect(calls).toEqual([]);
     }, 30_000);
 
+    /**
+     * What the cap does to the connection, which the case above cannot see:
+     * it sizes the body at one byte over so the client finishes writing
+     * first, and a sender that keeps going after a 413 is a sender still
+     * spending this process's memory. The answer is written, then the
+     * request is cut — and nothing downstream of the cap runs on the body
+     * that was never collected.
+     */
+    it("cuts the connection it capped rather than reading on", async () => {
+        const { calls, accept } = recordingAccept();
+        const request = requestStream();
+        const recorded = responseRecorder();
+        const completion = createReceiver({ secret: SECRET, log: silent, accept })(
+            request,
+            recorded.response,
+        );
+        request.write(Buffer.alloc(25 * 1024 * 1024 + 1, 0x62));
+        await completion;
+
+        expect(recorded.status()).toBe(413);
+        expect(request.destroyed).toBe(true);
+        expect(calls).toEqual([]);
+    }, 30_000);
+
     it.each(["client-abort", "server-error"] as const)(
         "settles a real %s request without accepting partial input",
         async (mode) => {
@@ -584,7 +618,10 @@ describe("the liveness probe", () => {
             createReceiver({ secret: SECRET, log: silent, accept }),
             "/healthz",
         );
-        expect(answer).toEqual({ status: 200, body: "ok\n" });
+        // Typed, because a prober reading an untyped body is a prober whose
+        // client is guessing — and the guess node makes for a bare 200 is
+        // not text.
+        expect(answer).toEqual({ status: 200, body: "ok\n", contentType: "text/plain" });
         expect(calls).toEqual([]);
     });
 

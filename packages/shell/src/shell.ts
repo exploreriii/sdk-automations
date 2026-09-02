@@ -141,6 +141,7 @@ export function createShell(options: ShellOptions): Shell {
     };
     const ticking = setInterval(sweep, options.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS);
     // The sweep is recovery, never a reason for the process to stay alive.
+    // Stryker disable next-line CallExpression: unref only decides whether an otherwise-idle event loop keeps running; nothing in this process can observe it, and the shell's own exit is explicit.
     ticking.unref();
 
     const server = createServer(handler);

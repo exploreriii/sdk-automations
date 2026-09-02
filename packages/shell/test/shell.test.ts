@@ -379,7 +379,75 @@ describe("the first slice, end to end", () => {
         buildShell(toEngine(intake), 5);
         await vi.waitFor(() => expect(records()).toHaveLength(1));
         expect(records()[0]).toMatchObject({ kind: "decision", deliveryId: SECOND_GUID });
+        // Said once, with what it handed back: a requeue means some worker
+        // died holding a claim, which is the line an operator greps for.
+        expect(logged.filter((event) => event.event === "sweepRequeued")).toEqual([
+            { event: "sweepRequeued", requeued: 1, deliveryIds: [SECOND_GUID] },
+        ]);
     });
+
+    /**
+     * The stale window is fifteen MINUTES, and the sweep is the only thing
+     * that reads it. A claim a minute old belongs to a worker that is very
+     * probably still deciding on it, and requeueing it would hand the same
+     * delivery to a second worker — the duplicate the claim exists to stop.
+     */
+    it("leaves a claim that is merely a minute old where it is", async () => {
+        store.acceptDelivery({
+            deliveryId: asDeliveryGuid(SECOND_GUID)!,
+            eventName: "issues",
+            payload: FIXTURE,
+            receivedAt: BASE.toISOString(),
+        });
+        expect(
+            store.claimNextDelivery(
+                "busy-worker",
+                new Date(BASE.getTime() - 60_000).toISOString(),
+                new Date(BASE.getTime() - 60 * 60_000).toISOString(),
+            ),
+        ).toBeDefined();
+        // A second delivery nothing holds, so a sweep that ran is visible:
+        // the tick's own drain completes this one whatever it requeued.
+        store.acceptDelivery({
+            deliveryId: asDeliveryGuid(GUID)!,
+            eventName: "issues",
+            payload: FIXTURE,
+            receivedAt: BASE.toISOString(),
+        });
+
+        buildShell(toEngine(intake), 5);
+        await vi.waitFor(() => expect(records()).toHaveLength(1));
+
+        expect(records()[0]).toMatchObject({ deliveryId: GUID });
+        expect(logged.filter((event) => event.event === "sweepRequeued")).toEqual([]);
+    });
+
+    /**
+     * A drain that cannot even claim is a store problem, and the tick that
+     * started it is long gone by the time the promise rejects — so the
+     * rejection is caught where it can still say which pump it was.
+     */
+    it.each([
+        { phase: "accepted", acknowledge: true },
+        { phase: "sweep", acknowledge: false },
+    ] as const)(
+        "names the pump a failed drain belonged to: $phase",
+        async ({ phase, acknowledge }) => {
+            const shell = buildShell(toEngine(intake), 5);
+            vi.spyOn(store, "claimNextDelivery").mockImplementation(() => {
+                throw new Error("the store cannot be claimed against");
+            });
+            if (acknowledge) expect(await deliver(shell)).toBe(202);
+
+            await vi.waitFor(() =>
+                expect(logged).toContainEqual({
+                    event: "drainFailed",
+                    phase,
+                    detail: expect.stringContaining("the store cannot be claimed against"),
+                }),
+            );
+        },
+    );
 
     it("reports a sweep it cannot run instead of taking the process down", async () => {
         // A closed store is the sweep's worst case: a throw inside a timer
@@ -443,6 +511,7 @@ describe("the first slice, end to end", () => {
             configSource: fileConfigSource(configFile),
             externals: () => stubbedExternals(),
             repository: REPOSITORY,
+            clock: () => BASE,
         });
         running.push(shell);
         expect(await deliver(shell)).toBe(202);
@@ -451,6 +520,12 @@ describe("the first slice, end to end", () => {
 
         expect(lines.map((line) => (JSON.parse(line) as ShellEvent).event)).toContain(
             "deliveryAccepted",
+        );
+        // On the shell's clock, not one of its own: a default logger reading
+        // a second clock would date the log differently from the records
+        // beside it, which is exactly the correlation the log exists for.
+        expect(lines.map((line) => (JSON.parse(line) as { at: string }).at)).toEqual(
+            lines.map(() => BASE.toISOString()),
         );
     });
 

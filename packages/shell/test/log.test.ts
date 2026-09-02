@@ -76,6 +76,116 @@ describe("one line per event", () => {
 });
 
 /**
+ * The whole vocabulary, one minimal line each, against the stream it is
+ * meant to leave by. An operator who follows only stderr is following a
+ * LIST, and a name that quietly fell off it is a problem nobody is told
+ * about — which the four spot-checks above cannot see, because they only
+ * name the events they happen to use.
+ *
+ * `ROUTING` is exhaustive by construction: `ShellEvent["event"]` keys it, so
+ * a seventeenth event fails to compile here until this table admits it.
+ */
+const ROUTING: Record<
+    ShellEvent["event"],
+    { readonly event: ShellEvent; readonly problem: boolean }
+> = {
+    startup: {
+        event: {
+            event: "startup",
+            port: 8790,
+            host: null,
+            repository: "owner/repo",
+            configSource: "local",
+            configPath: "automations.yml",
+            storePath: "shell.sqlite",
+        },
+        problem: false,
+    },
+    shutdown: { event: { event: "shutdown", signal: "SIGTERM" }, problem: false },
+    legacyStoreFound: {
+        event: { event: "legacyStoreFound", legacyPath: "old", storePath: "new" },
+        problem: true,
+    },
+    deliveryAccepted: {
+        event: { event: "deliveryAccepted", deliveryId: "guid-1", eventName: "issues" },
+        problem: false,
+    },
+    deliveryDuplicate: {
+        event: { event: "deliveryDuplicate", deliveryId: "guid-1", eventName: "issues" },
+        problem: false,
+    },
+    deliveryConflict: {
+        event: { event: "deliveryConflict", deliveryId: "guid-1", eventName: "issues" },
+        problem: true,
+    },
+    acceptFailed: {
+        event: { event: "acceptFailed", deliveryId: "guid-1", detail: "store unavailable" },
+        problem: true,
+    },
+    deliveryClaimed: {
+        event: {
+            event: "deliveryClaimed",
+            deliveryId: "guid-1",
+            eventName: "issues",
+            attempts: 0,
+        },
+        problem: false,
+    },
+    deliveryCompleted: {
+        event: { event: "deliveryCompleted", deliveryId: "guid-1", kind: "decision" },
+        problem: false,
+    },
+    deliveryAttemptFailed: {
+        event: {
+            event: "deliveryAttemptFailed",
+            deliveryId: "guid-1",
+            disposition: "retryScheduled",
+            attempts: 1,
+            maxAttempts: 5,
+            retryNotBefore: "2026-08-07T10:00:30.000Z",
+            detail: "live externals unavailable",
+        },
+        problem: true,
+    },
+    deliveryDeadLettered: {
+        event: { event: "deliveryDeadLettered", deliveryId: "guid-1", attempts: 5 },
+        problem: true,
+    },
+    orderingUnknown: {
+        event: {
+            event: "orderingUnknown",
+            deliveryId: "guid-1",
+            detail: "GitHub refused the read",
+        },
+        problem: true,
+    },
+    sweepRequeued: {
+        event: { event: "sweepRequeued", requeued: 1, deliveryIds: ["guid-1"] },
+        problem: true,
+    },
+    sweepFailed: { event: { event: "sweepFailed", detail: "the store is closed" }, problem: true },
+    drainFailed: {
+        event: { event: "drainFailed", phase: "startup", detail: "the store is closed" },
+        problem: true,
+    },
+    storeCloseFailed: {
+        event: { event: "storeCloseFailed", detail: "the store is closed" },
+        problem: true,
+    },
+};
+
+describe("every event in the vocabulary leaves by the stream it was assigned", () => {
+    it.each(Object.entries(ROUTING))("routes %s", (_name, { event, problem }) => {
+        const { out, err, log } = collecting();
+
+        log(event);
+
+        expect(problem ? err : out).toHaveLength(1);
+        expect(problem ? out : err).toEqual([]);
+    });
+});
+
+/**
  * The default sinks are the process's own streams, so a shell that took no
  * options still says what it did — and says the problems where a container
  * collecting only stderr will see them.

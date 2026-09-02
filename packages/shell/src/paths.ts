@@ -43,8 +43,10 @@ export function defaultDataDir(
     home: string = homedir(),
 ): string {
     const stateHome = env["XDG_STATE_HOME"];
+    // `isAbsolute("")` is false, so the empty name needs no clause of its
+    // own: it is ignored as every other unusable value is.
     const base =
-        stateHome !== undefined && stateHome !== "" && isAbsolute(stateHome)
+        stateHome !== undefined && isAbsolute(stateHome)
             ? stateHome
             : join(home, ".local", "state");
     return join(base, DIRECTORY_NAME);
@@ -64,12 +66,22 @@ export function defaultDataDir(
  * An explicit `STORE_PATH` says the question is already settled, and a new
  * default that already exists says the same: this run has a history of its
  * own, and the older store is behind it rather than beside it.
+ *
+ * The environment arrives whole, as it does for `defaultDataDir` above: which
+ * variable settles the question is a fact about where the shell keeps its
+ * files, and this is the file that owns those.
  */
 export function strandedStore(
-    { storePath, overridden }: { readonly storePath: string; readonly overridden: boolean },
+    {
+        env,
+        storePath,
+    }: {
+        readonly env: Readonly<Partial<Record<string, string>>>;
+        readonly storePath: string;
+    },
     exists: (path: string) => boolean = existsSync,
 ): string | null {
-    if (overridden) return null;
+    if (env["STORE_PATH"] !== undefined) return null;
     const superseded = join(LEGACY_DATA_DIR, "shell.sqlite");
     return exists(superseded) && !exists(storePath) ? superseded : null;
 }

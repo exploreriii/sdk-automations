@@ -127,8 +127,7 @@ const CONFIG_NOT_CONSULTED_REVISION = "sha256:unconsulted";
 function parsePayload(bytes: Uint8Array): unknown {
     try {
         return JSON.parse(Buffer.from(bytes).toString("utf8"));
-        // Stryker disable next-line BlockStatement: an emptied catch falls
-        // through to the same implicit undefined — the mutant is equivalent.
+        // Stryker disable next-line BlockStatement: an emptied catch falls through to the same implicit undefined — the mutant is equivalent.
     } catch {
         return undefined;
     }

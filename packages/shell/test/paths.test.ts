@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { defaultDataDir, LEGACY_DATA_DIR, strandedStore } from "../src/paths.js";
 
 const HOME = "/home/operator";
@@ -44,6 +44,9 @@ describe("the default data directory", () => {
     it("never lands inside the package, which is where a container's image ends", () => {
         expect(defaultDataDir({}, HOME).startsWith(LEGACY_DATA_DIR)).toBe(false);
         expect(LEGACY_DATA_DIR).toContain(join("packages", "shell"));
+        // The superseded default is a DIRECTORY named data inside the
+        // package — not the module that names it, and not the package root.
+        expect(LEGACY_DATA_DIR.endsWith(`${sep}data${sep}`)).toBe(true);
     });
 });
 
@@ -54,24 +57,25 @@ describe("the default data directory", () => {
  */
 describe("the store left at the superseded default", () => {
     it("is named when the new default is about to be created empty", () => {
-        expect(strandedStore({ storePath: NEW_STORE, overridden: false }, only(SUPERSEDED))).toBe(
-            SUPERSEDED,
-        );
+        expect(strandedStore({ env: {}, storePath: NEW_STORE }, only(SUPERSEDED))).toBe(SUPERSEDED);
     });
 
     it("is silent when STORE_PATH already settled the question", () => {
         expect(
-            strandedStore({ storePath: NEW_STORE, overridden: true }, only(SUPERSEDED)),
+            strandedStore(
+                { env: { STORE_PATH: NEW_STORE }, storePath: NEW_STORE },
+                only(SUPERSEDED),
+            ),
         ).toBeNull();
     });
 
     it("is silent once the new default has a history of its own", () => {
         expect(
-            strandedStore({ storePath: NEW_STORE, overridden: false }, only(SUPERSEDED, NEW_STORE)),
+            strandedStore({ env: {}, storePath: NEW_STORE }, only(SUPERSEDED, NEW_STORE)),
         ).toBeNull();
     });
 
     it("is silent for the operator who never ran the old default", () => {
-        expect(strandedStore({ storePath: NEW_STORE, overridden: false }, only())).toBeNull();
+        expect(strandedStore({ env: {}, storePath: NEW_STORE }, only())).toBeNull();
     });
 });

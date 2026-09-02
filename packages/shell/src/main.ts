@@ -35,6 +35,7 @@ import { CONFIG_PATH, fileConfigSource, type ConfigSource } from "./config.js";
 import { stubbedExternals, type ExternalsForDelivery } from "./externals.js";
 import { createLogger, detailOf } from "./log.js";
 import { defaultDataDir, strandedStore } from "./paths.js";
+import { createShutdown } from "./shutdown.js";
 
 /** The port this endpoint takes when PORT says nothing. */
 const DEFAULT_PORT = 8790;
@@ -67,10 +68,7 @@ mkdirSync(dataDir, { recursive: true });
 const configFile = env["CONFIG_FILE"] ?? join(dataDir, "automations.yml");
 const storeFile = env["STORE_PATH"] ?? join(dataDir, "shell.sqlite");
 
-const stranded = strandedStore({
-    storePath: storeFile,
-    overridden: env["STORE_PATH"] !== undefined,
-});
+const stranded = strandedStore({ env, storePath: storeFile });
 // Validated rather than coerced, like the interval below: `Number("nope")`
 // is NaN, which node reads as "any free port" — so a typo would bind a
 // port nobody can find and announce it as `:NaN`.
@@ -124,6 +122,7 @@ function liveGitHub({
 }): LiveGitHub {
     let privateKeyPem: string;
     try {
+        // Stryker disable next-line StringLiteral: an emptied encoding yields the same PEM as a Buffer, which node's signer accepts identically — the mutant is equivalent.
         privateKeyPem = readFileSync(privateKeyPath, "utf8");
     } catch {
         console.error(`PRIVATE_KEY_PATH could not be read: ${privateKeyPath}`);
@@ -151,7 +150,17 @@ function liveGitHub({
                 },
                 payload,
             );
+            // Real, and not provokable from a test: one token source feeds
+            // both this and the config source above, the config read always
+            // runs first, and a token minted in the last minute is served
+            // whatever its expiry says (the adapter's mint floor). So every
+            // way of breaking the token reaches the operator as
+            // "configuration unavailable" long before it reaches here — the
+            // production case this guards is a token that dies BETWEEN the
+            // two reads, which is hours of running, not a suite.
+            // Stryker disable next-line all: see above — no arrangement of the composition lets a test reach this branch; the config read fails on the same token first.
             if (!outcome.ok) {
+                // Stryker disable next-line all: as above.
                 throw new Error(`live externals unavailable: ${outcome.failure.kind}`);
             }
             return { killSwitchActive, ...outcome.facts };
@@ -159,14 +168,25 @@ function liveGitHub({
     };
 }
 
+// The count above already refused every partial set, so by here the three
+// are present together or absent together and no combination of these
+// operators can disagree; they are what narrows the three types.
 const live =
+    // Stryker disable next-line ConditionalExpression,LogicalOperator: see above — all three are present or none is, so every rearrangement of the conjunction answers the same.
     appId && installationId && privateKeyPath
         ? liveGitHub({ appId, installationId, privateKeyPath })
         : null;
 const configSource = live?.configSource ?? fileConfigSource(configFile);
 const externals = live?.externals ?? (() => stubbedExternals({ killSwitchActive }));
 
+// The judgement is `strandedStore`, unit-tested in paths.test.ts against an
+// injected `exists`. This branch is not: it runs only where the superseded
+// default really holds a store, and that file is the operator's own sandbox
+// state — untracked, absent in CI, and not something a test may conjure to
+// watch a line get written.
+// Stryker disable next-line all: reachable only by creating the operator's real store at the superseded default; the judgement behind it is covered in paths.test.ts.
 if (stranded !== null) {
+    // Stryker disable next-line all: as above — unreachable without writing packages/shell/data/shell.sqlite.
     log({ event: "legacyStoreFound", legacyPath: stranded, storePath: storeFile });
 }
 const store = new Store(storeFile);
@@ -200,51 +220,15 @@ shell.server.listen(port, host, () => {
     });
 });
 
-/**
- * Stop in the order that loses nothing.
- *
- * The socket closes first, because a delivery accepted after this point
- * would be one nothing left in the process will drain. Idle keep-alive
- * connections are closed with it: they hold no request, and waiting out
- * their timeout would only spend the shutdown budget. The sweep stops
- * next, so no timer claims fresh work on the way out.
- *
- * Then the pass already in flight is joined — NOT a new drain, which
- * would claim exactly the work being abandoned. A claim the process dies
- * holding is invisible for the full fifteen-minute stale window, and that
- * window is the whole cost this ordering buys off; anything still queued
- * is durable and waits for the next start.
- *
- * The store closes last, because every step above it writes.
- */
-let stopping = false;
-const shutdown = (signal: NodeJS.Signals): void => {
-    // A second signal during a shutdown is impatience, not new information.
-    if (stopping) return;
-    stopping = true;
-    void (async () => {
-        // close() stops accepting at once; its callback is the LAST
-        // connection leaving, which is what the drain below waits behind.
-        const closed = new Promise<void>((resolve) => {
-            shell.server.close(() => resolve());
-            shell.server.closeIdleConnections();
-        });
-        shell.stopSweep();
-        await closed;
-        await shell.settled();
-        try {
-            store.close();
-        } catch (error) {
-            log({ event: "storeCloseFailed", detail: detailOf(error) });
-        }
-        log({ event: "shutdown", signal });
-        // A write to a pipe is asynchronous and process.exit truncates
-        // whatever is still queued. Stream callbacks run in order, so this
-        // empty one runs after the line above has actually left.
-        process.stdout.write("", () => {
-            process.exit(0);
-        });
-    })();
-};
+/** The order that loses nothing lives in `shutdown.ts`; this is its wiring. */
+const shutdown = createShutdown({
+    server: shell.server,
+    stopSweep: shell.stopSweep,
+    settled: shell.settled,
+    store,
+    log,
+    out: process.stdout,
+    exit: () => process.exit(0),
+});
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));

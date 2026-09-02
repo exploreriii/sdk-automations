@@ -12,8 +12,10 @@ import {
     decide,
     describeChange,
     declareCapability,
+    deriveManagedMarker,
     intentFactory,
     deriveIdempotencyKey,
+    matchesManagedComment,
     problems,
     toEngine,
     type AnyIntent,
@@ -104,8 +106,10 @@ describe("the apply path, on a real delivery", () => {
         );
         expect(decision.approved).toHaveLength(1);
         expect(decision.approved[0]).toMatchObject({
-            operation: "applyMappedLabel",
-            item: { kind: "issue", number: 164 },
+            intent: { operation: "applyMappedLabel", item: { kind: "issue", number: 164 } },
+            // A label carries no comment identity, and minting one would be
+            // an effect nobody asked for (D125).
+            managedComment: null,
         });
         // D92 3d resolved the phase-1 note: an acting intent's explanation
         // IS a finding, beside its verdict.
@@ -227,7 +231,7 @@ describe("the gates, each visible in the report", () => {
                         meaningsAbsent: ["awaitingTriage"],
                         closed: false,
                     },
-                    desired: { marker: "<!-- stale -->", body: "stale claim" },
+                    desired: { kind: "summary", body: "stale claim" },
                     cause: { cause: "issueWithoutPosition", observedAt: o.observedAt },
                     explanation: { capability: "triage", summary: "s", detail: [] },
                 } as const satisfies Omit<Intent<"postManagedComment">, "idempotencyKey">;
@@ -595,7 +599,7 @@ describe("closure is a platform fact, not a capability's claim", () => {
                     observedAt: o.observedAt,
                 })({
                     operation: "postManagedComment",
-                    desired: { marker: "<!-- claimless -->", body: "b" },
+                    desired: { kind: "notice", body: "b" },
                     cause: "sawTheItem",
                     explain: { summary: "Saw the item." },
                 }),
@@ -789,6 +793,85 @@ describe("every fallible seam is contained", () => {
     });
 });
 
+/**
+ * D125: the capability supplies purpose and wording, the platform supplies
+ * identity, and identity attaches at APPROVAL — an intent that will never be
+ * written has no write to name.
+ */
+describe("managed-comment identity is minted here, not by the capability", () => {
+    const commenter = declareCapability({ ...declaration, intents: ["postManagedComment"] });
+    const observedAt = new Date("2026-08-07T00:00:00Z");
+    const item = { kind: "issue", number: 7 } as const;
+
+    const speaking = (kind: "summary" | "warning" | "notice"): EngineCapability => ({
+        declaration: commenter as never,
+        async evaluate(observation: never): Promise<readonly AnyIntent[]> {
+            const o = observation as { repository: { owner: string; repo: string } };
+            return [
+                intentFactory("triage", { repository: o.repository, item, observedAt })({
+                    operation: "postManagedComment",
+                    desired: { kind, body: "wording nobody's identity depends on" },
+                    cause: "sawTheItem",
+                    explain: { summary: "Saw the item." },
+                }),
+            ];
+        },
+    });
+
+    const observation = {
+        kind: "issueUpdated",
+        repository: { owner: "o", repo: "r" },
+        item,
+        position: {
+            kind: "position",
+            state: { meaning: null, blocked: false, closedBy: null },
+            ignored: [],
+        },
+        observedAt,
+    } as const;
+
+    const decideWith = (capability: EngineCapability, mode: "active" | "dry-run" = "active") =>
+        decide({ kind: "observation", observation }, configIn(mode), [capability], externals);
+
+    it("stamps the approved comment with the marker its own fields derive", async () => {
+        const decision = await decideWith(speaking("summary"));
+        expect(decision.approved).toHaveLength(1);
+        const effect = decision.approved[0]!;
+        expect(effect.managedComment).toEqual({
+            identity: {
+                capability: "triage",
+                kind: "summary",
+                effectId: effect.intent.idempotencyKey,
+            },
+            marker: deriveManagedMarker({
+                capability: "triage",
+                kind: "summary",
+                effectId: effect.intent.idempotencyKey,
+            }),
+        });
+        expect(
+            matchesManagedComment(
+                { body: effect.managedComment!.marker, authoredByApp: true },
+                effect.managedComment!.identity,
+            ),
+        ).toEqual({ matches: true });
+    });
+
+    /** The kind the capability chose is the kind that reaches the marker. */
+    it("carries the capability's purpose into the identity, and only that", async () => {
+        const warning = await decideWith(speaking("warning"));
+        expect(warning.approved[0]!.managedComment!.identity.kind).toBe("warning");
+        expect(warning.approved[0]!.managedComment!.marker).not.toBe(
+            (await decideWith(speaking("notice"))).approved[0]!.managedComment!.marker,
+        );
+    });
+
+    /** Nothing is minted for an effect that will not happen. */
+    it("mints nothing in dry-run, because nothing will be written", async () => {
+        expect((await decideWith(speaking("summary"), "dry-run")).approved).toEqual([]);
+    });
+});
+
 describe("describeChange — effects.md's exact item and value, pinned", () => {
     it("names each operation's change precisely", () => {
         const base = intentFactory("triage", {
@@ -800,12 +883,28 @@ describe("describeChange — effects.md's exact item and value, pinned", () => {
             describeChange(
                 base({
                     operation: "postManagedComment",
-                    desired: { marker: "<!-- m -->", body: "b" },
+                    desired: { kind: "summary", body: "b" },
                     cause: "c",
                     explain: { summary: "s" },
                 }),
             ),
-        ).toBe("managed comment <!-- m -->");
+        ).toBe("managed summary comment from triage");
+        // Both halves vary, and neither is the marker: the description names
+        // who is writing and for what purpose (D125).
+        expect(
+            describeChange(
+                intentFactory("inactivity", {
+                    repository: { owner: "o", repo: "r" },
+                    item: { kind: "issue", number: 1 },
+                    observedAt: new Date("2026-08-07T00:00:00Z"),
+                })({
+                    operation: "postManagedComment",
+                    desired: { kind: "warning", body: "b" },
+                    cause: "c",
+                    explain: { summary: "s" },
+                }),
+            ),
+        ).toBe("managed warning comment from inactivity");
         expect(
             describeChange(
                 base({

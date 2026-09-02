@@ -16,7 +16,10 @@
 import { describe, expect, it } from "vitest";
 import {
     decide,
-    type AnyIntent,
+    deriveManagedMarker,
+    matchesManagedComment,
+    parseManagedMarker,
+    type ApprovedEffect,
     type DecideExternals,
     type Decision,
     toEngine,
@@ -72,7 +75,6 @@ const OBSERVATIONS: readonly AnyObservation[] = [
 const SETTINGS = {
     intake: { announce: true },
     inactivity: { gracePeriodDays: 7 },
-    prQuality: { marker: "<!-- probe:prq -->" },
 };
 
 const externals: DecideExternals = {
@@ -87,7 +89,7 @@ const externals: DecideExternals = {
 
 /** A capability's observable share of a decision. */
 interface Slice {
-    readonly approved: readonly AnyIntent[];
+    readonly approved: readonly ApprovedEffect[];
     readonly findings: readonly Finding[];
 }
 const capabilityOf = (f: Finding): string | null =>
@@ -97,7 +99,9 @@ const capabilityOf = (f: Finding): string | null =>
 
 function sliceFor(decisions: readonly Decision[], name: string): Slice {
     return {
-        approved: decisions.flatMap((d) => d.approved.filter((i) => i.capability === name)),
+        approved: decisions.flatMap((d) =>
+            d.approved.filter((effect) => effect.intent.capability === name),
+        ),
         findings: decisions.flatMap((d) =>
             d.report.findings.filter((f) => capabilityOf(f) === name),
         ),
@@ -214,6 +218,87 @@ describe("prQuality on a conflicted pull request", () => {
 
         expect(decision.approved).toEqual([]);
         expect(decision.report.findings).toEqual([]);
+    });
+});
+
+/**
+ * D125's ownership split, measured where it is decided: no probe writes a
+ * marker, and every managed comment the engine approves carries one anyway.
+ * `inactivity` is absent from this block on purpose — its sweep is unprojected,
+ * so its warning never reaches approval and never earns an identity.
+ */
+describe("managed-comment identity is minted by the platform", () => {
+    const approvedComments = async () => {
+        const effects = (await runAll(NAMES)).flatMap((decision) => decision.approved);
+        return effects.filter((effect) => effect.intent.operation === "postManagedComment");
+    };
+
+    it("marks intake's notice and prQuality's summary, and nothing else", async () => {
+        const comments = await approvedComments();
+        expect(
+            comments.map((effect) => ({
+                capability: effect.intent.capability,
+                identity: effect.managedComment?.identity,
+            })),
+        ).toEqual([
+            {
+                capability: "intake",
+                identity: {
+                    capability: "intake",
+                    kind: "notice",
+                    effectId: comments[0]!.intent.idempotencyKey,
+                },
+            },
+            {
+                capability: "prQuality",
+                identity: {
+                    capability: "prQuality",
+                    kind: "summary",
+                    effectId: comments[1]!.intent.idempotencyKey,
+                },
+            },
+        ]);
+
+        // The label intake also asks for is the control: an operation that
+        // posts nothing is handed no identity to post it under.
+        const labels = (await runAll(NAMES))
+            .flatMap((decision) => decision.approved)
+            .filter((effect) => effect.intent.operation === "applyMappedLabel");
+        expect(labels.map((effect) => effect.managedComment)).toEqual([null]);
+    });
+
+    it("publishes each identity as the marker that identity derives", async () => {
+        for (const effect of await approvedComments()) {
+            const managed = effect.managedComment!;
+            expect(managed.marker).toBe(deriveManagedMarker(managed.identity));
+            expect(parseManagedMarker(managed.marker)).toEqual({
+                recognized: {
+                    schemaVersion: 1,
+                    capability: managed.identity.capability,
+                    kind: managed.identity.kind,
+                    effect: expect.stringMatching(/^[0-9a-f]{16}$/),
+                },
+            });
+        }
+    });
+
+    /** The attack, at probe scale: the App's own marker, in someone else's comment. */
+    it("never recognises a probe's marker under another author", async () => {
+        for (const effect of await approvedComments()) {
+            const managed = effect.managedComment!;
+            expect(
+                matchesManagedComment(
+                    { body: managed.marker, authoredByApp: true },
+                    managed.identity,
+                ),
+            ).toEqual({ matches: true });
+            expect(
+                matchesManagedComment(
+                    { body: managed.marker, authoredByApp: false },
+                    managed.identity,
+                ),
+            ).toEqual({ matches: false, why: "notAppAuthored" });
+        }
     });
 });
 

@@ -118,7 +118,7 @@ describe("screenIntent", () => {
             screenIntent(
                 intent({
                     operation: "postManagedComment",
-                    desired: { marker: "<!-- m -->", body: "b" },
+                    desired: { kind: "summary", body: "b" },
                 }),
                 declaration,
                 position(),

@@ -2,9 +2,10 @@
  * PROBE — comment-only, event-triggered, non-idempotent, resolver-using.
  *
  * The narrowest shape in the triad: reads a pull request, asks one
- * resolver, writes at most one managed comment, needs no durable state
- * and no mapped meanings. It exists to prove the boundary works for a
- * capability that touches almost nothing.
+ * resolver, writes at most one managed comment, needs no durable state,
+ * no mapped meanings and — since D125 took the marker off it — no
+ * settings either. It exists to prove the boundary works for a
+ * capability that touches almost nothing, so it takes no view at all.
  *
  * Not a scope decision. See `probes/README.md`.
  */
@@ -19,7 +20,7 @@ import {
 export const prQualityDeclaration = declareCapability({
     name: "prQuality",
     triggers: [{ kind: "event", event: "pull_request" }],
-    configKeys: ["marker"],
+    configKeys: [],
     requiredMeanings: [],
     observations: ["pullRequestUpdated"],
     resolvers: ["linkedIssues"],
@@ -34,12 +35,10 @@ export const prQualityDeclaration = declareCapability({
 
 export type PrQualityDeclaration = typeof prQualityDeclaration;
 
-const DEFAULT_MARKER = "<!-- hiero-automation:prQuality -->";
-
 export const prQuality: Capability<PrQualityDeclaration> = {
     declaration: prQualityDeclaration,
 
-    async evaluate(observation, config, platform) {
+    async evaluate(observation, _config, platform) {
         /**
          * Closure is carried on BOTH projection branches (D59), and reading it
          * only from the position branch would have asked for a comment on a
@@ -73,9 +72,6 @@ export const prQuality: Capability<PrQualityDeclaration> = {
         }
         if (linked.value.length > 0) return [];
 
-        const marker =
-            typeof config.settings.marker === "string" ? config.settings.marker : DEFAULT_MARKER;
-
         const make = intentFactoryFor(prQualityDeclaration, {
             repository: observation.repository,
             item: observation.item,
@@ -85,7 +81,7 @@ export const prQuality: Capability<PrQualityDeclaration> = {
             make({
                 operation: "postManagedComment",
                 desired: {
-                    marker,
+                    kind: "summary",
                     body: "This pull request does not reference an issue. Adding a closing reference keeps the issue and the pull request in step.",
                 },
                 cause: "pullRequestWithoutLinkedIssue",

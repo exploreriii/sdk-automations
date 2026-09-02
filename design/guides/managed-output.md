@@ -20,11 +20,14 @@
 ## 2. Managed comment identity
 
 ```html
-<!-- hiero-automation:v1:pr-quality:summary -->
+<!-- hiero-automation:{"schemaVersion":1,"capability":"prQuality","kind":"summary","effect":"0a70e62c14228dbe"} -->
 ```
 
 - One short marker per purpose on the current issue or pull request.
-- The marker contains a schema version, capability, and comment kind.
+- The marker contains a schema version, capability, comment kind, and effect identity.
+- `effect` is a digest of the effect id, not the id: the id carries free text that has no business
+  being published, and a reader only ever compares digests (D125).
+- Core derives the whole marker; a capability supplies the kind and the body and can write none.
 - The repository and item are already known from the comment's location.
 - A marker counts only when the GitHub App authored the comment.
 - The adapter finds the App-authored marker and creates the comment when it is missing.

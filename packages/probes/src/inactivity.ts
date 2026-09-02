@@ -70,7 +70,7 @@ export const inactivity: Capability<InactivityDeclaration> = {
                     make({
                         operation: "postManagedComment",
                         desired: {
-                            marker: "<!-- hiero-automation:inactivity -->",
+                            kind: "warning",
                             body: `This has been assigned to @${entry.assignee} without activity for a while. It will be unassigned in ${String(graceDays)} days unless there is a comment or a commit.`,
                         },
                         cause: "assignmentWentStale",

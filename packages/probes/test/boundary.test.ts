@@ -30,7 +30,7 @@ describe("declared shape", () => {
         expect(prQuality.declaration).toEqual({
             name: "prQuality",
             triggers: [{ kind: "event", event: "pull_request" }],
-            configKeys: ["marker"],
+            configKeys: [],
             requiredMeanings: [],
             observations: ["pullRequestUpdated"],
             resolvers: ["linkedIssues"],

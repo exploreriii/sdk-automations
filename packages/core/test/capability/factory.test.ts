@@ -70,13 +70,13 @@ describe("what the factory stamps", () => {
     it("the key identifies the occasion, not the payload — a reworded comment is one effect", () => {
         const a = make({
             operation: "postManagedComment",
-            desired: { marker: "<!-- m -->", body: "first wording" },
+            desired: { kind: "summary", body: "first wording" },
             cause: "prWithoutLinkedIssue",
             explain: { summary: "s" },
         });
         const b = make({
             operation: "postManagedComment",
-            desired: { marker: "<!-- m -->", body: "second wording" },
+            desired: { kind: "summary", body: "second wording" },
             cause: "prWithoutLinkedIssue",
             explain: { summary: "s" },
         });

@@ -113,7 +113,7 @@ describe("one real delivery, end to end", () => {
 
     it("triages the unpositioned issue and closes clean: nothing needs a human", async () => {
         const decision = await send("active");
-        expect(decision.approved).toEqual([keyed]);
+        expect(decision.approved).toEqual([{ intent: keyed, managedComment: null }]);
         expect(decision.report.findings.map((f) => f.code)).toEqual([
             "capabilityExplained",
             "applied",

@@ -19,8 +19,6 @@ capabilities:
 
   prQuality:
     enabled: true
-    settings:
-      marker: "<!-- hiero-automation:prQuality -->"
 
   inactivity:
     enabled: false

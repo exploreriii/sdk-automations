@@ -14,11 +14,13 @@
 
 import {
     INTENT_OPERATIONS,
+    managedCommentOf,
     projectCapabilityView,
     screenIntent,
     type AnyIntent,
     type CapabilityView,
     type ItemRef,
+    type ManagedComment,
     type ObservationCatalogue,
     type RepositoryRef,
     type TypedDeclaration,
@@ -85,11 +87,25 @@ export type DecideInput =
       }
     | { readonly kind: "observation"; readonly observation: EngineObservation };
 
-/** What one decision produced: the record and any active-mode intents. */
+/**
+ * An intent that may act, carrying the identity only the platform can mint.
+ *
+ * `managedComment` is `null` for every operation that posts none. Identity
+ * attaches HERE rather than in the factory (D125): an effect's identity is the
+ * name under which a write will be found again, and an intent that will never
+ * be written has none to name. The factory would also be handing it back to the
+ * capability that must not own it, which is the arrangement D125 removed.
+ */
+export interface ApprovedEffect {
+    readonly intent: AnyIntent;
+    readonly managedComment: ManagedComment | null;
+}
+
+/** What one decision produced: the record and any active-mode effects. */
 export interface Decision {
     readonly report: Report;
-    /** Intents that passed every gate in `active` mode. */
-    readonly approved: readonly AnyIntent[];
+    /** Effects that passed every gate in `active` mode. */
+    readonly approved: readonly ApprovedEffect[];
 }
 
 // ─── The gates one intent passes ─────────────────────────────────────
@@ -102,7 +118,10 @@ export interface Decision {
 export function describeChange(intent: AnyIntent): string {
     switch (intent.operation) {
         case "postManagedComment":
-            return `managed comment ${intent.desired.marker}`;
+            // Capability and purpose, never the marker: the marker is derived
+            // identity, and a safety record naming it would read as a value
+            // someone chose rather than the change being made (D125).
+            return `managed ${intent.desired.kind} comment from ${intent.capability}`;
         case "applyMappedLabel":
             // "set", not "add": the adapter swaps the previous position
             // label as part of realising this (D4, D80).
@@ -138,8 +157,23 @@ async function orderingFor(
 }
 
 /**
+ * The managed-comment identity for an intent that has one, minted from the
+ * intent's OWN fields — the capability it is attributed to, the purpose it
+ * asked for, and the idempotency key the screen has already re-derived.
+ */
+function managedCommentFor(intent: AnyIntent): ManagedComment | null {
+    return intent.operation === "postManagedComment"
+        ? managedCommentOf({
+              capability: intent.capability,
+              kind: intent.desired.kind,
+              effectId: intent.idempotencyKey,
+          })
+        : null;
+}
+
+/**
  * One intent through every gate — screen, derived world, verdict —
- * returning its findings and, if it may act, the intent itself. Async for
+ * returning its findings and, if it may act, the effect itself. Async for
  * exactly one fact: the ordering evidence, awaited after the screen so a
  * screened-out intent costs no lookup.
  */
@@ -149,7 +183,7 @@ async function gateIntent(
     projection: EngineProjection,
     config: RepositoryConfig,
     externals: DecideExternals,
-): Promise<{ readonly findings: readonly Finding[]; readonly approved: AnyIntent | null }> {
+): Promise<{ readonly findings: readonly Finding[]; readonly approved: ApprovedEffect | null }> {
     const subject = {
         kind: "item",
         capability: declaration.name,
@@ -204,7 +238,13 @@ async function gateIntent(
             operation: intent.operation,
         }),
     );
-    return { findings, approved: verdict.outcome === "apply" ? intent : null };
+    return {
+        findings,
+        approved:
+            verdict.outcome === "apply"
+                ? { intent, managedComment: managedCommentFor(intent) }
+                : null,
+    };
 }
 
 /**
@@ -254,7 +294,7 @@ export async function decide(
     externals: DecideExternals,
 ): Promise<Decision> {
     const findings: Finding[] = [];
-    const approved: AnyIntent[] = [];
+    const approved: ApprovedEffect[] = [];
     let repository: RepositoryRef;
     let observation: EngineObservation | null = null;
 

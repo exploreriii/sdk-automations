@@ -8,7 +8,7 @@ flowchart TD
     NEEDS["◌ Maintainer needs confirmed — the register's 'stage two'"]
     RAT["✓ Ratified for ring-zero — D126, 2026-09-02; scope past the sandbox stays with the pilot gate"]
     PLAT["▶ Finish the platform foundation<br/>PR-time config validation · configuration report · operator surface<br/>(adapter port and read-after-write landed 2026-09-02)"]
-    FX["○ Prove reversible effects — one managed comment · one mapped label"]
+    FX["✓ Reversible effects proven — protocol 8.2, 2026-09-02: comment and label landed, kill-switched, human-reversed unfought"]
     SOAK["○ First capability, then sandbox soak"]
     PILOT(["◌ Volunteer-repository pilot — needs maintainers and an operator"])
 

@@ -123,7 +123,13 @@ export const intake: Capability<IntakeDeclaration> = {
                         body: "Thanks for opening this. It has been placed in the triage queue.",
                     },
                     cause: "issueWithoutPosition",
-                    expected: { meaningsAbsent: ["awaitingTriage"], closed: false },
+                    // Only closure is claimed. The announce does not require
+                    // the meaning absent — its own sibling intent puts the
+                    // label there first, and an apply-time re-gate holding
+                    // this comment to the label's absence would refuse the
+                    // announcement OF the label it just applied (found in
+                    // 8.2 pre-flight, 2026-09-02).
+                    expected: { closed: false },
                     explain: {
                         summary: "Announced the triage placement.",
                         detail: ["announce is enabled for this repository"],

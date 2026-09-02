@@ -82,7 +82,13 @@ A blind retry that skips the resolver duplicated the managed comment on the firs
   - Q15 → answered: the recovery minimum is the original four-table
     single-file store above. The current owned schema is five tables after
     D110's separate report-completion evidence.
-- **Approving review:** _(names, date — per the ratification rule)_
+- **Approving review:** Sophie Bulloch (exploreriii), 2026-09-02 — author
+  ratification, scoped to ring-zero: the sandbox soak and the effect path
+  built and enabled against the personal sandbox only. Enablement on any
+  volunteer or Hiero repository additionally requires that repository's
+  maintainers and the named operator (Q1/Q13), per P8 and the pilot gate.
+  Evidence: protocols 6.2 and 6.5, and the store running live under
+  protocol 8.1 since 2026-09-02.
 
 ## Risk-review amendment (2026-07-28)
 

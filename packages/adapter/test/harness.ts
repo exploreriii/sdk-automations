@@ -10,16 +10,19 @@
  * GitHub, the harnesses.
  */
 
+import type { ItemRef, RepositoryRef } from "@hiero-hackers/automation-core";
 import { generateKeyPairSync } from "node:crypto";
 import { expect } from "vitest";
 import { createGitHubHttpClient, type FetchLike, type GitHubRequest } from "../src/http.js";
 import type { AppCredentials } from "../src/jwt.js";
+import { createReadBack, type AppIdentity, type ReadBack } from "../src/readback.js";
 import {
     createTokenSource,
     type InstallationToken,
     type TokenOutcome,
     type TokenSource,
 } from "../src/token.js";
+import { createWriteVerbs, type WriteVerbs } from "../src/writes.js";
 
 // ─── Time and tokens ─────────────────────────────────────────────────
 
@@ -59,6 +62,14 @@ export function credentials(): AppCredentials {
 
 /** The URL most tests read; tests where the URL is the point pass their own. */
 export const TEST_URL = "https://api.github.com/repos/hiero-hackers/sdk-automations/issues/132";
+
+/** The same item as `TEST_URL`, for the surfaces that name it rather than spell it. */
+export const TEST_REPOSITORY: RepositoryRef = { owner: "hiero-hackers", repo: "sdk-automations" };
+
+export const TEST_ITEM: ItemRef = { kind: "issue", number: 132 };
+
+/** The App a read-back suite recognises its own writing as. */
+export const TEST_APP_IDENTITY: AppIdentity = { appId: "123456", botLogin: "hiero-hackers[bot]" };
 
 /** One scripted reply: a response, a thrown transport error, or a probe. */
 export type ResponseStep = Response | Error | ((url: string, init: RequestInit) => Response);
@@ -161,6 +172,50 @@ export function httpHarness(steps: readonly ResponseStep[], options: HttpHarness
             }),
     });
     return { client, scripted, tokens, timeoutCalls, sleeps };
+}
+
+/** The real write verbs over the http harness above. */
+export function writeHarness(steps: readonly ResponseStep[], options: HttpHarnessOptions = {}) {
+    const http = httpHarness(steps, options);
+    const verbs: WriteVerbs = createWriteVerbs({
+        http: http.client,
+        repository: TEST_REPOSITORY,
+    });
+    return { ...http, verbs };
+}
+
+/** Seams a read-back test overrides; `sleep` replaces the clock's own advance. */
+export interface ReadBackHarnessOptions {
+    readonly identity?: AppIdentity;
+    readonly clock?: () => Date;
+    readonly sleep?: (milliseconds: number) => Promise<void>;
+}
+
+/**
+ * The real read-back over scripted GitHub, with a clock the default sleep
+ * MOVES — so an absence confirmation records its pause instead of taking one.
+ * A test whose point is a gap that did not really pass supplies its own sleep.
+ */
+export function readBackHarness(
+    steps: readonly ResponseStep[],
+    options: ReadBackHarnessOptions = {},
+) {
+    const http = httpHarness(steps);
+    let now = TEST_NOW;
+    const sleeps: number[] = [];
+    const readBack: ReadBack = createReadBack({
+        http: http.client,
+        repository: TEST_REPOSITORY,
+        identity: options.identity ?? TEST_APP_IDENTITY,
+        clock: options.clock ?? (() => now),
+        sleep: (milliseconds) => {
+            sleeps.push(milliseconds);
+            if (options.sleep !== undefined) return options.sleep(milliseconds);
+            now = new Date(now.getTime() + milliseconds);
+            return Promise.resolve();
+        },
+    });
+    return { readBack, scripted: http.scripted, sleeps };
 }
 
 /** The real token source over counted mints and a clock moved by hand. */

@@ -11,9 +11,16 @@
  * Core owns the vocabulary for GitHub responses and the retry advice for
  * each class; this file adds the two results core cannot have — a request
  * refused locally, and a response too large to read — plus the bounds a
- * process holding a claim needs. Which token to send is `token.ts`. In order
- * below: the chosen bounds, the contract, the local judgements, the retry
- * policy, the representation cache, the client.
+ * process holding a claim needs. Which token to send is `token.ts`.
+ *
+ * Writes travel the same path behind a per-endpoint allowlist: the four
+ * operations the endpoint matrix confirmed, matched by path shape, and
+ * nothing else. What each answer MEANS is `writes.ts`; this file only decides
+ * whether a write may be sent, how often it may be sent again, and what its
+ * success makes untrustworthy in the cache.
+ *
+ * In order below: the chosen bounds, the contract, the local judgements, the
+ * retry policy, the representation cache, the client.
  */
 
 import {
@@ -31,6 +38,7 @@ import {
     type TokenOutcome,
     type TokenSource,
 } from "./token.js";
+import { jsonRecordOf } from "./untrusted.js";
 
 // ─── The chosen bounds ───────────────────────────────────────────────
 
@@ -124,6 +132,26 @@ export const PRIMARY_BUDGET_RESERVE = 50;
 
 const LINKED_ISSUES_GRANTS: readonly PermissionGrant[] = ["issues:read", "pull_requests:read"];
 
+/** Every admitted write is an issue-surface write; nothing weaker allows one. */
+const WRITE_GRANT: PermissionGrant = "issues:write";
+
+/**
+ * The smallest gap between two comment creations this client will leave.
+ *
+ * Experiment 6.4 tripped an UNSIGNALLED secondary limit at roughly eighty
+ * writes a minute (~71 at concurrency 20, no `retry-after`), and core's advice
+ * for a limit with no wait signal is a sixty-second floor — so tripping it
+ * costs a minute and returns nothing to wait on. Two seconds is thirty a
+ * minute, under forty percent of the observed threshold, and a delivery that
+ * writes a handful of comments never notices it. The number is a floor to stay
+ * far below, not a target to approach.
+ *
+ * Two honest limits. It is per client instance, so a second process doubles
+ * the real rate. And it spaces CREATION only: 6.4 measured content creation,
+ * and a label call is not content.
+ */
+export const CONTENT_CREATION_SPACING_MS = 2_000;
+
 // ─── The contract ────────────────────────────────────────────────────
 
 /** The operation-specific part of a GitHub request. */
@@ -140,8 +168,40 @@ interface GitHubGraphqlRequest {
     readonly headers?: Readonly<Record<string, string>>;
 }
 
-/** REST reads, or a GraphQL query at the one admitted POST endpoint. */
-export type GitHubRequest = GitHubGetRequest | GitHubGraphqlRequest;
+/**
+ * Whether sending this write twice could change the world twice.
+ *
+ * The CALLER declares it. Nothing in a method or a URL says it: a POST that
+ * adds a label already present is a no-op, and a POST that creates a comment
+ * is not, and the two are the same verb at neighbouring paths.
+ */
+export type WriteIdempotency = "idempotent" | "nonIdempotent";
+
+/** The four write operations the endpoint matrix confirmed, by path shape. */
+export type WriteEndpoint = "addLabel" | "removeLabel" | "createComment" | "updateComment";
+
+/**
+ * A REST write at one of those four endpoints.
+ *
+ * `idempotency` is what marks a request as a write at all — the other two arms
+ * do not declare it — so a DELETE or PATCH that forgets it is refused as a
+ * disallowed method rather than sent unexamined.
+ *
+ * D4 is enforced by the SHAPE of the allowlist, not by a check: the only
+ * removal admitted is `DELETE …/labels/{name}`, which names one label. GitHub's
+ * remove-every-label endpoint (the same path without `{name}`) matches nothing
+ * here, so "remove by prefix" cannot be expressed through this client.
+ */
+export interface GitHubWriteRequest {
+    readonly url: string;
+    readonly method: "POST" | "DELETE" | "PATCH";
+    readonly body?: string;
+    readonly headers?: Readonly<Record<string, string>>;
+    readonly idempotency: WriteIdempotency;
+}
+
+/** REST reads, the one admitted GraphQL POST, or an admitted REST write. */
+export type GitHubRequest = GitHubGetRequest | GitHubGraphqlRequest | GitHubWriteRequest;
 
 /** A usable response, whether GitHub sent the body or the cache held it. */
 export interface GitHubSuccess {
@@ -286,7 +346,7 @@ function representationHeaders(headers: Readonly<Record<string, string>>): Recor
 }
 
 type GitHubApiUrl =
-    | { readonly ok: true; readonly url: string }
+    | { readonly ok: true; readonly url: URL }
     | { readonly ok: false; readonly refused: "malformedUrl" | "disallowedOrigin" };
 
 function githubApiUrl(rawUrl: string): GitHubApiUrl {
@@ -297,8 +357,19 @@ function githubApiUrl(rawUrl: string): GitHubApiUrl {
         return { ok: false, refused: "malformedUrl" };
     }
     return url.origin === GITHUB_API_ORIGIN
-        ? { ok: true, url: url.href }
+        ? { ok: true, url }
         : { ok: false, refused: "disallowedOrigin" };
+}
+
+/** Does this request declare itself a write? Only the write arm may. */
+function isWrite(request: GitHubRequest): request is GitHubWriteRequest {
+    return "idempotency" in request;
+}
+
+/** The body a request carries, or `undefined` when it carries none. */
+function bodyOf(request: GitHubRequest): string | undefined {
+    if (!("body" in request)) return undefined;
+    return typeof request.body === "string" ? request.body : undefined;
 }
 
 /** Genuine transport weather — the one locally-made class worth a retry. */
@@ -333,32 +404,115 @@ export function describeFailure(failure: GitHubHttpFailureClass): string {
         : `notSent (${failure.reason})`;
 }
 
-/** A request as it may be sent, or the refusal that stops it here. */
-type AdmittedRequest =
-    | { readonly ok: true; readonly request: GitHubRequest }
-    | { readonly ok: false; readonly refusal: GitHubFailure };
+/**
+ * One path segment spelled the way `repoPath` spells one: non-empty, and
+ * unchanged by a decode-then-encode round trip.
+ *
+ * Matching a write URL structurally means matching what this package itself
+ * builds. A segment that does not round-trip was double-encoded, or carries a
+ * character `encodeURIComponent` never emits — either way it is not ours, and
+ * a gate that accepted it would be matching a path shape nobody wrote.
+ */
+function isEncodedSegment(segment: string | undefined): boolean {
+    if (segment === undefined || segment.length === 0) return false;
+    try {
+        return encodeURIComponent(decodeURIComponent(segment)) === segment;
+    } catch {
+        return false;
+    }
+}
+
+/** A positive decimal item id, in the one spelling GitHub's paths use. */
+function isNumberSegment(segment: string | undefined): boolean {
+    return segment !== undefined && /^[1-9][0-9]*$/.test(segment);
+}
 
 /**
- * The gate every request passes before a token is acquired: the two admitted
- * methods, the pinned origin, and the one GraphQL query this package may POST.
+ * The write endpoint this method and path ARE, or `null` for anything else.
  *
- * It runs first so a refusal never costs a mint, and it normalises the URL so
- * everything downstream — the cache key included — sees one spelling.
+ * Structural, not textual: the path is split into segments, the literals must
+ * be literal, and every variable segment must be a number or a
+ * `repoPath`-encoded name. A query string or fragment disqualifies a write
+ * outright — none of the four takes one, and a parameter is how an admitted
+ * shape would grow a second meaning.
  */
-function admit(request: GitHubRequest): AdmittedRequest {
-    if (request.method !== "GET" && request.method !== "POST") {
-        return { ok: false, refusal: notSentFailure("disallowedMethod") };
+function writeEndpointOf(method: string, url: URL): WriteEndpoint | null {
+    if (url.search !== "" || url.hash !== "") return null;
+    const [repos, owner, repo, issues, ...rest] = url.pathname.split("/").slice(1);
+    if (repos !== "repos" || issues !== "issues") return null;
+    if (!isEncodedSegment(owner) || !isEncodedSegment(repo)) return null;
+
+    // `PATCH …/issues/comments/{id}` is the one shape that does not name an
+    // item number; it is checked first so the number check below can be shared.
+    if (method === "PATCH") {
+        return rest[0] === "comments" && isNumberSegment(rest[1]) && rest.length === 2
+            ? "updateComment"
+            : null;
     }
-    const parsed = githubApiUrl(request.url);
-    if (!parsed.ok) return { ok: false, refusal: notSentFailure(parsed.refused) };
-    const admitted = { ok: true, request: { ...request, url: parsed.url } } as const;
-    if (request.method === "GET") return admitted;
-    if (parsed.url !== GITHUB_GRAPHQL_URL) {
-        return { ok: false, refusal: notSentFailure("disallowedMethod") };
+    if (!isNumberSegment(rest[0])) return null;
+    if (method === "POST" && rest.length === 2) {
+        if (rest[1] === "labels") return "addLabel";
+        return rest[1] === "comments" ? "createComment" : null;
     }
-    if (typeof request.body !== "string") {
-        return { ok: false, refusal: notSentFailure("invalidBody") };
+    if (method === "DELETE") {
+        return rest[1] === "labels" && isEncodedSegment(rest[2]) && rest.length === 3
+            ? "removeLabel"
+            : null;
     }
+    return null;
+}
+
+/**
+ * Cache keys a landed write makes untrustworthy.
+ *
+ * Keys are whole hrefs, so this returns RESOURCE prefixes and the cache drops
+ * each one's query-string variants too (`…/comments` and
+ * `…/comments?per_page=100&page=1` are one resource read two ways).
+ *
+ * What it cannot reach, and neither can any honest version of it. A list page
+ * that merely CONTAINS the item — `…/issues?labels=…` — is a different
+ * resource under a filter this cannot enumerate. `PATCH …/issues/comments/{id}`
+ * does not name its parent issue, so the issue's comment list survives an
+ * edit. And the cache is per client instance: another process holds its own.
+ */
+function invalidatedBy(endpoint: WriteEndpoint, url: URL): readonly string[] {
+    if (endpoint === "updateComment") return [`${GITHUB_API_ORIGIN}${url.pathname}`];
+    // The other three all hang off `/repos/{o}/{r}/issues/{n}`, which is the
+    // first five segments of a path the matcher has already proved.
+    const item = `${GITHUB_API_ORIGIN}${url.pathname.split("/").slice(0, 6).join("/")}`;
+    const list = endpoint === "createComment" ? "comments" : "labels";
+    // The timeline carries both a label event and a comment event, so every
+    // one of the three stales it.
+    return [item, `${item}/${list}`, `${item}/timeline`];
+}
+
+/** What admitting a write learned, for the policy and the cache above. */
+interface AdmittedWrite {
+    readonly endpoint: WriteEndpoint;
+    readonly invalidates: readonly string[];
+}
+
+/** A request as it may be sent, or the refusal that stops it here. */
+type AdmittedRequest =
+    | {
+          readonly ok: true;
+          readonly request: GitHubRequest;
+          readonly write: AdmittedWrite | null;
+      }
+    | { readonly ok: false; readonly refusal: GitHubFailure };
+
+const refused = (reason: Exclude<NotSentReason, "brokenSeam">): AdmittedRequest => ({
+    ok: false,
+    refusal: notSentFailure(reason),
+});
+
+/**
+ * The one GraphQL query this package may POST, checked before it is sent.
+ * Nothing else may reach `/graphql`, and this operation may reach nothing else.
+ */
+function admitGraphql(request: GitHubGraphqlRequest, url: URL): AdmittedRequest {
+    if (url.href !== GITHUB_GRAPHQL_URL) return refused("disallowedMethod");
+    if (typeof request.body !== "string") return refused("invalidBody");
     try {
         const body = JSON.parse(request.body) as Record<string, unknown>;
         if (
@@ -366,12 +520,61 @@ function admit(request: GitHubRequest): AdmittedRequest {
             typeof body.query !== "string" ||
             !/^\s*query\s+LinkedIssues(?:\s|\()/.test(body.query)
         ) {
-            return { ok: false, refusal: notSentFailure("invalidBody") };
+            return refused("invalidBody");
         }
     } catch {
-        return { ok: false, refusal: notSentFailure("invalidBody") };
+        return refused("invalidBody");
     }
-    return admitted;
+    return { ok: true, request: { ...request, url: url.href }, write: null };
+}
+
+/**
+ * A write against the per-endpoint allowlist.
+ *
+ * The body rule is per endpoint rather than per method, because the four
+ * endpoints disagree: three carry a JSON object and the label removal carries
+ * nothing. A body where none belongs is refused rather than dropped — sending
+ * a request the caller did not write is worse than not sending it.
+ */
+function admitWrite(request: GitHubWriteRequest, url: URL): AdmittedRequest {
+    const endpoint = writeEndpointOf(request.method, url);
+    if (endpoint === null) return refused("disallowedMethod");
+    // Unreachable through the type, and the retry policy reads this field.
+    // A declaration that is neither word is a malformed request, not a write.
+    if (request.idempotency !== "idempotent" && request.idempotency !== "nonIdempotent") {
+        return refused("invalidBody");
+    }
+    const body = bodyOf(request);
+    if (endpoint === "removeLabel") {
+        if (body !== undefined) return refused("invalidBody");
+    } else {
+        if (body === undefined || jsonRecordOf(body) === null) return refused("invalidBody");
+    }
+    return {
+        ok: true,
+        request: { ...request, url: url.href },
+        write: { endpoint, invalidates: invalidatedBy(endpoint, url) },
+    };
+}
+
+/**
+ * The gate every request passes before a token is acquired: the admitted
+ * methods, the pinned origin, the one GraphQL query this package may POST, and
+ * the four write endpoints the matrix confirmed.
+ *
+ * It runs first so a refusal never costs a mint, and it normalises the URL so
+ * everything downstream — the cache key included — sees one spelling.
+ */
+function admit(request: GitHubRequest): AdmittedRequest {
+    const write = isWrite(request);
+    if (!write && request.method !== "GET" && request.method !== "POST") {
+        return refused("disallowedMethod");
+    }
+    const parsed = githubApiUrl(request.url);
+    if (!parsed.ok) return refused(parsed.refused);
+    if (write) return admitWrite(request, parsed.url);
+    if (request.method === "POST") return admitGraphql(request, parsed.url);
+    return { ok: true, request: { ...request, url: parsed.url.href }, write: null };
 }
 
 /**
@@ -411,6 +614,26 @@ function hasReadGrant(token: InstallationToken, required: PermissionGrant): bool
     return token.grants.some((grant) => grant === required || grant === write);
 }
 
+/**
+ * Grants this request needs and the token does not carry.
+ *
+ * The read-side precheck (D123) is the pattern; what differs is what counts as
+ * enough. A read is satisfied by the matching write grant, because write
+ * implies read. A write is satisfied by nothing weaker than itself, so the
+ * check is equality and the accepted permission it reports is the exact grant
+ * an installation would have to add.
+ */
+function missingGrants(
+    request: GitHubRequest,
+    token: InstallationToken,
+): readonly PermissionGrant[] {
+    if (isWrite(request)) {
+        return token.grants.some((grant) => grant === WRITE_GRANT) ? [] : [WRITE_GRANT];
+    }
+    if (request.method !== "POST") return [];
+    return LINKED_ISSUES_GRANTS.filter((grant) => !hasReadGrant(token, grant));
+}
+
 /** Ready-to-send headers and the variant they select, or the refusal. */
 type PreparedHeaders =
     | { readonly ok: true; readonly headers: Headers; readonly variant: string }
@@ -434,7 +657,9 @@ function prepareHeaders(request: GitHubRequest, token: InstallationToken): Prepa
     headers.delete("if-none-match");
     headers.delete("user-agent");
     headers.delete("x-github-api-version");
-    if (request.method === "POST") {
+    // A content type describes a body. The label removal is a DELETE with
+    // none, and declaring one there would describe nothing.
+    if (bodyOf(request) !== undefined) {
         headers.delete("content-length");
         headers.set("content-type", "application/json");
     }
@@ -479,6 +704,31 @@ function attemptCap(kind: FailureClass["kind"]): number {
     return MAX_RATE_LIMIT_ATTEMPTS;
 }
 
+/**
+ * May this request be sent again inside one `request()` call?
+ *
+ * Reads and idempotent writes retry under the caps above. A NON-IDEMPOTENT
+ * write gets zero in-client retries of any class, and the exception list is
+ * empty on purpose.
+ *
+ * The tempting version keeps the classes that prove nothing happened — a 401,
+ * a rate limit — and drops only the ambiguous ones. It is wrong in the way
+ * that matters. The dangerous class is `transient`, which covers a timeout and
+ * a dropped socket, and those are exactly the failures where GitHub may have
+ * applied the change and lost the answer on the way back. Experiment 6.5
+ * turned that into a duplicated comment on the first attempt at a blind retry.
+ * A per-class exemption also has to stay right forever: the day a new class
+ * lands in `classifyFailure`, a list of safe ones silently admits it.
+ *
+ * So the rule is one rule with no arms. A failure returns immediately, with
+ * its class intact, to the journal and read-back layer above — which owns
+ * recovery because it is the only layer that can look at GitHub and see
+ * whether the effect landed (D46).
+ */
+function mayRetryInClient(request: GitHubRequest): boolean {
+    return !isWrite(request) || request.idempotency === "idempotent";
+}
+
 /** The spread added to a chosen backoff; see `BACKOFF_JITTER_FRACTION`. */
 function jitterMs(kind: FailureClass["kind"], advisedMs: number, now: Date): number {
     if (kind !== "transient") return 0;
@@ -511,6 +761,8 @@ interface RepresentationCache {
     lookup(url: string, variant: string): CachedRepresentation | undefined;
     store(url: string, entry: CachedRepresentation): void;
     remove(url: string): void;
+    /** That URL and its query-string variants — one resource read many ways. */
+    removeResource(url: string): void;
 }
 
 function createRepresentationCache(): RepresentationCache {
@@ -549,10 +801,18 @@ function createRepresentationCache(): RepresentationCache {
             }
         },
         remove,
+        removeResource(url: string): void {
+            for (const key of [...entries.keys()]) {
+                if (key === url || key.startsWith(`${url}?`)) remove(key);
+            }
+        },
     };
 }
 
 // ─── The client ──────────────────────────────────────────────────────
+
+/** A settled promise's value discarded — both arms of "that one finished". */
+const settled = (): undefined => undefined;
 
 export function createGitHubHttpClient({
     tokenSource,
@@ -600,7 +860,9 @@ export function createGitHubHttpClient({
         const prepared = prepareHeaders(request, token);
         if (!prepared.ok) return prepared.refusal;
         const { headers, variant } = prepared;
+        const requestBody = bodyOf(request);
 
+        // A write is never a GET, so it never carries a validator.
         const cached = request.method === "GET" ? cache.lookup(request.url, variant) : undefined;
         if (cached !== undefined) headers.set("if-none-match", cached.etag);
 
@@ -627,7 +889,7 @@ export function createGitHubHttpClient({
             // classification, and the two-attempt bound.
             redirect: "manual",
             signal,
-            ...(request.method === "POST" ? { body: request.body } : {}),
+            ...(requestBody === undefined ? {} : { body: requestBody }),
         };
 
         let response: Response;
@@ -722,11 +984,63 @@ export function createGitHubHttpClient({
         };
     };
 
+    /**
+     * The content-creation lane: one comment creation at a time, spaced by at
+     * least `CONTENT_CREATION_SPACING_MS`.
+     *
+     * The lane holds until the request FINISHES, not until the spacing wait
+     * ends, so two creations never overlap in flight — a burst is what 6.4
+     * tripped, and spacing alone would still let a burst leave together.
+     *
+     * The wait is not retry budget: it happens before anything is sent, so it
+     * cannot spend a claim on a failure, and it is bounded by the spacing
+     * itself rather than by `MAX_RETRY_WAIT_MS`.
+     */
+    let creationLane: Promise<void> = Promise.resolve();
+    let lastCreationAt: number | null = null;
+
+    /** Wait out this creation's turn, or name the seam that broke. */
+    const spaceCreation = async (): Promise<GitHubFailure | null> => {
+        let startedAt: number;
+        try {
+            startedAt = clock().getTime();
+        } catch {
+            return brokenSeamFailure("clock");
+        }
+        const due = lastCreationAt === null ? 0 : lastCreationAt + CONTENT_CREATION_SPACING_MS;
+        if (due > startedAt) {
+            try {
+                await sleep(due - startedAt);
+            } catch {
+                return brokenSeamFailure("sleep");
+            }
+        }
+        try {
+            lastCreationAt = clock().getTime();
+        } catch {
+            return brokenSeamFailure("clock");
+        }
+        return null;
+    };
+
+    const throughCreationLane = (work: () => Promise<GitHubOutcome>): Promise<GitHubOutcome> => {
+        const run = creationLane.then(async (): Promise<GitHubOutcome> => {
+            const broken = await spaceCreation();
+            return broken ?? work();
+        });
+        // The lane tracks completion, not success: a failure is this request's
+        // outcome, and must not wedge the next creation either way.
+        creationLane = run.then(settled, settled);
+        return run;
+    };
+
     return {
         async request(request): Promise<GitHubOutcome> {
             const admitted = admit(request);
             if (!admitted.ok) return admitted.refusal;
             const safeRequest = admitted.request;
+            const write = admitted.write;
+            const retriable = mayRetryInClient(safeRequest);
 
             let waitedMs = 0;
             /** This request's next move, or the broken clock that ends it. */
@@ -750,34 +1064,34 @@ export function createGitHubHttpClient({
                 return null;
             };
 
-            // Pacing runs once, before the first send: inside a request the
-            // server's own advice already governs, and a retry that paused
-            // twice would spend the ceiling on one failure.
-            const paced = pacingClass();
-            if (paced !== null) {
-                const step = move(paced, 0);
-                if (step === "brokenClock") return brokenSeamFailure("clock");
-                if (step.step !== "wait") return { ok: false, failure: paced };
-                const broken = await rest(step.ms);
-                if (broken !== null) return broken;
-            }
+            /** Pace, then send until this request's own policy says stop. */
+            const deliver = async (): Promise<GitHubOutcome> => {
+                // Pacing runs once, before the first send: inside a request the
+                // server's own advice already governs, and a retry that paused
+                // twice would spend the ceiling on one failure. It is not a
+                // retry, so a non-idempotent write waits here like anything else.
+                const paced = pacingClass();
+                if (paced !== null) {
+                    const step = move(paced, 0);
+                    if (step === "brokenClock") return brokenSeamFailure("clock");
+                    if (step.step !== "wait") return { ok: false, failure: paced };
+                    const broken = await rest(step.ms);
+                    if (broken !== null) return broken;
+                }
 
-            for (let attempt = 0; ; attempt += 1) {
-                let tokenOutcome: TokenOutcome;
-                try {
-                    tokenOutcome = await tokenSource.current();
-                    if (!isWellFormedTokenOutcome(tokenOutcome)) {
+                for (let attempt = 0; ; attempt += 1) {
+                    let tokenOutcome: TokenOutcome;
+                    try {
+                        tokenOutcome = await tokenSource.current();
+                        if (!isWellFormedTokenOutcome(tokenOutcome)) {
+                            return brokenSeamFailure("tokenSource");
+                        }
+                    } catch {
+                        // `current()` promises not to throw.
                         return brokenSeamFailure("tokenSource");
                     }
-                } catch {
-                    // `current()` promises not to throw.
-                    return brokenSeamFailure("tokenSource");
-                }
-                if (!tokenOutcome.ok) return tokenOutcome;
-                if (request.method === "POST") {
-                    const missing = LINKED_ISSUES_GRANTS.filter(
-                        (grant) => !hasReadGrant(tokenOutcome.token, grant),
-                    );
+                    if (!tokenOutcome.ok) return tokenOutcome;
+                    const missing = missingGrants(safeRequest, tokenOutcome.token);
                     if (missing.length > 0) {
                         return {
                             ok: false,
@@ -787,36 +1101,53 @@ export function createGitHubHttpClient({
                             },
                         };
                     }
-                }
 
-                let outcome: GitHubOutcome;
-                try {
-                    outcome = await sendOnce(safeRequest, tokenOutcome.token);
-                } catch {
-                    // `sendOnce()` contains expected transport failures itself;
-                    // what escapes it is a response object that broke mid-read.
-                    return brokenSeamFailure("response");
-                }
-                if (outcome.ok) return outcome;
-                const responseClass = responseClassOf(outcome.failure);
-                if (responseClass === null) return outcome;
-                // A rejected token is dropped even on the final attempt, so
-                // the next `request()` starts on a fresh mint.
-                if (responseClass.kind === "tokenExpired") {
+                    let outcome: GitHubOutcome;
                     try {
-                        tokenSource.invalidate(tokenOutcome.token);
+                        outcome = await sendOnce(safeRequest, tokenOutcome.token);
                     } catch {
-                        return brokenSeamFailure("invalidate");
+                        // `sendOnce()` contains expected transport failures itself;
+                        // what escapes it is a response object that broke mid-read.
+                        return brokenSeamFailure("response");
+                    }
+                    if (outcome.ok) return outcome;
+                    const responseClass = responseClassOf(outcome.failure);
+                    if (responseClass === null) return outcome;
+                    // A rejected token is dropped even on the final attempt, so
+                    // the next `request()` starts on a fresh mint.
+                    if (responseClass.kind === "tokenExpired") {
+                        try {
+                            tokenSource.invalidate(tokenOutcome.token);
+                        } catch {
+                            return brokenSeamFailure("invalidate");
+                        }
+                    }
+                    if (!retriable) return outcome;
+                    const step = move(responseClass, attempt);
+                    if (step === "brokenClock") return brokenSeamFailure("clock");
+                    if (step.step === "return") return outcome;
+                    if (step.step === "wait") {
+                        const broken = await rest(step.ms);
+                        if (broken !== null) return broken;
                     }
                 }
-                const step = move(responseClass, attempt);
-                if (step === "brokenClock") return brokenSeamFailure("clock");
-                if (step.step === "return") return outcome;
-                if (step.step === "wait") {
-                    const broken = await rest(step.ms);
-                    if (broken !== null) return broken;
-                }
+            };
+
+            const outcome =
+                write?.endpoint === "createComment"
+                    ? await throughCreationLane(deliver)
+                    : await deliver();
+
+            // Drop the validators a landed write staled — see `invalidatedBy`.
+            // The test is "may have reached GitHub", not "succeeded": an
+            // ambiguous outcome is exactly when a read-back runs next, and a
+            // 304 answered from a PRE-write body would let it conclude
+            // "absent" about a change that landed. That is the duplicate D46
+            // exists to prevent, so the one full re-read is the price.
+            if (write !== null && (outcome.ok || outcome.failure.kind !== "notSent")) {
+                for (const url of write.invalidates) cache.removeResource(url);
             }
+            return outcome;
         },
         latestRateLimit(): RateLimitSnapshot | null {
             if (latestRateLimit === null) return null;

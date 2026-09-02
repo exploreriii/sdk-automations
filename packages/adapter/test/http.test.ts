@@ -11,6 +11,7 @@ import {
     createGitHubHttpClient,
     lastPageFromLink,
     wait,
+    CONTENT_CREATION_SPACING_MS,
     DEFAULT_ETAG_CACHE_BYTES,
     DEFAULT_ETAG_CACHE_ENTRIES,
     DEFAULT_ETAG_CACHE_ENTRY_BYTES,
@@ -22,6 +23,7 @@ import {
     MAX_RETRY_WAIT_MS,
     PRIMARY_BUDGET_RESERVE,
     type FetchLike,
+    type GitHubHttpClient,
     type GitHubRequest,
 } from "../src/http.js";
 import {
@@ -34,6 +36,7 @@ import {
     success,
     TEST_NOW as NOW,
     TEST_URL as URL,
+    type ResponseStep,
 } from "./harness.js";
 
 const GRAPHQL_BODY = JSON.stringify({
@@ -1366,6 +1369,37 @@ describe("proactive pacing", () => {
         expect(sleeps).toEqual([5_000, 500]);
         expect(scripted.calls).toHaveLength(3);
     });
+
+    it("names the clock seam when it breaks while pacing", async () => {
+        let reads = 0;
+        const { client, scripted } = harness([spent("1", 5), success("second")], {
+            clock: () => {
+                reads += 1;
+                if (reads > 1) throw new Error("the clock is gone");
+                return NOW;
+            },
+        });
+        await client.request(request());
+
+        expect(await client.request(request())).toEqual({
+            ok: false,
+            failure: { kind: "notSent", reason: "brokenSeam", seam: "clock" },
+        });
+        expect(scripted.calls).toHaveLength(1);
+    });
+
+    it("names the sleep seam when the pacing pause breaks", async () => {
+        const { client, scripted } = harness([spent("1", 5), success("second")], {
+            sleep: () => Promise.reject(new Error("the timer is gone")),
+        });
+        await client.request(request());
+
+        expect(await client.request(request())).toEqual({
+            ok: false,
+            failure: { kind: "notSent", reason: "brokenSeam", seam: "sleep" },
+        });
+        expect(scripted.calls).toHaveLength(1);
+    });
 });
 
 describe("rate awareness", () => {
@@ -1482,5 +1516,413 @@ describe("lastPageFromLink, held directly", () => {
         ["no rel=last", '<https://api.github.com/x?page=2>; rel="next"'],
     ])("answers null for %s", (_label, link) => {
         expect(lastPageFromLink(link)).toBeNull();
+    });
+});
+
+// ─── The write path ──────────────────────────────────────────────────
+
+const ISSUE = `${GITHUB_API_ORIGIN}/repos/hiero-hackers/sdk-automations/issues/132`;
+const REPO = `${GITHUB_API_ORIGIN}/repos/hiero-hackers/sdk-automations`;
+
+const addLabel: GitHubRequest = {
+    url: `${ISSUE}/labels`,
+    method: "POST",
+    body: JSON.stringify({ labels: ["status: stale"] }),
+    idempotency: "idempotent",
+};
+const removeLabel: GitHubRequest = {
+    url: `${ISSUE}/labels/status%3A%20stale`,
+    method: "DELETE",
+    idempotency: "idempotent",
+};
+const createComment: GitHubRequest = {
+    url: `${ISSUE}/comments`,
+    method: "POST",
+    body: JSON.stringify({ body: "hello" }),
+    idempotency: "nonIdempotent",
+};
+const updateComment: GitHubRequest = {
+    url: `${REPO}/issues/comments/7788`,
+    method: "PATCH",
+    body: JSON.stringify({ body: "hello again" }),
+    idempotency: "idempotent",
+};
+
+/** A refusal's reason, for the many shapes the gate must reject. */
+function refusalOf(outcome: Awaited<ReturnType<GitHubHttpClient["request"]>>): string {
+    if (outcome.ok) return "admitted";
+    const failure = outcome.failure;
+    return failure.kind === "notSent" ? failure.reason : failure.kind;
+}
+
+describe("the write gate", () => {
+    it.each([
+        ["add label", addLabel, "POST", `${ISSUE}/labels`],
+        ["remove label", removeLabel, "DELETE", `${ISSUE}/labels/status%3A%20stale`],
+        ["create comment", createComment, "POST", `${ISSUE}/comments`],
+        ["update comment", updateComment, "PATCH", `${REPO}/issues/comments/7788`],
+    ])("admits %s with its exact method, url and body", async (_label, write, method, url) => {
+        const { client, scripted } = harness([success("{}")]);
+
+        const outcome = await client.request(write);
+
+        expect(outcome.ok).toBe(true);
+        expect(scripted.calls).toHaveLength(1);
+        expect(scripted.calls[0]!.url).toBe(url);
+        expect(scripted.calls[0]!.init.method).toBe(method);
+        expect(scripted.calls[0]!.init.redirect).toBe("manual");
+        expect(scripted.calls[0]!.init.body).toBe("body" in write ? write.body : undefined);
+    });
+
+    it("declares a content type only where a body exists", async () => {
+        const withBody = harness([success("{}")]);
+        await withBody.client.request(addLabel);
+        const noBody = harness([success("{}")]);
+        await noBody.client.request(removeLabel);
+
+        expect(new Headers(withBody.scripted.calls[0]!.init.headers).get("content-type")).toBe(
+            "application/json",
+        );
+        expect(new Headers(noBody.scripted.calls[0]!.init.headers).get("content-type")).toBeNull();
+        expect("body" in noBody.scripted.calls[0]!.init).toBe(false);
+    });
+
+    it.each([
+        // A shape that is not one of the four, however plausible.
+        ["remove every label", { url: `${ISSUE}/labels`, method: "DELETE" }],
+        ["add a label by PATCH", { url: `${ISSUE}/labels`, method: "PATCH" }],
+        ["comment by DELETE", { url: `${ISSUE}/comments`, method: "DELETE" }],
+        ["patch an issue", { url: ISSUE, method: "PATCH" }],
+        ["patch a repository comment list", { url: `${REPO}/issues/comments`, method: "PATCH" }],
+        ["post to the issues collection", { url: `${REPO}/issues`, method: "POST" }],
+        ["post to the item itself", { url: ISSUE, method: "POST" }],
+        [
+            "create a label under an id path",
+            { url: `${REPO}/issues/comments/7/labels`, method: "POST" },
+        ],
+        ["assign a reviewer", { url: `${ISSUE}/assignees`, method: "POST" }],
+        ["write outside /repos", { url: `${GITHUB_API_ORIGIN}/user/repos`, method: "POST" }],
+        ["write at the GraphQL endpoint", { url: GITHUB_GRAPHQL_URL, method: "POST" }],
+        ["a pull-request review", { url: `${REPO}/pulls/9/reviews`, method: "POST" }],
+        // A shape that is right but spelled wrong.
+        ["a query string", { url: `${ISSUE}/labels?force=1`, method: "POST" }],
+        ["a fragment", { url: `${ISSUE}/labels#x`, method: "POST" }],
+        ["a non-numeric item", { url: `${REPO}/issues/x/labels`, method: "POST" }],
+        ["a zero-padded item", { url: `${REPO}/issues/007/labels`, method: "POST" }],
+        ["a negative comment id", { url: `${REPO}/issues/comments/-7`, method: "PATCH" }],
+        // Not the encoding `repoPath` writes: lower-case hex, and a byte
+        // sequence no decoder can read.
+        [
+            "a non-canonical owner",
+            { url: `${GITHUB_API_ORIGIN}/repos/a%2fb/r/issues/1/labels`, method: "POST" },
+        ],
+        ["an undecodable label name", { url: `${ISSUE}/labels/%zz`, method: "DELETE" }],
+        ["an empty label name", { url: `${ISSUE}/labels/`, method: "DELETE" }],
+        ["a nested label name", { url: `${ISSUE}/labels/a/b`, method: "DELETE" }],
+    ])("refuses %s", async (_label, shape) => {
+        const { client, scripted } = harness([success("{}")]);
+
+        const outcome = await client.request({
+            ...shape,
+            method: shape.method as "POST" | "DELETE" | "PATCH",
+            body: shape.method === "DELETE" ? undefined : "{}",
+            idempotency: "idempotent",
+        } as GitHubRequest);
+
+        expect(refusalOf(outcome)).toBe("disallowedMethod");
+        expect(scripted.calls).toHaveLength(0);
+    });
+
+    it("refuses a write to another origin before anything else", async () => {
+        const { client, scripted } = harness([success("{}")]);
+
+        const outcome = await client.request({
+            url: "https://evil.example/repos/o/r/issues/1/labels",
+            method: "POST",
+            body: "{}",
+            idempotency: "idempotent",
+        });
+
+        expect(refusalOf(outcome)).toBe("disallowedOrigin");
+        expect(scripted.calls).toHaveLength(0);
+    });
+
+    it.each([
+        ["a body where none belongs", { ...removeLabel, body: "{}" }],
+        ["a missing body", { url: `${ISSUE}/labels`, method: "POST", idempotency: "idempotent" }],
+        ["a body that is not JSON", { ...addLabel, body: "not json" }],
+        ["a body that is a JSON array", { ...addLabel, body: "[1]" }],
+        ["a body that is not a string at all", { ...addLabel, body: 12 }],
+        ["an unknown idempotency", { ...addLabel, idempotency: "maybe" }],
+    ])("refuses %s", async (_label, shape) => {
+        const { client, scripted } = harness([success("{}")]);
+
+        const outcome = await client.request(shape as GitHubRequest);
+
+        expect(refusalOf(outcome)).toBe("invalidBody");
+        expect(scripted.calls).toHaveLength(0);
+    });
+
+    it("still refuses a DELETE that declares no idempotency", async () => {
+        const { client, scripted } = harness([success("{}")]);
+
+        const outcome = await client.request({
+            url: `${ISSUE}/labels/stale`,
+            method: "DELETE",
+        } as unknown as GitHubRequest);
+
+        expect(refusalOf(outcome)).toBe("disallowedMethod");
+        expect(scripted.calls).toHaveLength(0);
+    });
+});
+
+describe("the write grant precheck", () => {
+    it("refuses a write the installation cannot make, without sending", async () => {
+        const { client, scripted } = harness([success("{}")], {
+            outcomes: [{ ok: true, token: { ...token("read-only"), grants: ["issues:read"] } }],
+        });
+
+        const outcome = await client.request(addLabel);
+
+        expect(outcome.ok).toBe(false);
+        expect(outcome.ok ? null : outcome.failure).toEqual({
+            kind: "permissionMissing",
+            acceptedPermissions: "issues:write",
+        });
+        expect(scripted.calls).toHaveLength(0);
+    });
+
+    it("sends a write when the installation holds issues:write", async () => {
+        const { client, scripted } = harness([success("{}")], {
+            outcomes: [{ ok: true, token: { ...token("writer"), grants: ["issues:write"] } }],
+        });
+
+        expect((await client.request(addLabel)).ok).toBe(true);
+        expect(scripted.calls).toHaveLength(1);
+    });
+
+    it("leaves the GraphQL read's own two-grant precheck alone", async () => {
+        const { client, scripted } = harness([success("{}")], {
+            outcomes: [{ ok: true, token: { ...token("g"), grants: ["issues:write"] } }],
+        });
+
+        const outcome = await client.request({
+            url: GITHUB_GRAPHQL_URL,
+            method: "POST",
+            body: GRAPHQL_BODY,
+        });
+
+        expect(outcome.ok ? null : outcome.failure).toEqual({
+            kind: "permissionMissing",
+            acceptedPermissions: "pull_requests:read",
+        });
+        expect(scripted.calls).toHaveLength(0);
+    });
+});
+
+describe("idempotency and in-client retries", () => {
+    const FAILURES: ReadonlyArray<readonly [string, ResponseStep]> = [
+        ["a dropped connection", new Error("socket hang up")],
+        ["a 500", failure(500, "boom")],
+        ["a 401 on a live token", failure(401, "Bad credentials")],
+        [
+            "a secondary limit",
+            failure(403, "You have exceeded a secondary rate limit", {
+                "x-ratelimit-remaining": "4909",
+            }),
+        ],
+        [
+            "a primary exhaustion",
+            failure(403, "no", {
+                "x-ratelimit-remaining": "0",
+                "x-ratelimit-reset": String(Math.floor(NOW.getTime() / 1000) + 1),
+            }),
+        ],
+    ];
+
+    it.each(FAILURES)("sends a non-idempotent write exactly once on %s", async (_label, step) => {
+        const { client, scripted, sleeps } = harness([step]);
+
+        const outcome = await client.request(createComment);
+
+        expect(outcome.ok).toBe(false);
+        expect(scripted.calls).toHaveLength(1);
+        expect(sleeps).toEqual([]);
+    });
+
+    it("still drops a rejected token for a non-idempotent write", async () => {
+        const expired = { ...token("stale"), expiresAt: new Date(NOW.getTime() - 1) };
+        const { client, tokens, scripted } = harness([failure(401, "Bad credentials")], {
+            outcomes: [{ ok: true, token: expired }],
+        });
+
+        const outcome = await client.request(createComment);
+
+        expect(outcome.ok ? null : outcome.failure).toEqual({ kind: "tokenExpired" });
+        expect(tokens.invalidated).toHaveLength(1);
+        expect(scripted.calls).toHaveLength(1);
+    });
+
+    it("retries an idempotent write like a read", async () => {
+        const { client, scripted, sleeps } = harness([new Error("socket hang up")]);
+
+        const outcome = await client.request(addLabel);
+
+        expect(outcome.ok).toBe(false);
+        expect(scripted.calls).toHaveLength(2);
+        expect(sleeps).toHaveLength(1);
+    });
+
+    it("still paces a non-idempotent write before its first send", async () => {
+        // Pacing is not a retry: it happens before anything is sent, so it
+        // cannot duplicate an effect, and the zero-retry rule leaves it alone.
+        const spent = success("read", {
+            "x-ratelimit-remaining": "1",
+            "x-ratelimit-reset": String(Math.floor(NOW.getTime() / 1000) + 2),
+        });
+        const { client, scripted, sleeps } = harness([spent, () => success("{}")]);
+        await client.request(request());
+
+        const outcome = await client.request(createComment);
+
+        expect(outcome.ok).toBe(true);
+        expect(sleeps).toEqual([2_000]);
+        expect(scripted.calls).toHaveLength(2);
+    });
+});
+
+describe("cache hygiene around a write", () => {
+    const LIST = `${ISSUE}/comments?per_page=100&page=1`;
+    const listed = (): ResponseStep =>
+        success('[{"id":1}]', { etag: '"v1"', "content-type": "application/json" });
+    /** A conditional read that reuses the validator, so a 304 proves the entry survived. */
+    const conditional = (url: string, init: RequestInit): Response =>
+        new Headers(init.headers).get("if-none-match") === '"v1"'
+            ? new Response(null, { status: 304 })
+            : success("[]", { etag: '"v2"' });
+
+    it("drops the validators a landed write staled", async () => {
+        const { client, scripted } = harness([listed(), success("{}"), conditional]);
+        await client.request({ url: LIST, method: "GET" });
+
+        await client.request(createComment);
+        const reread = await client.request({ url: LIST, method: "GET" });
+
+        expect(new Headers(scripted.calls[2]!.init.headers).get("if-none-match")).toBeNull();
+        expect(reread.ok && reread.fromCache).toBe(false);
+    });
+
+    it("drops them for an outcome that may have landed but did not succeed", async () => {
+        const { client, scripted } = harness([listed(), failure(500, "boom"), conditional]);
+        await client.request({ url: LIST, method: "GET" });
+
+        await client.request(createComment);
+        await client.request({ url: LIST, method: "GET" });
+
+        expect(new Headers(scripted.calls[2]!.init.headers).get("if-none-match")).toBeNull();
+    });
+
+    it("keeps them when the write was refused locally", async () => {
+        const { client, scripted } = harness([listed(), conditional]);
+        await client.request({ url: LIST, method: "GET" });
+
+        const refusal = await client.request({ ...createComment, url: `${ISSUE}/comments?x=1` });
+        const reread = await client.request({ url: LIST, method: "GET" });
+
+        expect(refusalOf(refusal)).toBe("disallowedMethod");
+        expect(new Headers(scripted.calls[1]!.init.headers).get("if-none-match")).toBe('"v1"');
+        expect(reread.ok && reread.fromCache).toBe(true);
+    });
+
+    it("leaves a resource the write did not touch alone", async () => {
+        const other = `${REPO}/issues/999/comments?per_page=100&page=1`;
+        const { client, scripted } = harness([listed(), success("{}"), conditional]);
+        await client.request({ url: other, method: "GET" });
+
+        await client.request(createComment);
+        await client.request({ url: other, method: "GET" });
+
+        expect(new Headers(scripted.calls[2]!.init.headers).get("if-none-match")).toBe('"v1"');
+    });
+});
+
+describe("content-creation pacing", () => {
+    it("spaces a second comment creation and leaves other writes alone", async () => {
+        const { client, sleeps } = harness([() => success("{}")]);
+
+        await client.request(createComment);
+        await client.request(addLabel);
+        await client.request(createComment);
+
+        expect(sleeps).toEqual([CONTENT_CREATION_SPACING_MS]);
+    });
+
+    it.each([
+        ["the clock breaks before the first send", 0, "clock"],
+        ["the clock breaks after the pause", 1, "clock"],
+    ])("names the seam when %s", async (_label, goodReads, seam) => {
+        let reads = 0;
+        const { client, scripted } = harness([() => success("{}")], {
+            clock: () => {
+                reads += 1;
+                if (reads > goodReads) throw new Error("clock");
+                return NOW;
+            },
+        });
+
+        const outcome = await client.request(createComment);
+
+        expect(outcome.ok ? null : outcome.failure).toEqual({
+            kind: "notSent",
+            reason: "brokenSeam",
+            seam,
+        });
+        expect(scripted.calls).toHaveLength(0);
+    });
+
+    it("names the sleep seam when the spacing pause breaks", async () => {
+        const { client, scripted } = harness([() => success("{}")], {
+            sleep: () => Promise.reject(new Error("sleep")),
+        });
+        await client.request(createComment);
+
+        const outcome = await client.request(createComment);
+
+        expect(outcome.ok ? null : outcome.failure).toEqual({
+            kind: "notSent",
+            reason: "brokenSeam",
+            seam: "sleep",
+        });
+        expect(scripted.calls).toHaveLength(1);
+    });
+
+    it("holds the lane until a creation finishes, so two never overlap", async () => {
+        const events: string[] = [];
+        let release: (() => void) | undefined;
+        const held = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const fetchLike: FetchLike = async () => {
+            const index = events.filter((event) => event.startsWith("start")).length;
+            events.push(`start${String(index)}`);
+            if (index === 0) await held;
+            events.push(`end${String(index)}`);
+            return success("{}");
+        };
+        const client = createGitHubHttpClient({
+            tokenSource: tokenSource([{ ok: true, token: token("t") }]).source,
+            fetch: fetchLike,
+            clock: () => NOW,
+            sleep: () => Promise.resolve(),
+        });
+
+        const both = Promise.all([client.request(createComment), client.request(createComment)]);
+        // Every microtask the second creation could have used to start.
+        for (let flush = 0; flush < 20; flush += 1) await Promise.resolve();
+        release!();
+        const outcomes = await both;
+
+        expect(events).toEqual(["start0", "end0", "start1", "end1"]);
+        expect(outcomes.every((outcome) => outcome.ok)).toBe(true);
     });
 });

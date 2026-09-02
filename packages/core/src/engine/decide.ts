@@ -132,6 +132,29 @@ export function describeChange(intent: AnyIntent): string {
     }
 }
 
+/**
+ * The one recipe for the safety request an intent is judged by — used here
+ * at decision time and by the shell's applier at apply time, so a re-gate
+ * can never judge a differently-shaped request than the decision did. The
+ * capability comes from the intent; the screen has already proved it names
+ * its declaration. Core's slice parity test pins this builder as the
+ * specification.
+ */
+export function writeRequestFor(intent: AnyIntent): WriteRequest {
+    const facts = INTENT_OPERATIONS[intent.operation];
+    return {
+        capability: intent.capability,
+        actionClass: facts.actionClassFloor,
+        requiredPermissions: [facts.permission],
+        cause: intent.cause.cause,
+        causeObservedAt: intent.cause.observedAt,
+        target: {
+            item: `${intent.repository.owner}/${intent.repository.repo}#${String(intent.item.number)}`,
+            change: describeChange(intent),
+        },
+    };
+}
+
 /** What the delivery showed about the item — `null` for unprojected sweeps. */
 type EngineProjection = ObservationProjection<MappableMeaning> | null;
 
@@ -220,18 +243,7 @@ async function gateIntent(
         return { findings: [screenFinding(screen, subject)], approved: null };
     }
 
-    const operationFacts = INTENT_OPERATIONS[intent.operation];
-    const request: WriteRequest = {
-        capability: declaration.name,
-        actionClass: operationFacts.actionClassFloor,
-        requiredPermissions: [operationFacts.permission],
-        cause: intent.cause.cause,
-        causeObservedAt: intent.cause.observedAt,
-        target: {
-            item: `${intent.repository.owner}/${intent.repository.repo}#${String(intent.item.number)}`,
-            change: describeChange(intent),
-        },
-    };
+    const request = writeRequestFor(intent);
     const ordering = await orderingFor(intent.item, externals);
     const context = {
         killSwitchActive: externals.killSwitchActive,

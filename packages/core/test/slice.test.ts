@@ -16,10 +16,10 @@
  * — on the identical intent, so that block is the specification `decide()`
  * is held to, not duplicated plumbing (D92 phase 2's parity gate).
  *
- * That block follows `decide()`'s OWN recipe for the request and the world:
- * `INTENT_OPERATIONS` for the class and permission, `describeChange` for the
- * change, the `owner/repo#number` item spelling, and `deriveWorld` over a
- * projection rebuilt from the capture's labels. It then pins each of those
+ * That block takes the request from `writeRequestFor` — decide()'s one
+ * builder, shared with the shell's applier — and the world from
+ * `deriveWorld` over a projection rebuilt from the capture's labels. It
+ * then pins each of those
  * to today's spelling, because `verdictFinding` surfaces only a code and a
  * reason — a report comparison alone would let the target format, the change
  * description or the world derivation drift unnoticed.
@@ -32,7 +32,7 @@ import {
     declareCapability,
     decide,
     deriveWorld,
-    describeChange,
+    writeRequestFor,
     evaluateWrite,
     explanationFinding,
     intentFactoryFor,
@@ -158,36 +158,27 @@ describe("one real delivery, end to end", () => {
             closure: null,
         });
 
-        // The target by decide()'s recipe, and its spelling pinned: the
-        // verdict finding carries neither, so nothing else would catch a
-        // change to either half.
-        const operationFacts = INTENT_OPERATIONS[keyed.operation];
-        const target = {
-            item: `${keyed.repository.owner}/${keyed.repository.repo}#${String(keyed.item.number)}`,
-            change: describeChange(keyed),
-        };
-        expect(target).toEqual({
-            item: "scrubbed-1/scrubbed-2#164",
-            change: "set mapped position awaitingTriage",
+        // The request from decide()'s ONE builder, with its spelling pinned:
+        // the verdict finding carries neither the item nor the change, so
+        // nothing else would catch a change to either half — and pinning
+        // the builder's output pins every caller, the applier included.
+        const request = writeRequestFor(keyed);
+        expect(request).toMatchObject({
+            capability: declaration.name,
+            actionClass: INTENT_OPERATIONS[keyed.operation].actionClassFloor,
+            requiredPermissions: [INTENT_OPERATIONS[keyed.operation].permission],
+            target: {
+                item: "scrubbed-1/scrubbed-2#164",
+                change: "set mapped position awaitingTriage",
+            },
         });
 
-        const verdict = evaluateWrite(
-            {
-                capability: declaration.name,
-                actionClass: operationFacts.actionClassFloor,
-                requiredPermissions: [operationFacts.permission],
-                causeObservedAt: keyed.cause.observedAt,
-                cause: keyed.cause.cause,
-                target,
-            },
-            config,
-            {
-                installationGrants: externals.installationGrants,
-                killSwitchActive: externals.killSwitchActive,
-                world,
-                latestHumanChangeAt: await externals.latestHumanChangeAt(observation.item),
-            },
-        );
+        const verdict = evaluateWrite(request, config, {
+            installationGrants: externals.installationGrants,
+            killSwitchActive: externals.killSwitchActive,
+            world,
+            latestHumanChangeAt: await externals.latestHumanChangeAt(observation.item),
+        });
         const expectedFindings = [
             explanationFinding(keyed.explanation, {
                 kind: "item",

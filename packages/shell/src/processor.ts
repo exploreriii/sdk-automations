@@ -19,6 +19,7 @@
 import {
     decide,
     parseConfigDocument,
+    repositoryNamedBy,
     UNREADABLE_CONFIG_REVISION,
     type ConfigResult,
     type ConfigError,
@@ -150,27 +151,14 @@ function parsePayload(bytes: Uint8Array): unknown {
     }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
- * The `owner/repo` a payload readably names, or `null` when it names none.
- *
- * These are the same three fields core's normalizer reads
- * (packages/core/src/engine/events.ts), deliberately: a payload this
- * cannot read is one core reports on as `payloadNotObject` or
- * `repositoryUnreadable`, and the shell must not pre-empt that with a
- * refusal of its own.
+ * The `owner/repo` a payload names, spelled for a record — reading via
+ * core's `repositoryNamedBy` so the three field reads live once, beside
+ * the normalizer that owns them.
  */
-function repositoryNamedBy(payload: unknown): string | null {
-    if (!isRecord(payload)) return null;
-    const repository = payload["repository"];
-    if (!isRecord(repository)) return null;
-    const owner = repository["owner"];
-    if (!isRecord(owner) || typeof owner["login"] !== "string") return null;
-    if (typeof repository["name"] !== "string") return null;
-    return `${owner["login"]}/${repository["name"]}`;
+function repositorySpelledBy(payload: unknown): string | null {
+    const named = repositoryNamedBy(payload);
+    return named === null ? null : `${named.owner}/${named.repo}`;
 }
 
 /**
@@ -359,7 +347,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
      */
     const recordFor = async (claimed: ClaimedDelivery): Promise<ShellRecord> => {
         const payload = parsePayload(claimed.payload);
-        const named = repositoryNamedBy(payload);
+        const named = repositorySpelledBy(payload);
         if (named !== null && !sameRepository(named, served)) {
             return {
                 kind: "repositoryMismatch",

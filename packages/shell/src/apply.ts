@@ -31,10 +31,10 @@
 
 import {
     deriveWorld,
-    describeChange,
     evaluateStandingRules,
     evaluateWrite,
     INTENT_OPERATIONS,
+    writeRequestFor,
     matchesManagedComment,
     meaningsOfLabels,
     projectIssueObservation,
@@ -48,7 +48,6 @@ import {
     type MappableMeaning,
     type ObservationProjection,
     type RepositoryConfig,
-    type WriteRequest,
 } from "@hiero-hackers/automation-core";
 import type { OpenIntent, Store } from "@hiero-hackers/automation-store";
 import {
@@ -214,31 +213,6 @@ const refuse = (code: EffectOutcomeCode, detail: string): GateVerdict => ({
 
 const held = (seen: SeenState, holds: SeenState): Confirmation =>
     seen === "unknown" ? "unknown" : seen === holds ? "held" : "notHeld";
-
-/**
- * The write request, by `decide()`'s own recipe — the class and permission
- * from `INTENT_OPERATIONS`, the change from `describeChange`, the item spelled
- * `owner/repo#number`. Core's slice parity test pins that recipe; this mirrors
- * it, because a re-gate judging a differently-shaped request would be judging
- * a different write.
- *
- * The capability comes from the intent rather than from a declaration, which
- * the screen has already proved are the same name.
- */
-function writeRequestFor(intent: AnyIntent): WriteRequest {
-    const facts = INTENT_OPERATIONS[intent.operation];
-    return {
-        capability: intent.capability,
-        actionClass: facts.actionClassFloor,
-        requiredPermissions: [facts.permission],
-        cause: intent.cause.cause,
-        causeObservedAt: intent.cause.observedAt,
-        target: {
-            item: `${intent.repository.owner}/${intent.repository.repo}#${String(intent.item.number)}`,
-            change: describeChange(intent),
-        },
-    };
-}
 
 /**
  * The live item as a projection.

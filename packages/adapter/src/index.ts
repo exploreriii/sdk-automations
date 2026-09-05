@@ -53,8 +53,6 @@ export {
     type ReadBackOutcome,
 } from "./readback.js";
 export {
-    createGitHubHttpClient,
-    wait,
     type BrokenSeam,
     type FetchLike,
     type GitHubFailure,
@@ -67,6 +65,7 @@ export {
     type GitHubWriteRequest,
     type NotSentReason,
     type RateLimitSnapshot,
-    type WriteEndpoint,
     type WriteIdempotency,
-} from "./http.js";
+} from "./contract.js";
+export { type WriteEndpoint } from "./admission.js";
+export { createGitHubHttpClient, wait } from "./http.js";

@@ -27,7 +27,7 @@ import {
     type GitHubHttpFailureClass,
     type GitHubWriteRequest,
     type WriteIdempotency,
-} from "./http.js";
+} from "./contract.js";
 
 // ─── The vocabulary ──────────────────────────────────────────────────
 

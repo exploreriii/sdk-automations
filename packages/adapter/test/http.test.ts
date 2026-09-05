@@ -8,23 +8,25 @@
 import { BODY_PATTERNS, type FailureClass } from "@hiero-hackers/automation-core";
 import { describe, expect, it } from "vitest";
 import {
-    createGitHubHttpClient,
     lastPageFromLink,
+    DEFAULT_REQUEST_TIMEOUT_MS,
+    GITHUB_API_ORIGIN,
+    GITHUB_API_VERSION,
+    GITHUB_GRAPHQL_URL,
+    type FetchLike,
+    type GitHubHttpClient,
+    type GitHubRequest,
+} from "../src/contract.js";
+import {
+    createGitHubHttpClient,
     wait,
     CONTENT_CREATION_SPACING_MS,
     DEFAULT_ETAG_CACHE_BYTES,
     DEFAULT_ETAG_CACHE_ENTRIES,
     DEFAULT_ETAG_CACHE_ENTRY_BYTES,
-    DEFAULT_REQUEST_TIMEOUT_MS,
-    GITHUB_API_ORIGIN,
-    GITHUB_API_VERSION,
-    GITHUB_GRAPHQL_URL,
     MAX_RESPONSE_BODY_BYTES,
     MAX_RETRY_WAIT_MS,
     PRIMARY_BUDGET_RESERVE,
-    type FetchLike,
-    type GitHubHttpClient,
-    type GitHubRequest,
 } from "../src/http.js";
 import {
     failure,

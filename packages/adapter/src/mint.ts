@@ -14,7 +14,7 @@ import {
     USER_AGENT,
     GITHUB_API_VERSION,
     type FetchLike,
-} from "./http.js";
+} from "./contract.js";
 import { field, jsonRecordOf } from "./untrusted.js";
 import {
     grantsFromPermissions,

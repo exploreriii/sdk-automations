@@ -24,7 +24,7 @@ import {
     type GitHubFailure,
     type GitHubHttpClient,
     type GitHubSuccess,
-} from "./http.js";
+} from "./contract.js";
 import { field, jsonRecordOf } from "./untrusted.js";
 
 const LINKED_ISSUES_QUERY = `query LinkedIssues(

@@ -25,7 +25,7 @@ import {
     type RepositoryRef,
     revisionOf,
 } from "@hiero-hackers/automation-core";
-import { repoPath, type GitHubHttpClient } from "./http.js";
+import { repoPath, type GitHubHttpClient } from "./contract.js";
 import { field, jsonRecordOf } from "./untrusted.js";
 
 /** Seams the composition root supplies. */

@@ -30,7 +30,9 @@ flowchart LR
 |---|---|
 | `jwt.ts` | What proves we are the App? |
 | `token.ts` | What token may we call with, right now? |
-| `http.ts` | How does every operation make one bounded, classified GitHub call? |
+| `contract.ts` | What shapes and spellings does every GitHub exchange use? |
+| `admission.ts` | May this request be sent, and what does its landing make untrustworthy? |
+| `http.ts` | How does one admitted request travel, and come back classified? |
 | `config.ts` | Which configuration is on the repository's default branch? |
 | `externals.ts` | Which of core's external facts does GitHub answer, live? |
 | `resolvers.ts` | How are the two catalogued resolver questions answered? |

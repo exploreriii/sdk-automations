@@ -18,7 +18,7 @@ import {
     repoPath,
     type GitHubHttpClient,
     type GitHubOutcome,
-} from "./http.js";
+} from "./contract.js";
 import { createResolverSource } from "./resolvers.js";
 import type { TokenSource } from "./token.js";
 import { field, jsonArrayOf } from "./untrusted.js";

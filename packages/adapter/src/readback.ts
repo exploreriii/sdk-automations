@@ -18,7 +18,7 @@
  */
 
 import type { ItemRef, RepositoryRef } from "@hiero-hackers/automation-core";
-import { describeFailure, lastPageFromLink, repoPath, type GitHubHttpClient } from "./http.js";
+import { describeFailure, lastPageFromLink, repoPath, type GitHubHttpClient } from "./contract.js";
 import { field, jsonArrayOf, jsonRecordOf } from "./untrusted.js";
 
 // ─── The chosen bounds ───────────────────────────────────────────────

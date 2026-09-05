@@ -13,7 +13,8 @@
 import type { ItemRef, RepositoryRef } from "@hiero-hackers/automation-core";
 import { generateKeyPairSync } from "node:crypto";
 import { expect } from "vitest";
-import { createGitHubHttpClient, type FetchLike, type GitHubRequest } from "../src/http.js";
+import type { FetchLike, GitHubRequest } from "../src/contract.js";
+import { createGitHubHttpClient } from "../src/http.js";
 import type { AppCredentials } from "../src/jwt.js";
 import { createReadBack, type AppIdentity, type ReadBack } from "../src/readback.js";
 import {

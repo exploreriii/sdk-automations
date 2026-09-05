@@ -20,6 +20,7 @@ flowchart LR
 |---|---|
 | [`events.ts`](events.ts) | What does this raw webhook delivery MEAN, if anything? |
 | [`invoke.ts`](invoke.ts) | How does the engine call a capability whose declaration type it cannot know? |
+| [`change.ts`](change.ts) | What change does one intent make, and under what request is it judged? |
 | [`decide.ts`](decide.ts) | What does the platform do with a delivery, start to finish? |
 | [`index.ts`](index.ts) | The barrel. |
 

@@ -11,7 +11,7 @@
  * in `Checked` — see `results.ts`.
  */
 
-import { checked, err, type Checked, type ConfigError } from "./results.js";
+import { checked, err, type Checked, type ConfigError, type ConfigErrorCode } from "./results.js";
 import { labelKey } from "./labels.js";
 import {
     CAPABILITY_NAME_PATTERN,
@@ -235,18 +235,118 @@ export function readCapabilities(
 }
 
 /**
- * Label mappings are fully injective, and uniqueness is judged the way GitHub
+ * What one mapping family under `mappings` is: its closed set of meanings, how
+ * it judges two spellings to be the same one, and what it calls each way of
+ * being wrong.
+ *
+ * `fold` and `collisionNote` are one decision in two halves. `fold` decides
+ * which spellings collide; `collisionNote` is how the maintainer is told that
+ * two spellings they wrote differently are the same one. A family that changes
+ * either must change the other.
+ */
+export interface MeaningFamily<M extends string> {
+    /** Dotted, like `mappings.labels`. Prefixes every path and message. */
+    readonly path: string;
+    /** What one entry's value is called, singular: `label`. */
+    readonly noun: string;
+    readonly meanings: readonly M[];
+    readonly fold: (spelling: string) => string;
+    /** The parenthetical for a collision between spellings that differ. */
+    readonly collisionNote: (otherSpelling: string) => string;
+    readonly notMappable: ConfigErrorCode;
+    readonly invalid: ConfigErrorCode;
+    readonly notInjective: ConfigErrorCode;
+}
+
+/**
+ * One family's entries, read: each meaning the family admits, mapped to the
+ * spelling this repository chose for it.
+ *
+ * Families are fully injective, and uniqueness is judged under the family's own
+ * fold rather than by exact string. For labels that fold is the way GitHub
  * judges it — case- and edge-whitespace-insensitively, so `status: ready` and
  * `Status: Ready` are one label and cannot map two meanings
  * (`FINDING(config-label-injectivity)` D34, `FINDING(config-label-case)` D55).
  * The original spelling is preserved for writes; only the uniqueness key folds.
+ *
+ * The caller owns the section around this: that `mappings` exists, that this
+ * family's key is one it knows, and that `rawFamily` is a mapping.
+ */
+export function readMeaningFamily<M extends string>(
+    spec: MeaningFamily<M>,
+    rawFamily: Record<string, unknown>,
+): Checked<Partial<Record<M, string>>> {
+    const family: Partial<Record<M, string>> = {};
+    const errors: ConfigError[] = [];
+    const owner = new Map<string, { meaning: string; spelling: string }>();
+
+    for (const [meaning, spelling] of Object.entries(rawFamily)) {
+        // Widened to `readonly string[]`, which is always safe; asserting the
+        // untrusted key to be a meaning is the unsound direction.
+        if (!(spec.meanings as readonly string[]).includes(meaning)) {
+            errors.push(
+                err(
+                    spec.notMappable,
+                    `${spec.path}: "${meaning}" is not a mappable meaning`,
+                    `${spec.path}.${meaning}`,
+                ),
+            );
+            continue;
+        }
+        if (typeof spelling !== "string" || spelling.trim() === "") {
+            errors.push(
+                err(
+                    spec.invalid,
+                    `${spec.path}.${meaning}: ${spec.noun} must be a non-empty string`,
+                    `${spec.path}.${meaning}`,
+                ),
+            );
+            continue;
+        }
+        const key = spec.fold(spelling);
+        const held = owner.get(key);
+        if (held !== undefined) {
+            errors.push(
+                err(
+                    spec.notInjective,
+                    `${spec.path}: ${spec.noun} ${JSON.stringify(spelling)} is mapped to both "${held.meaning}" and "${meaning}"` +
+                        (held.spelling === spelling ? "" : spec.collisionNote(held.spelling)) +
+                        ` — ${spec.noun} mappings must be injective (config-schema.md §3)`,
+                    `${spec.path}.${meaning}`,
+                ),
+            );
+            continue;
+        }
+        owner.set(key, { meaning, spelling });
+        family[meaning as M] = spelling;
+    }
+    return checked(family, errors);
+}
+
+/** Meaning → the label this repository spells it with. */
+const LABELS: MeaningFamily<MappableMeaning> = {
+    path: "mappings.labels",
+    noun: "label",
+    meanings: MAPPABLE_MEANINGS,
+    fold: labelKey,
+    collisionNote: (other) =>
+        ` (differing only in case or surrounding space from ${JSON.stringify(other)}, which GitHub treats as the same label)`,
+    notMappable: "meaningNotMappable",
+    invalid: "labelInvalid",
+    notInjective: "labelNotInjective",
+};
+
+/**
+ * The `mappings` section, which today holds one family. What lives here is the
+ * section shape — absence, the sweep for keys no family claims, and each
+ * family's own mapping check; the entries under a family are
+ * `readMeaningFamily`'s.
  */
 export function readMappings(
     raw: Record<string, unknown>,
 ): Checked<Partial<Record<MappableMeaning, string>>> {
-    const labels: Partial<Record<MappableMeaning, string>> = {};
     const errors: ConfigError[] = [];
-    if (raw.mappings === undefined) return { ok: true, value: labels };
+    if (raw.mappings === undefined) return { ok: true, value: {} };
     if (!isPlainObject(raw.mappings)) {
         return {
             ok: false,
@@ -261,52 +361,12 @@ export function readMappings(
     const rawLabels = raw.mappings.labels ?? {};
     if (!isPlainObject(rawLabels)) {
         errors.push(err("notAMapping", "mappings.labels must be a mapping", "mappings.labels"));
-        return checked(labels, errors);
+        return { ok: false, errors };
     }
 
-    const labelOwner = new Map<string, { meaning: string; label: string }>();
-    for (const [meaning, label] of Object.entries(rawLabels)) {
-        if (!MAPPABLE_MEANINGS.includes(meaning as MappableMeaning)) {
-            errors.push(
-                err(
-                    "meaningNotMappable",
-                    `mappings.labels: "${meaning}" is not a mappable meaning`,
-                    `mappings.labels.${meaning}`,
-                ),
-            );
-            continue;
-        }
-        if (typeof label !== "string" || label.trim() === "") {
-            errors.push(
-                err(
-                    "labelInvalid",
-                    `mappings.labels.${meaning}: label must be a non-empty string`,
-                    `mappings.labels.${meaning}`,
-                ),
-            );
-            continue;
-        }
-        const key = labelKey(label);
-        const owner = labelOwner.get(key);
-        if (owner !== undefined) {
-            const sameSpelling = owner.label === label;
-            errors.push(
-                err(
-                    "labelNotInjective",
-                    `mappings.labels: label ${JSON.stringify(label)} is mapped to both "${owner.meaning}" and "${meaning}"` +
-                        (sameSpelling
-                            ? ""
-                            : ` (differing only in case or surrounding space from ${JSON.stringify(owner.label)}, which GitHub treats as the same label)`) +
-                        ` — label mappings must be injective (config-schema.md §3)`,
-                    `mappings.labels.${meaning}`,
-                ),
-            );
-            continue;
-        }
-        labelOwner.set(key, { meaning, label });
-        labels[meaning as MappableMeaning] = label;
-    }
-    return checked(labels, errors);
+    const labels = readMeaningFamily(LABELS, rawLabels);
+    if (!labels.ok) return { ok: false, errors: [...errors, ...labels.errors] };
+    return checked(labels.value, errors);
 }
 
 export function readPrincipals(raw: Record<string, unknown>): Checked<[string, string][]> {

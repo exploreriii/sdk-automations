@@ -74,7 +74,7 @@ capabilities:
             reapAfterDays: 5
 
 mappings:
-  labels: # required: the ladders read these meanings to tell whose staleness it is
+  labels: # needed only by the label-based reasons and exemptions — native draft and changes-requested modes work unmapped
     needsReview: "status: needs review"
     needsRevision: "status: changes requested"
     blocked: "status: blocked" # read only when exemptBlocked is true

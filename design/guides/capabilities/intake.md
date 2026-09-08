@@ -1,123 +1,148 @@
-# intake — turn a new or edited issue into a clear next step
+# intake — walk a new issue from its opening to triaged, ready work
 
-> **Candidate — not ranked, not built.** Status changes here when the register does (Q2).
+Two optional stations on every new issue's front door. **On open**: mark it awaiting triage,
+welcome the author, and optionally lock it until a maintainer approves. **On approval**: a human
+with label rights applies the configured approval meaning — that label application *is* the
+authorized command, since GitHub only lets triage-and-up apply labels — and the capability
+unlocks, confirms, and advises on anything the repository's triage checklist still misses.
 
-The C++ workflow checks required issue content and relabels once a contributor finalizes; the Python
-workflow moderates (`design/audit/services.md` §2 group 1). Both are evidence that some repositories
-want help at the front door. Neither proves a universal required template, and the platform must not
-invent one.
+Reports and housekeeping only: it never rewrites a contributor's title or body, never decides an
+issue is invalid, and never fights a label a human set.
 
-## 1. Declaration
+## What the output looks like
 
-| Field | Value |
-|---|---|
-| `triggers` | `issues` opened/edited · `issue_comment` created |
-| `observations` | `issueUpdated` |
-| `resolvers` | `isAutomationActor` |
-| `intents` | `applyMappedLabel`, `postManagedComment` |
-| Permission impact — derived from operations | `issues:read`, `issues:write`; no organization grant |
-| `operationalNeeds` | none |
+On open, when locking is enabled:
 
-The `issue_comment` trigger exists only for the optional finalization command; without that setting
-the first two suffice. Labels and comments both cost `issues:write` even though neither changes the
-body. Three things the draft wanted are absent from the catalogue — a managed-comment observation, a
-command observation, and a `mayPerform` resolver — so the App-authored comment is found by read-back
-and the command slice needs a catalogue review (§8).
+> 👋 Hi @alice — thanks for opening this issue! To keep triage orderly, new issues are locked
+> until a maintainer reviews them (cc @maintainers). You don't need to do anything — we'll
+> unlock and follow up here, usually within a few days.
 
-## 2. Decision
+On approval:
+
+> ✅ This issue was approved and is open for discussion. Thanks for the report, @alice!
+
+On approval, when the triage checklist is incomplete:
+
+> ✅ Approved and unlocked. For the triage checklist, this issue is still missing: a skill label
+> · a priority label. (cc @maintainers)
+
+## What the config looks like
+
+Python-shaped — quarantine on open, release on approval:
+
+```yaml
+capabilities:
+  intake:
+    enabled: true
+    settings:
+      onOpen:
+        label: true # applies the awaitingTriage mapping
+        welcome: true
+        lock: true # locked until approval
+      approval:
+        when: [ready] # a human applying any of these meanings releases the issue
+        unlock: true
+        confirm: true
+
+mappings:
+  labels:
+    awaitingTriage: "status: pending-review"
+    ready: "status: ready for dev"
+
+principals:
+  maintainerTeam: "hiero-ledger/hiero-website-maintainers"
+```
+
+C++-shaped — no lock; the approval doubles as the finalize check, advising on the repository's
+triage requirements:
+
+```yaml
+capabilities:
+  intake:
+    enabled: true
+    settings:
+      onOpen:
+        label: true
+        welcome: false
+      approval:
+        when: [ready]
+        confirm: true
+        checklist: # advisory — named in the confirmation when missing
+          skillTier: true # any tier from mappings.skills
+          issueType: true # a native GitHub issue type is set
+
+mappings:
+  labels:
+    awaitingTriage: "status: awaiting triage"
+    ready: "status: ready for dev"
+  skills:
+    goodFirstIssue: "skill: good first issue"
+    beginner: "skill: beginner"
+    intermediate: "skill: intermediate"
+    advanced: "skill: advanced"
+```
+
+The third policy is no policy: a repository that doesn't triage simply never enables intake —
+issues arrive unmarked and the community works on them as it sees fit:
+
+```yaml
+capabilities:
+  intake:
+    enabled: false # Default
+```
+
+Every other capability composes without it: assignment with `claimableOnlyWhen: []` claims untriaged issues, inactivity reads native draft and review modes, and nothing anywhere assumes an intake flow ran.
+
+Stations are opt-in per key; a repository may run label-only, welcome-only, or the full
+quarantine. `approval.when` names mapped meanings — the humans who can apply those labels are the
+authorization, so no role is ever read. The checklist is advisory: a missing item is named in the
+confirmation comment, never enforced by refusing the human's approval.
+
+## How it works
 
 ```mermaid
 flowchart LR
-    O["issueUpdated"] --> CF{"conflict, or closed?"}
-    CF -->|yes| N0["no intent — explain()"]
-    CF -->|no| M{"awaitingTriage mapped?"}
-    M -->|no| N1["no intent — explain()"]
-    M -->|yes| P{"current position"}
-    P -->|none| A["applyMappedLabel awaitingTriage / intakeObserved"]
-    P -->|awaitingTriage| R{"requirements met, finalized?"}
-    P -->|"ready or inProgress"| N2["no intent — entry gate only"]
-    R -->|no| C1["postManagedComment — what is missing"]
-    R -->|yes| C2["applyMappedLabel ready / triageCompleted"]
+    O["issues opened"] --> S1["onOpen: applyMappedLabel awaitingTriage · welcome comment · lock"]
+    L["issues labeled — an approval meaning, by a human"] --> S2["approval: unlock · confirm · checklist advisory"]
+    B["a bot opened it"] --> N["nothing — isAutomationActor"]
 ```
 
-Each configured requirement — a form field, a body section, an accepted type, the finalization command —
-is a further condition on the same `requirements met` edge, each separately configurable and each
-resolving to met, missing, or unknown with its own explanation. In comment-only mode both label edges
-collapse into the same comment; the promotion edge is the one a maintainer has to ask for.
+The approval reacts to the *meaning arriving* on the issue, whoever applied it — GitHub's own
+permission model is the gate. Removing the approval label again is a human decision the
+capability observes and does not counter: nothing re-locks automatically. The welcome and
+confirmation comments are managed — one each, per issue, updated not repeated. A locked issue's
+welcome must be posted before the lock lands, in that order, so the author can read why.
 
-## 3. Meanings
+## Phases
 
-| Meaning | Reads | Writes |
+| Phase | Ships | Needs first |
 |---|---|---|
-| `awaitingTriage` | from the projection — the entry gate is "no position", and this is where an untriaged issue lands | `intakeObserved`, `[*] → awaitingTriage` |
-| `ready` | from the projection — a triaged issue is left alone | label mode only: `triageCompleted`, `awaitingTriage → ready`. This is the draft's `intakeReady`, and one of two current candidate writers of `ready`, with `assignment`; inactivity has no mapped-position intent (D116) |
-| `inProgress` | from the projection — claimed work is never re-triaged | never; the claim edge belongs to `assignment` |
-| `blocked` | from the projection | never (D79) |
-| `needsReview`, `needsRevision`, `readyToMerge` | — | never — it observes no pull request |
+| 1 | onOpen label + welcome, approval confirm | nothing new — `issueUpdated`, `applyMappedLabel`, `postManagedComment` all exist; the closest-to-buildable capability in the pool |
+| 2 | lock and unlock | two new write verbs (`lockIssue`, `unlockIssue` — reversible moderation, catalogue review) and the lock state on the observation |
+| 3 | the checklist advisory | issue type on the observation · the `skills` family read (shared) · a `priorities` mapping family, if priority checks are wanted |
 
-The draft's `intakeNeedsInformation` maps to no meaning at all. "This issue is missing information" is a
-sentence, not a position: the item stays in `awaitingTriage` while the comment says what is missing.
+## Declaration
 
-## 4. Refuses
-
-| Never | Enforced by |
+| Field | Value |
 |---|---|
-| Lock, close, reopen, or edit a contributor's title or body — Python does moderate (`design/audit/services.md` §2 group 1) | absent from `intents`; the closed catalogue holds no such operation, and closure is a reason read from GitHub, never written (D47, D61) |
-| Pause an item | `screenIntent` refuses a capability writing `blocked`, code `pauseNotCapabilityWritable` (D79) |
-| Move an issue that already holds a later position | `screenIntent`'s `transitionNotOnMap` — `ready → awaitingTriage` is not a documented edge (D78) |
-| Act on a double-labelled issue | `screenIntent` returns `positionConflict`; a conflict is reported, never repaired (D35) |
-| Take a position off without replacing it, or create and delete labels by prefix — A1's bulk strip | `removeMappedLabel` is deleted from the catalogue (D80), and the capability never sees a label string (contract.md §2) |
-| Undo a newer human label decision because a late validation event arrived | the `newerHumanChange` rule, ties to the human (`packages/core/src/safety/rules.ts`) |
-| Use a meaning the repository has not mapped | only mapped meanings reach the capability (contract.md §2); `packages/probes/test/intake.test.ts` proves the sweep explains and skips |
-| Execute an edited comment as a new command | the declared trigger is `issue_comment` **created**; an `edited` action is not subscribed, so the capability is never called |
+| `triggers` | `issues` (opened, labeled) |
+| `observations` | `issueUpdated` (exists) — needs adding: lock state (phase 2), native issue type (phase 3) |
+| `resolvers` | `isAutomationActor` (exists) |
+| `intents` | `applyMappedLabel` · `postManagedComment` (both exist) · `lockIssue` / `unlockIssue` (phase 2, new) |
+| Permissions | repository: `issues:read`, `issues:write` (covers locking) · organization: none |
+| `operationalNeeds` | schedule: false · durableState: none · crossItemCoordination: false · externalDelivery: false |
 
-## 5. When evidence is unknown
-
-`isAutomationActor` answering `ok: false` produces no intent and one `explain()` naming the reason — "the
-author could not be determined" is never read as "a human opened it" (D51). An unmapped `awaitingTriage`
-has the same shape: the capability explains that this repository has not mapped a triage meaning and
-emits nothing rather than guessing a label (`packages/probes/test/intake.test.ts`). A conflicted
-projection has no position to move from, so the intent is refused `positionConflict` and the comment
-says the issue holds two positions. Invalid configuration or a missing required mapping produces a
-configuration error for maintainers and no write; a permission failure stops retries until permissions
-change; a rate limit delays advisory work and changes nothing. Unknown labels and unrelated comments are
-left untouched, and the comment must distinguish a missing requirement from an App limitation so a
-contributor is never blamed for an infrastructure failure.
-
-## 6. Operational needs
-
-None declared. Current issue content, current labels, and one deterministic App-authored comment whose
-authorship is verified are enough for the first experiment; the marker identity is the capability's own
-and never another's (A2). Warning history, command history, and multi-step moderation would each need
-declared durable state and retention — whether a narrow operation record is safer than reconstructing
-history from comments is §8's, and it must not be answered by hiding state inside the evaluator.
-Disabling stops every intake evaluation and write; existing managed comments remain as historical GitHub
-content unless configuration asks for one final neutral cleanup update.
-
-## 7. Verification
+## Verified by
 
 | Scenario | Proves |
 |---|---|
-| No mapped `awaitingTriage`; then an issue already positioned | explains and skips, and the entry gate does not re-triage (`packages/probes/test/intake.test.ts`) |
-| Redelivered `issues` event | one comment and one label, not two — [`postManagedComment` is `nonIdempotent`](../../contracts/catalogue.md) so recovery goes through read-back, while `applyMappedLabel` converges on `already` |
-| Newer human label edit, or a changed configuration revision | the stale expectation returns `conflict` and the human change survives |
-| Malformed and valid issue forms; hostile Markdown; a comment carrying the App's own marker | a fake marker is not mistaken for the App's comment, and untrusted body text is never executed |
-| An edited comment carrying a valid command; an unauthorized actor; an ambiguous command | the command runs once, from the right person, or not at all |
-| Missing `issues:write` | `forbidden`, and the capability does not retry it |
-| Sandbox: personal App installation, then comment-only dry runs in a Hiero Hackers repository | maintainers review accuracy **and** tone before any label write |
-
-`packages/probes/src/intake.ts` is a boundary probe chosen for contract diversity, deliberately not for
-likelihood of being ranked first ([`probes/README.md`](../../../packages/probes/README.md)) — its test
-proves the mapping and entry-gate behaviour above, not that this capability is wanted.
-
-## 8. Open
-
-| Question | Closed by |
-|---|---|
-| Is the wanted outcome validation, moderation, finalization, or a smaller combination? Are comments enough, or is the position write wanted too? | maintainer conversation |
-| Who may finalize an issue, and which labels are repository-owned? | maintainer conversation |
-| `ready` has two current candidate writers, intake and assignment — which capability owns it, and what is intake's documented edge? | maintainer conversation against `assignment` §3 (D116) |
-| Does any lock, close, or reopen behaviour belong in scope? Each needs its own permission and safety review | maintainer conversation, then security review |
-| Do a command observation and a `mayPerform` resolver enter the closed catalogue, or does the finalization slice stay out? | catalogue review (D61) |
-| Is command and warning history reconstructable from App-authored comments, or does it need a durable record with stated retention? | App experiment |
-| An older workflow writing the same labels means comment-only mode until it stops | per-repository migration plan (Q7) |
+| Issue opened, full quarantine config | labeled, welcomed, then locked — in that order |
+| Approval meaning applied by a maintainer | unlocked, confirmed, checklist advisory if items missing |
+| Approval label applied then removed by a human | nothing re-locks; the removal stands |
+| Issue opened by a bot | untouched |
+| Redelivered `opened` event | one welcome, one lock — journal + managed identity |
+| Approval applied before the sweep ever locked (race) | confirm still posts; unlock is a no-op the read-back proves |
+| `onOpen.lock: true` while phase 2 verbs are absent | reported as unusable, not silently ignored |
+| Checklist enabled with `skillTier` but no skills mappings | reported as unusable, not silently ignored |
+| Welcome edited by a human | the edit survives — identity, not body, is the match |
+| `mode: dry-run` | the exact label/lock/comment named as `wouldApply`; nothing written |

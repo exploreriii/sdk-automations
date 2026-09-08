@@ -1,9 +1,11 @@
-# Capability probes — DISPOSABLE
+# Capability probes — the capability seeds
 
-Three capability stubs that exist to test the boundary they plug into.
-They are **not** product scope, not a ranking, and not a prediction of what
-stage four will choose. Same rule as [`lab/`](../dev/lab/README.md):
-the harness is disposable, the evidence is the product.
+Three capability stubs, built to test the boundary they plug into and since
+redesignated by the capability-suite redesign: they are the **seeds** of their real capabilities,
+promoted in place against the designs in
+[`design/guides/capabilities/`](../../design/guides/capabilities/), not
+deleted. They were chosen for contract diversity, not demand — so a seed may
+need real surgery against its design doc, not polish.
 
 ## Why this exists
 
@@ -50,14 +52,14 @@ capability cannot violate the principle. That was right about the arithmetic and
 about the prerequisite — P3 is structural, so stubs test it as well as shipped code does
 (D70); the plan's capability loop now re-runs the matrix per capability.
 
-## Deleting this package
+## Promoting a probe
 
-When stage four names the first real capability:
-
-1. Re-run the toggle matrix with the real capability substituted for its probe.
-2. Move nothing from `src/` into the platform. A probe was chosen for
-   diversity, not for demand; promoting one would turn a measuring instrument
-   into a scope decision.
+When a capability's build begins, its probe grows into it in place, against
+its design doc — declaration, config, guards, and the doc's Verified-by table
+as the test agenda. The toggle matrix rides through the promotion unchanged,
+now covering a real capability. The package keeps its name until the **second**
+capability ships real; the rename then happens on pattern evidence, not on the
+first instance (D93's trigger, written down).
 3. Delete `probes/` and remove it from `pnpm-workspace.yaml`.
 
 `test/world.ts` is the one piece worth reading before it goes: `runEnabled`

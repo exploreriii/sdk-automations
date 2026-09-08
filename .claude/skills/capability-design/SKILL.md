@@ -6,8 +6,7 @@ description: Author or revise a capability design doc in design/guides/capabilit
 # Designing a capability for sdk-automations
 
 The exemplars are `pr-quality.md`, `inactivity.md`, and `assignment.md` in
-`design/guides/capabilities/` — read the nearest one before writing. Docs still in the old
-8-section shape (review-routing) await this treatment; do not copy their structure.
+`design/guides/capabilities/` — read the nearest one before writing.
 
 ## Evidence before design
 

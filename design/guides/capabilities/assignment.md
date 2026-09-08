@@ -173,7 +173,7 @@ bypasses every gate on purpose.
 | Phase | Ships | Needs first |
 |---|---|---|
 | 1 | `/assign` + `/unassign`, claimability meanings, the caps | the command observation + actor model (vocabulary PR) · the assignee write family (shared with inactivity) · an open-assignments count resolver that carries each assignment's meanings (for `capIgnores` and per-tier caps) |
-| 2 | skill gates · `maxPerDay` · `minAccountAgeDays` · `reclaimCooldownDays` | the `skills` mapping family (the D127 reader, third instantiation) · a completed-count-by-skill resolver, repo-local · recent-claim times and App-release events (timeline reads, or the durable-state candidate) · account age on the actor |
+| 2 | skill gates · `maxPerDay` · `minAccountAgeDays` · `reclaimCooldownDays` | the `skills` mapping family (the config meaning-family reader) · a completed-count-by-skill resolver, repo-local · recent-claim times and App-release events (timeline reads, or the durable-state candidate) · account age on the actor |
 | 3 | position pairing — claim writes `inProgress`, release writes `ready`, when those meanings are mapped | the two-write recovery record (§operational needs); the `ready`-ownership conversation with intake |
 | 4 (candidate) | next-issue recommendation on merge | demand evidence first; unranked. Role-readiness recognition is `advancement.md`'s job |
 
@@ -187,18 +187,6 @@ bypasses every gate on purpose.
 | `intents` | `postManagedComment` · `assign` (new — the assignee write family) · `unassign` (same family) · `applyMappedLabel` (phase 3) |
 | Permissions | repository: `issues:read`, `pull_requests:read` (the `capIgnores` look at linked PRs), `issues:write` · organization: none — counting stays in this repository |
 | `operationalNeeds` | schedule: false · durableState: candidate — `maxPerDay` if the timeline read proves too costly, and phase 3's assignee+label pair (two GitHub calls; a crash between them needs a record, never a guess from the label-and-assignee shape) · crossItemCoordination: true — the caps count across issues · externalDelivery: false |
-
-## Never
-
-| Never | Enforced by |
-|---|---|
-| Fight a native assignment or unassignment | the `issues` events are observe-only; no counter-write exists |
-| Release anyone but the commenter | the release command is self-only by definition; releasing others is the maintainers' native control, and reaping is inactivity's own declared `unassign` — no capability names a sibling (P3) |
-| Exempt any role from a gate | no permission-reading resolver exists, on purpose — the native UI is every team member's bypass |
-| Assign on an unknown answer | unknown is never "under the cap" (D51) |
-| Execute an edited comment, or a command in a PR comment | the trigger is `created` only; the item kind refuses PRs |
-| Count caps or completions across repositories | repo-local by declaration; the org-wide cap is the parked ceiling question (D57) |
-| Close, lock, or label-moderate an issue | absent from `intents` (D61) |
 
 ## Verified by
 
@@ -225,6 +213,10 @@ bypasses every gate on purpose.
 | Claim at a tier with `supportTeam` | the welcome cc's the team — one comment, no roster, no rotation; other tiers stay quiet |
 | Maintainer assigns via the UI over every gate | untouched — no counter-write |
 | `/unassign` by a non-assignee | explained, nothing released |
+| `/unassign` naming someone else | only the commenter's own claim ever releases — self-only is definitional; reaping stays inactivity's own `unassign` (P3) |
+| A maintainer types `/assign` at the cap | refused like anyone — no role exemptions exist; the sidebar is their ungated path |
+| An edit adds `/assign` to an old comment | never executed — the trigger is `created` only |
+| Contributor with open assignments in a sibling repo | uncounted — caps and completions are repo-local (D57) |
 | Released by inactivity, then `/assign` again | a fresh claim; the capabilities compose without naming each other |
 | Missing `issues:write` | `forbidden`, not retried |
 | `mode: dry-run` | the exact assign/unassign named as `wouldApply`; nothing written |

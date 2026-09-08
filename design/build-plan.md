@@ -19,7 +19,7 @@ flowchart TD
     FX -->|"gate: failure injection passed · kill switches demonstrated"| SOAK
     SOAK -->|"gate: conformance · disablement · rollback · clean observation"| PILOT
 
-    POOL{{"the pool — deliberately unordered, demand decides (Q2)<br/>assignment (Q5) · inactivity closure · issue locking · review routing (Q6)<br/>progression · skill ladder (Q3) · off-GitHub notifications · organization Projects"}}
+    POOL{{"the pool — six designed (design/guides/capabilities/), build order by demand (Q2)<br/>pr-quality dashboard · inactivity · assignment · advancement · intake · notifications<br/>candidates: review-sync · conflict advisory"}}
 
     subgraph LOOP ["○ the capability loop — one pass per capability"]
         PICK["pick from the pool by maintainer demand"]

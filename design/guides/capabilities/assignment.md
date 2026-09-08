@@ -19,6 +19,12 @@ Claim accepted:
 > ✅ @alice you are assigned to this issue — thank you for picking it up. Comment `/unassign` if
 > you need to step away.
 
+Claim accepted, at a tier with a support team:
+
+> ✅ @alice you are assigned to this good first issue — welcome, and thank you for picking it up!
+> @gfi-support will keep an eye out if you need a hand. Comment `/unassign` if you need to step
+> away.
+
 Claim refused — at the cap:
 
 > Hi @alice — you already have 2 open assignments, which is this repository's limit.
@@ -82,12 +88,16 @@ capabilities:
         enabled: true
         goodFirstIssue:
           maxCompletions: 2 # after this many, GFIs are for newer contributors
+          supportTeam: gfiSupportTeam # cc'd on every claim at this tier — the mentor ping
         beginner:
           requiresPrevious: 1 # completed goodFirstIssue issues
         intermediate:
           requiresPrevious: 3
         advanced:
           requiresPrevious: 10
+
+principals:
+  gfiSupportTeam: "hiero-ledger/hiero-sdk-good-first-issue-support"
 
 mappings:
   labels:
@@ -212,6 +222,7 @@ bypasses every gate on purpose.
 | Reaped for inactivity, `/assign` the same issue next day | refused for `reclaimCooldownDays` — a different issue claims fine |
 | Count resolver fails or paginates incompletely | polite refusal, never an assignment (unknown ≠ under the cap) |
 | Skill-unlabelled issue | caps apply, the gate does not |
+| Claim at a tier with `supportTeam` | the welcome cc's the team — one comment, no roster, no rotation; other tiers stay quiet |
 | Maintainer assigns via the UI over every gate | untouched — no counter-write |
 | `/unassign` by a non-assignee | explained, nothing released |
 | Released by inactivity, then `/assign` again | a fresh claim; the capabilities compose without naming each other |

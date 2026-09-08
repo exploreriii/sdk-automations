@@ -69,7 +69,7 @@ capabilities:
         confirm: true
         checklist: # advisory — named in the confirmation when missing
           skillTier: true # any tier from mappings.skills
-          issueType: true # a native GitHub issue type is set
+          issueType: true # a native issue type, or any label from mappings.types
 
 mappings:
   labels:
@@ -80,6 +80,10 @@ mappings:
     beginner: "skill: beginner"
     intermediate: "skill: intermediate"
     advanced: "skill: advanced"
+  types: # only for label-based repos (solo-style: Bug, enhancement, Documentation…)
+    bug: "Bug"
+    enhancement: "enhancement"
+    docs: "Documentation"
 ```
 
 The third policy is no policy: a repository that doesn't triage simply never enables intake —
@@ -119,7 +123,7 @@ welcome must be posted before the lock lands, in that order, so the author can r
 |---|---|---|
 | 1 | onOpen label + welcome, approval confirm | nothing new — `issueUpdated`, `applyMappedLabel`, `postManagedComment` all exist; the closest-to-buildable capability in the pool |
 | 2 | lock and unlock | two new write verbs (`lockIssue`, `unlockIssue` — reversible moderation, catalogue review) and the lock state on the observation |
-| 3 | the checklist advisory | issue type on the observation · the `skills` family read (shared) · a `priorities` mapping family, if priority checks are wanted |
+| 3 | the checklist advisory | issue type and native field values (e.g. `Priority`) on the observation · the `skills` family read (shared) · a `types` mapping family (open-keyed) for label-based repos |
 
 ## Declaration
 

@@ -1,123 +1,161 @@
-# inactivity — warn about stalled work, then release it
+# inactivity — remind about stalled work, then release it
 
-> **Candidate — not ranked and not buildable on the current boundary.** The disposable probe constructs
-> warning and unassignment intents, but the engine refuses both from an unprojected sweep. Automatic
-> unassignment also cannot reach the clock-triggered destructive gate; §2 records both blockers.
+Reminds after inactivity, then acts after continued inactivity: releases stale assignments and closes stale pull requests.
+Clocks reset on development activity only: a commit resets a pull request's clock, a `/working`
+comment resets any clock. Nothing else does.
 
-C++ and Python both reap stale work (`design/audit/services.md` §2 group 4). The C++ reaper's warn-at-five,
-act-at-seven pattern is the audit's strongest safety precedent. That evidence supports investigating the
-capability; it does not authorize the current probe to act.
+Reminds and acts on contributor staleness only:
+- assigned issues with no open pull request
+- pull requests where the ball is with the contributor — linked or not, assigned or not: in draft
+  mode, in changes-requested mode (a review asked for changes), or carrying the `needsRevision`
+  label — which, with pr-quality's label mode, may also indicate persistent DCO, GPG, linked-issue
+  and assignment failures
 
-## 1. Current probe declaration
+Never acts on maintainer staleness or paused work:
+- a pull request in `needsReview`, or in ready-for-review mode without the `needsRevision` label —
+  that wait is the maintainers'
+- anything carrying the `blocked` meaning
 
-| Field | Current value | Consequence |
-|---|---|---|
-| `triggers` | one `schedule` | no webhook event currently resets a clock |
-| `observations` | `staleItemsDue` | carries item, assignee, activity time, and warning time; **no workflow projection** |
-| `resolvers` | `isAutomationActor` | a failed or bot lookup skips the item |
-| `intents` | `postManagedComment`, `unassign` | no close operation and no mapped-position write |
-| Permission impact — repository | `issues:write` for both operations | derived from `INTENT_OPERATIONS`, not declared by the capability |
-| Permission impact — organization | none | no organization operation exists |
-| `operationalNeeds` | schedule true, durable state required, no cross-item coordination, no external delivery | the warning must survive restarts |
+## What the output looks like
 
-The fuller product idea also needs activity events, linked-work evidence, authorization for a `/working`
-command, per-entity policy, and safe timer bounds. Those are requirements for a future declaration, not
-features of the probe above.
 
-## 2. What happens today
+One reminder, one action; each names the reason, the fix, and the date.
 
-The probe's direct unit tests prove only intent construction:
+Issue reminder:
 
-1. A first stale entry returns a `postManagedComment` intent explaining the configured deadline.
-2. A later entry with `warnedAt` returns an `unassign` intent dated at the warning rather than the current
-   sweep.
-3. A bot assignee or an unavailable actor lookup returns no intent.
+> ⏰ Hi @alice — you are assigned to this issue, but there is no pull request after 14 days. Still
+> working on it? Comment `/working` to let us know development is active, otherwise this
+> assignment will be released on **2026-09-21**.
 
-Running those intents through the real engine changes the result:
+Issue release:
+
+> This assignment was released after 21 days of inactivity. The issue is open for anyone to pick
+> up — you are welcome to `/assign` it again when you have capacity.
+
+Pull request reminder, naming its reason (one per reapable state):
+
+> ⏰ Hi @alice — this pull request has had **changes requested** without development activity for
+> 14 days. Push a commit or comment `/working` to let us know you are working on it, otherwise
+> the pull request will be closed and the assignment released on **2026-11-07**.
+
+> ⏰ Hi @alice — this pull request has carried the **status: changes requested** label without
+> development activity for 14 days. Push a commit or comment `/working` to let us know you are
+> working on it, otherwise the pull request will be closed and the assignment released on
+> **2026-11-07**.
+
+Pull request close:
+
+> This pull request was closed after 60 days of inactivity, and the assignment to issue #1632 was
+> released.
+
+## What the config looks like
+
+```yaml
+capabilities:
+  inactivity:
+    enabled: true
+    settings:
+      exemptBlocked: true # the blocked mapping skips every warning and action
+      remindAfterDays: 14 # defaults — any ladder or reason may override
+      reapAfterDays: 21 # reap = unassign (issues) · close + unassign (PRs)
+      issues: # warns, then unassigns assigned issues with no open PR
+        enabled: true
+      pullRequests: # any PR, linked or not — warns, then closes and releases any stale assignees
+        enabled: true
+        reapAfterDays: 60 # ladder override
+        reapWhen: # reminders and actions apply only to PRs in:
+          draft: # GitHub draft mode
+            enabled: true
+          changesRequested: # GitHub review state
+            enabled: true
+          needsRevision: # the label pr-quality's label mode applies for DCO, GPG, linked-issue and assignment failures
+            enabled: true
+            remindAfterDays: 2 # reason override — quality failures reap fast
+            reapAfterDays: 5
+
+mappings:
+  labels: # required: the ladders read these meanings to tell whose staleness it is
+    needsReview: "status: needs review"
+    needsRevision: "status: changes requested"
+    blocked: "status: blocked" # read only when exemptBlocked is true
+  commands:
+    working: "/working" # the one clock reset; spelling is the repo's
+```
+
+Days resolve most-specific-first: reason → ladder → capability default. At every level,
+`reapAfterDays` must exceed `remindAfterDays` by the platform's minimum grace (`MIN_GRACE_DAYS`).
+Every clock is per assignee: reminders name only the assignees in the window; releases take only
+those whose own clock is stale.
+
+
+## How it works
 
 ```mermaid
 flowchart LR
-    S["staleItemsDue"] --> P["projectionOf = null"]
-    P --> C["intent claims closed: false"]
-    C --> W["deriveWorld cannot verify the claim"]
-    W --> R["refuse preconditionStale"]
+    S["schedule → staleItemsDue"] --> X{"blocked, or PR in needsReview / ready-for-review without needsRevision?"}
+    X -->|yes| N["nothing"]
+    X -->|no| C{"whose staleness?"}
+    C -->|"issue, no open linked PR — per assignee"| I1["remind → release the stale assignee"]
+    C -->|"PR in draft mode, changes-requested mode, or needsRevision"| P1["remind → close + release its stale assignees"]
 ```
 
-`packages/probes/test/engine-matrix.test.ts` pins that refusal. A capability-authored claim is not current
-state evidence, so neither the warning nor unassignment is approved.
+| Target | Remind | Act | Guard |
+|---|---|---|---|
+| assigned issue, no open linked PR | its resolved `remindAfterDays`, naming every assignee in the window | unassign each assignee at their own resolved `reapAfterDays` | destructive gate: the reminder must stand, unchanged, through the grace period |
+| PR in a `reapWhen` state | its reason's resolved `remindAfterDays` | close at the reason's resolved `reapAfterDays`, releasing only the assignees past the issue ladder's `reapAfterDays` | same gate; **a PR in `needsReview`, or ready-for-review without `needsRevision`, is never touched** — maintainer staleness, not the contributor's |
 
-There is a second, independent blocker. `INTENT_OPERATIONS.unassign.actionClassFloor` is
-`reversibleStateChange`. The engine derives that class from the operation; the capability cannot elevate it
-to `clockTriggeredDestructive`. Consequently the warning/grace door in
-`packages/core/src/safety/destructive.ts` is never entered. The probe's `warnedAt` changes its idempotency
-occasion but grants no destructive authority.
+The PR ladder judges the pull request alone. A linked issue and its assignments change only what
+is released alongside a close — an unlinked or unassigned PR in a `reapWhen` state is reminded and
+closed the same way, with nothing to release.
 
-Finally, the declaration contains no `applyMappedLabel`. It can request unassignment only; it does **not**
-move `inProgress → ready`. Describing it as a writer of `ready` would hide the assignee/position split that
-the coupling audit explicitly warns against.
+The clock starts when an item enters a reapable state — assignment for an issue; draft,
+changes-requested or `needsRevision` for a PR — and resets on development activity only: a commit
+for a pull request, a `/working` comment from the person on the clock for either. Ordinary
+comments and reviews do not reset. Reminders are cycle-scoped: a re-assignment or a reopened PR
+starts a fresh warn-then-act cycle, and an old reminder never authorizes a new act. Every action
+recomputes at apply time against live state: a commit, a `/working`, or a state change between
+sweep and write refuses the act.
 
-## 3. Safety requirements for a real capability
+## Phases
 
-| Requirement | Current standing |
+| Phase | Ships | Needs first |
+|---|---|---|
+| 1 | reminders only — both ladders, comment-only | the sweep that emits `staleItemsDue` (store schedules exist; the shell driver does not) · linked-PR resolver · mapped meanings, draft/review state, commit and `/working` times on sweep entries · the commands mapping family (shared with assignment) |
+| 2 | issue release — unassign after grace | the assignee write family · the destructive gate wired to the sweep path (built in core; unexercised) |
+| 3 | PR close after grace | a `closePullRequest` operation — the catalogue's first close, destructive-gated (D61 review) |
+| 4 (candidate) | stale unassigned triage/ready issues — remind, optionally close | an issue-closure operation and a policy conversation; unranked |
+
+## Declaration
+
+| Field | Value |
 |---|---|
-| A current, authoritative view of open/closed state and any watched workflow position | missing from `staleItemsDue`; engine refuses closed |
-| First stale observation warns and never acts | product requirement; the direct probe constructs the warning, but the engine currently refuses it |
-| The warning identifies item, assignee, policy revision, deadline, cancellation, and reversal | warning persistence/shape still to design for this capability |
-| Qualifying activity cancels the pending action, including at the deadline | destructive gate supports the rule, but no operation reaches it |
-| A clock-triggered final action cannot travel through the ordinary reversible-write path | not representable with current operation facts |
-| A blocked item receives no capability write | built globally as `itemBlocked` in the shared safety rules |
-| Unknown actor, history, link, permission, or ordering evidence means no action | partially built; missing resolver/adapter facts remain |
-| Close, lock, or remove labels by prefix | impossible through the current catalogue |
-| Pull an operator kill switch | built as a process-level safety refusal |
+| `triggers` | `schedule` — no webhook resets a clock; the sweep reads the timeline instead |
+| `observations` | `staleItemsDue` — needs adding, per entry: mapped meanings, draft and review-decision state, last commit, last `/working` per assignee (phase 1) |
+| `resolvers` | `isAutomationActor` (exists) · `linkedIssues` (exists) · linked open PRs of an issue (new) — quality-failure detection is pr-quality's job, arriving as `needsRevision` |
+| `intents` | `postManagedComment` · `unassign` (phase 2) · `closePullRequest` (phase 3, new) |
+| Permissions | repository: `issues:read`, `pull_requests:read`, `issues:write`; phase 3 adds `pull_requests:write` · organization: none |
+| `operationalNeeds` | schedule: true · durableState: required — the reminder and its cause must survive restarts · crossItemCoordination: false · externalDelivery: false |
 
-The safe first scope may be **report-only** until the two structural blockers are resolved. Adding automatic
-unassignment is a catalogue and safety design change, not a documentation toggle.
+## Verified by
 
-## 4. Meanings and ownership
-
-The current probe receives no projection and writes no meaning. It is therefore not a `ready` writer.
-
-A future integrated reclaim might want `inProgress → ready`, but that edge already belongs to the candidate
-assignment policy when the last contributor unassigns. If inactivity performs the same release, the design
-must choose one owner for the combined assignee-and-position outcome or define one explicit operation that
-keeps them atomic. Two independently toggled writers recreate audit lessons A1 and A3.
-
-The current candidate writer question is therefore between `intake` and `assignment`; inactivity joins it
-only after it gains a reviewed mapped-position operation.
-
-## 5. Operational needs
-
-The warning time, item, assignee, policy/config revision, deadline, and final outcome require durable state.
-The SQLite store already supplies schedule and journal primitives, but no scheduler calls `decide()` and no
-effect executor applies a reclaim. GitHub comments may be user-facing receipts; they are not a substitute
-for pending-work state.
-
-Disabling the capability must stop new scheduling, warnings, and actions without silently changing existing
-assignments. A migration must ensure the old stale-work bot and this App never write the same assignee or
-position at the same time (Q7).
-
-## 6. Verification required before ranking
-
-| Scenario | What it must prove |
+| Scenario | Proves |
 |---|---|
-| First observation, second observation, duplicate sweep, delayed sweep | warning and occasion identities converge |
-| Activity immediately before, at, and after the deadline | ties and cancellation favor the person |
-| Bot assignee and unavailable actor lookup | both skip without a destructive default |
-| Missing projection, conflicted labels, closed item, blocked item | every case refuses with the truthful code |
-| Warning survives restart and config revision changes | old authority cannot act under new policy |
-| Lost comment or unassign response | read-back and journal recovery do not duplicate |
-| Existing assignment automation still installed | migration prevents two writers |
-| Compressed sandbox clock followed by a real multi-day soak | simulation alone never authorizes rollout |
-
-## 7. Open decisions
-
-- What counts as activity for issues and pull requests, and which facts can GitHub establish reliably?
-- Is the first capability report-only, warning-only, or allowed to unassign after a separately reviewed
-  destructive operation exists?
-- Does the catalogue add a clock-triggered unassignment operation, or can one operation carry context-sensitive
-  action classes without restoring capability-authored authority?
-- How does a scheduled observation acquire the authoritative projection and ordering evidence required at
-  decision and act time?
-- Who owns the combined unassign-and-position transition if a future capability writes `ready`?
-- Which warning facts map onto the existing store, and what scheduler/recovery interface is still missing?
-- Is `MIN_GRACE_DAYS = 1` the right platform floor (D30), and what longer repository minimum is acceptable?
+| `/working` after the reminder | clock resets; the act is refused at apply time |
+| A commit to the PR after the reminder | clock resets; the act is refused at apply time |
+| Ordinary comments and reviews after the reminder | no reset — chatter is not progress, and reviews are the maintainers' motion |
+| Reminder posted, labels then change the workflow position | destructive gate refuses — cause drift |
+| PR stale for a year in `needsReview` | untouched — the wait is the maintainers' |
+| Stale draft PR with `reapWhen.draft` not enabled | untouched — reaping is opt-in per reason |
+| `needsRevision` override of 2/5 days | the quality-failure PR reaps on the fast clock; an ordinary stale PR keeps the ladder's 60 |
+| Review flips a PR `needsReview` → `needsRevision` | its clock starts; the reverse flip stops it |
+| pr-quality labels a failing PR `needsRevision` | the reaper's clock runs on it — detection is composed, not duplicated |
+| Item gains the `blocked` meaning mid-cycle | all clocks pause, including linked PRs |
+| Draft PR marked ready for review, no `needsRevision` | leaves the reapable state; its clock stops |
+| Two assignees, one recent | only the stale one is released |
+| Issue gains an open linked PR | the issue ladder falls silent; the PR ladder governs |
+| Reaper closes a PR | only assignees past the issue ladder's `reapAfterDays` are released with it |
+| Unlinked PR stale in draft mode | reminded and closed like any other; nothing to release |
+| Redelivered sweep / restart between remind and act | one reminder, one act — journal + managed identity |
+| Released then re-assigned | a fresh cycle; the old reminder does not suppress the new one |
+| Kill switch mid-grace | the act is refused and recorded |
+| `mode: dry-run` | the exact unassign/close is named as `wouldApply`; nothing written |

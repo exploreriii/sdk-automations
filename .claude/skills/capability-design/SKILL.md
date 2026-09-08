@@ -7,8 +7,8 @@ description: Author or revise a capability design doc in design/guides/capabilit
 
 The exemplars are `pr-quality.md`, `inactivity.md`, and `assignment.md` in
 `design/guides/capabilities/` — read the nearest one before writing. Docs still in the old
-8-section shape (admin, intake, notifications, review-routing, progression) await this treatment;
-do not copy their structure.
+8-section shape (admin, intake, notifications, review-routing) await this treatment; do not copy
+their structure.
 
 ## Evidence before design
 

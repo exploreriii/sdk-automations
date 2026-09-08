@@ -165,7 +165,7 @@ bypasses every gate on purpose.
 | 1 | `/assign` + `/unassign`, claimability meanings, the caps | the command observation + actor model (vocabulary PR) · the assignee write family (shared with inactivity) · an open-assignments count resolver that carries each assignment's meanings (for `capIgnores` and per-tier caps) |
 | 2 | skill gates · `maxPerDay` · `minAccountAgeDays` · `reclaimCooldownDays` | the `skills` mapping family (the D127 reader, third instantiation) · a completed-count-by-skill resolver, repo-local · recent-claim times and App-release events (timeline reads, or the durable-state candidate) · account age on the actor |
 | 3 | position pairing — claim writes `inProgress`, release writes `ready`, when those meanings are mapped | the two-write recovery record (§operational needs); the `ready`-ownership conversation with intake |
-| 4 (candidate) | recognition and next-issue recommendation on merge — the rest of old `progression` | demand evidence first; unranked |
+| 4 (candidate) | next-issue recommendation on merge | demand evidence first; unranked. Role-readiness recognition is `advancement.md`'s job |
 
 ## Declaration
 

@@ -1,105 +1,147 @@
-# pr-quality — tell a contributor what still stops their pull request from being reviewable
+# pr-quality — one dashboard comment that tells a contributor what stops their pull request from being ready to review
 
-> **Candidate — not ranked, not built.** Status changes here when the register does (Q2).
+A comment containing a dashboard reporting on basic quality checks that a maintainer specifies as essential.
 
-GitHub already enforces branch protection and reports checks. This capability explains repository
-policy and combines signals; it never pretends to replace that enforcement.
+Updates in-place as the PR changes — and when `main` moves, once phase 3 lands. Advisory only: it
+explains, it never closes (closing stale work belongs to the inactivity capability).
 
-## 1. Declaration
+## What the output looks like
 
-| Field | Value | Why |
-|---|---|---|
-| `triggers` | `pull_request` (opened, edited, synchronize, ready_for_review) | every signal is recomputed from current facts, never accumulated across events |
-| `observations` | `pullRequestUpdated` | it needs the pull request's own projection and its closure; it reads no issue |
-| `resolvers` | `linkedIssues` | the one fact the event does not carry. Check-based signals would need a `requiredChecks` resolver the closed catalogue does not have — an extension by review (D61), §8 |
-| `intents` | `postManagedComment` | one deterministic App-authored comment. Label mode would add `applyMappedLabel`; there is no remove operation (D80) |
-| Permission impact — repository | `pull_requests:read`, `issues:write`, `contents:read` | proposed reads plus the catalogued comment operation; `contents:read` only for a check that inspects a repository file |
-| Permission impact — organization | none | no merge or `contents:write` operation is proposed |
-| `operationalNeeds` | `schedule: false`, `durableState: "none"`, `crossItemCoordination: false`, `externalDelivery: false` | §6 |
+> Hey @contributor 👋 Thanks for the PR!
+>
+> ✅ **DCO Sign-off** — All commits have valid sign-offs.
+>
+> ❌ **GPG Signature** — These commits have no verified signature:
+> `abc1234` fix: handle empty payload
+> See the Signing Guide (configured link).
+>
+> ✅ **Merge Conflicts** — No merge conflicts detected.
+>
+> ✅ **Issue Link** — Linked to issues #1632 and #1640
+>
+> ❌ **Assignment Check** — You are not assigned to #1640
+>
+> ⏳ All checks must pass before this PR is ready for review.
 
-## 2. Decision
+Unknown checks render as undetermined — never pass or fail — and withhold the all-clear. Commit
+text is escaped and `@mentions` broken before rendering (it is attacker-controlled).
+
+## What the config looks like
+
+Proposed `automations.yml` block:
+
+```yaml
+schemaVersion: 1
+mode: dry-run # disabled | observe | dry-run | active — rehearse, then arm
+
+capabilities:
+  prQuality:
+    enabled: true # explicit true only; anything else is off
+    settings:
+      checks: # a check runs only with an explicit enabled: true
+        dcoSignoff:
+          enabled: true
+          guide: "https://github.com/<org>/<repo>/wiki/Signing-Guide" # optional; shown on failure
+        gpgSignature:
+          enabled: true
+          guide: "https://github.com/<org>/<repo>/wiki/Signing-Guide"
+        mergeConflicts:
+          enabled: true
+        linkedIssues:
+          enabled: true
+          guide: "https://github.com/<org>/<repo>/wiki/Linked-Issues"
+          assignedIssues: # sub-check — the dependency is the structure
+            enabled: true
+            guide: "https://github.com/<org>/<repo>/wiki/Assignment"
+      applyLabels: true # requires mappings.labels below
+
+mappings:
+  labels: # read only in label mode
+    needsReview: "status: needs review"
+    needsRevision: "status: needs revision"
+
+principals:
+  maintainerTeam: "hiero-ledger/hiero-sdk-python-maintainers" # pinged on App-side errors
+```
+
+A trimmed setup — two checks, comment only (unused sections simply absent):
+
+```yaml
+schemaVersion: 1
+mode: active
+
+capabilities:
+  prQuality:
+    enabled: true
+    settings:
+      checks:
+        dcoSignoff:
+          enabled: true
+        mergeConflicts:
+          enabled: true
+
+principals:
+  maintainerTeam: "hiero-ledger/hiero-sdk-python-maintainers"
+```
+
+Rules: a check runs only when its `enabled` is explicitly `true` — the platform's own consent rule,
+one level down; omitted or `false` means off, and a kept block with `enabled: false` is a check
+parked, not a check running. `assignedIssues` nests inside `linkedIssues`, so its dependency is
+structural — anywhere else it is an unknown key. `applyLabels: true` requires the two mappings; the
+label reflects the enabled checks only. A missing guide or maintainer principal renders without the
+link or the ping.
+
+## How it works
 
 ```mermaid
 flowchart LR
-    O["pullRequestUpdated"] --> CL{"closed or merged?"}
-    CL -->|yes| N0["no intent — never asks"]
-    CL -->|no| R["resolve linkedIssues"]
-    R -->|"ok: false"| X["no intent — explain()"]
-    R -->|"ok: true, linked"| N1["no intent"]
-    R -->|"ok: true, empty"| I["postManagedComment"]
+    O["pull_request event"] --> CL{"closed or merged?"}
+    CL -->|yes| N0["nothing"]
+    CL -->|no| R["resolve: commitAttestations · mergeability · linkedIssues + assignees"]
+    R --> S["each check: pass · fail · unknown"]
+    S --> I["postManagedComment — update in place"]
+    S -->|"label mode, all resolved"| L["needsRevision on any fail · needsReview when all pass and ready for review"]
 ```
 
-Every other configured signal — title format, assignee, required status checks, review state, merge
-conflicts, sign-off, verified signatures — is a further condition on the same edge, each separately
-configurable because repositories disagree, and each resolving to pass, fail, pending, or unknown with
-its own explanation. Check and workflow names are exact configured identifiers or derived from
-protected-branch rules; there is no universal CI job name.
+| Check | Pass | Fail | Unknown |
+|---|---|---|---|
+| DCO sign-off | every non-merge commit has `Signed-off-by:` | failing commits listed | commit list unreadable |
+| GPG signature | every commit `verification.verified` | failing commits listed | commit list unreadable |
+| Merge conflicts | `mergeable: true` | `mergeable: false` | GitHub never resolves it |
+| Issue link | ≥1 linked issue | none found | resolver failed |
+| Assignment | author assigned to every linked issue | unassigned issues listed | resolver failed |
 
-## 3. Meanings
+## Phases
 
-| Meaning | Reads | Writes |
+| Phase | Ships | Needs first |
 |---|---|---|
-| `needsReview` | — | label mode only; `qualityReadyForReview` maps here (§8) |
-| `needsRevision` | — | label mode only; `qualityNeedsWork` maps here (§8) |
-| `readyToMerge` | from the projection — it must not contradict a queue that owns this | never |
-| `blocked` | from the projection | never (D79) |
-| `awaitingTriage`, `ready`, `inProgress` | — | never — it observes no issue |
+| 1 | the dashboard comment — DCO · GPG · merge conflict · linked issue(s) · assigned to all linked issues | PR author on the observation · `commitAttestations` + `mergeability` resolvers · linked-issue assignees |
+| 2 | labels, opt-in — `needsRevision` if any check fails · `needsReview` when all pass and the PR is marked ready for review | draft/ready state on the observation · mappings + the `applyLabels` setting |
+| 3 | sibling-conflict recheck after merges | cross-item fan-out (platform design) |
 
-## 4. Refuses
+## Declaration
 
-| Never | Enforced by |
+| Field | Value |
 |---|---|
-| Merge, approve, push, change code, or request a reviewer | absent from `intents`; the closed catalogue holds no such operation (D61) |
-| Close a pull request for a missing link, signature, assignee, or check — Python does close (`design/audit/services.md` §2 group 3) | no closure intent exists; closure is a reason read from GitHub, never written (D47) |
-| Pause an item | `screenIntent` refuses a capability writing `blocked` (D79) |
-| Take a position off without replacing it | `removeMappedLabel` is deleted from the catalogue (D80) |
-| Read a failed resolver as a fact | the `ResolverAnswer` union makes the two values different (§5) |
-| Decide from another capability's rendered comment prose, or own its marker | its own configured marker; A2 is the audit's instance of this failure (`design/audit/lessons-learned.md`) |
+| `triggers` | `pull_request` (opened, edited, synchronize, reopened, ready_for_review) |
+| `observations` | `pullRequestUpdated` — needs adding: PR author (phase 1), draft/ready state (phase 2) |
+| `resolvers` | `linkedIssues` (exists) · `commitAttestations` (new) · `mergeability` (new) · linked-issue assignees (new) |
+| `intents` | `postManagedComment` (`summary`) · `applyMappedLabel` (`needsReview`/`needsRevision`, phase 2) |
+| Permissions | repository: `pull_requests:read`, `issues:read`, `issues:write` · organization: none |
+| `operationalNeeds` | schedule: false · durableState: none · crossItemCoordination: candidate (sibling recheck, deferred) · externalDelivery: false |
 
-## 5. When evidence is unknown
-
-A resolver answering `ok: false` produces no intent and one `explain()` naming the reason — a rate limit
-is never read as "no linked issue" (`packages/probes/test/prQuality.test.ts`). A failed read is never a
-default (D51). The same holds for `mergeable: null`, a still-running check suite, unavailable branch
-rules, incomplete pagination, and a missing permission: unknown is neither pass nor fail, so the
-capability waits for a later event or a bounded reconciliation rather than posting a contradiction, and
-emits no readiness label. A conflicted projection tells this capability nothing, since it reads no
-position — but closure is read on both branches (D59), so a merged pull request whose labels happen to
-conflict still draws nothing. The comment must distinguish repository work from an App limitation, so a
-contributor is never blamed for an infrastructure failure.
-
-## 6. Operational needs
-
-None declared. Everything recomputes from current GitHub facts against one deterministic App-authored
-comment whose authorship is verified. A short coalescing queue may reduce repeated work during a burst
-of check events, but correctness must not depend on that queue retaining every delivery. Quality trends
-and one-time notices would need declared durable state and retention, and must not hide inside the
-evaluator.
-
-## 7. Verification
+## Verified by
 
 | Scenario | Proves |
 |---|---|
-| Resolver answers `ok: false`; the same pull request then answers `[]` | unknown is not "no linked issue", and the silence was the failure (`packages/probes/test/prQuality.test.ts`) |
-| Redelivered `pull_request` event | one comment, not two — [`postManagedComment` is `nonIdempotent`](../../contracts/catalogue.md), so recovery goes through read-back |
-| Newer human label edit, or a changed configuration revision | the stale expectation returns `conflict` and the human change survives |
-| Missing `issues:write` | `forbidden`, and the capability does not retry it |
-| More than one page of commits, checks, and files; duplicate check names; reruns; cancelled checks; renamed workflows; changed branch protection | pagination and rename handling, the B1 failure in `design/audit/lessons-learned.md` |
-| `mergeable: null`, draft, fork-sourced pull request, dismissed review, hostile title | unknown stays unknown, and a fork pull request is evaluated with no write access to its branch |
-| Sandbox: App result against GitHub's visible branch-protection result on the same pull request | the capability explains policy rather than replacing enforcement |
-
-`packages/probes/src/prQuality.ts` is a boundary probe chosen for contract diversity, deliberately not
-for likelihood of being ranked first ([`probes/README.md`](../../../packages/probes/README.md)) — its
-test proves the resolver-failure behaviour above, not that this capability is wanted.
-
-## 8. Open
-
-| Question | Closed by |
-|---|---|
-| Which checks do maintainers actually want; is advice enough, or are labels useful; how should an unknown result read? | maintainer conversation |
-| Are `qualityNeedsWork` and `qualityReadyForReview` real meanings, or do they collapse into `needsRevision` and `needsReview`, which another capability may also write? | maintainer conversation, against `review-routing` §3 |
-| Does required-check and mergeability discovery work under the ceiling? `checks` is deliberately withheld and `statuses:read` sits outside it | App experiment |
-| Are DCO sign-off text, GitHub verified signatures, and organization identity one fact or three? | App experiment |
-| Is closing-reference detection reliable enough to comment on? B2 records two mechanisms answering this question differently (`design/audit/lessons-learned.md`) | App experiment |
-| Does a `requiredChecks` resolver enter the closed catalogue, or does the check slice stay out? | catalogue review (D61) |
-| An older quality bot owning the same labels means comment-only advisory mode until it stops | per-repository migration plan (Q7) |
+| Redelivered event | one dashboard, updated, never duplicated |
+| Human edits the comment | edit survives until facts change |
+| Hostile commit message | renders inert |
+| `mergeable` never resolves | unknown shown, no all-clear, no label |
+| >250 commits (REST cap) | renders unknown, not pass |
+| Missing `issues:write` | `forbidden`, not retried |
+| Newer human label change | `conflict`; the human change survives |
+| Draft PR | dashboard posts; `needsReview` is never written |
+| A disabled check | its section is absent — not shown as pass |
+| Failing check later fixed | dashboard updates; label swaps `needsRevision` → `needsReview` |
+| `assignedIssues` outside `linkedIssues` | unknown key, reported — the nesting is the dependency |

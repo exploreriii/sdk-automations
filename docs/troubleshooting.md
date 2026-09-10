@@ -23,7 +23,7 @@ Nothing to fix — this is your configuration, or our caution, behaving as speci
 | `itemClosed` | The issue or pull request is closed or merged; the App stops there |
 | `newerHumanChange` | Someone edited the item after the App decided — your edit wins |
 | `preconditionStale` | The authoritative current state was unavailable, conflicted, or no longer matched the requested precondition, so the App stopped |
-| `graceRunning` | A destructive action is still inside its warning period |
+| `graceRunning` | The App warned, and is waiting out exactly the grace it announced before it acts |
 | `activityCancelled` | Activity during the warning period cancelled the destructive action |
 
 ## It needs something from you

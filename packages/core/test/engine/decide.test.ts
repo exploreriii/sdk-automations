@@ -16,15 +16,18 @@ import {
     intentFactory,
     deriveIdempotencyKey,
     MANAGED_MARKER_PREFIX,
+    managedMarkerPayload,
     matchesManagedComment,
     problems,
     toEngine,
+    UNREAD,
     type AnyIntent,
     type Capability,
     type ClosureReason,
-    type DecideExternals,
     type EngineCapability,
+    type Externals,
     type Intent,
+    type IssueFacts,
     type RepositoryConfig,
 } from "../../src/index.js";
 import { configWith, triageConfig } from "../config/builders.js";
@@ -35,8 +38,9 @@ const declaration = declareCapability({
     name: "triage",
     triggers: [{ kind: "event", event: "issues" }],
     configKeys: [],
-    requiredMeanings: [],
-    observations: ["issueUpdated"],
+    requiredMappings: {},
+    facts: ["issue"],
+    needs: [],
     resolvers: [],
     intents: ["applyMappedLabel"],
     operationalNeeds: {
@@ -50,8 +54,8 @@ const declaration = declareCapability({
 /** The smallest real capability: triage anything with no position. */
 const triage: EngineCapability = {
     declaration,
-    async evaluate(observation: never): Promise<readonly AnyIntent[]> {
-        const o = observation as {
+    async evaluate(facts: never): Promise<readonly AnyIntent[]> {
+        const o = facts as {
             repository: { owner: string; repo: string };
             item: { kind: "issue"; number: number };
             position: { kind: string; state?: { meaning: string | null } };
@@ -63,7 +67,7 @@ const triage: EngineCapability = {
             repository: o.repository,
             item: o.item,
             operation: "applyMappedLabel",
-            expected: { meaningsPresent: [], meaningsAbsent: ["awaitingTriage"], closed: false },
+            claims: { meaningsPresent: [], meaningsAbsent: ["awaitingTriage"], closed: false },
             desired: { meaning: "awaitingTriage", cause: "intakeObserved" },
             cause: { cause: "issueWithoutPosition", observedAt: o.observedAt },
             explanation: {
@@ -71,10 +75,35 @@ const triage: EngineCapability = {
                 summary: "New issue placed in triage.",
                 detail: [],
             },
+            grace: null,
         } as const satisfies Omit<Intent<"applyMappedLabel">, "idempotencyKey">;
         return [{ ...draft, idempotencyKey: deriveIdempotencyKey(draft) }];
     },
 };
+
+/**
+ * A webhook-shaped issue record: the projection read, every group marked
+ * unread — what `normalize/` produces (facts.md §2).
+ */
+const webhookIssue = (over: Partial<IssueFacts> = {}): IssueFacts => ({
+    kind: "issue",
+    repository: { owner: "o", repo: "r" },
+    item: { kind: "issue", number: 7 },
+    observedAt: new Date("2026-08-07T00:00:00Z"),
+    trigger: { kind: "event", event: "issues" },
+    author: "opener",
+    actor: { login: "opener" },
+    position: {
+        kind: "position",
+        state: { meaning: null, blocked: false, closedBy: null },
+        ignored: [],
+    },
+    alerts: { carried: [], arrived: [] },
+    assignees: UNREAD,
+    links: UNREAD,
+    command: UNREAD,
+    ...over,
+});
 
 const REV = "rev-engine-1";
 const TRIAGE_LABELS = { awaitingTriage: "status: triage" };
@@ -83,7 +112,7 @@ const TRIAGE_LABELS = { awaitingTriage: "status: triage" };
 const configIn = (mode: "active" | "dry-run" | "observe", enabled = true): RepositoryConfig =>
     triageConfig(mode, REV, enabled);
 
-const externals: DecideExternals = {
+const externals: Externals = {
     killSwitchActive: false,
     installationGrants: ["issues:write"],
     latestHumanChangeAt: () => null,
@@ -171,7 +200,7 @@ describe("dry-run rehearses, observe records", () => {
                 make({
                     operation: "applyMappedLabel",
                     desired: { meaning: "awaitingTriage", cause: "intakeObserved" },
-                    expected: { meaningsAbsent: ["awaitingTriage"] },
+                    claims: { meaningsAbsent: ["awaitingTriage"] },
                     cause: "issueWithoutPosition",
                     explain: { summary: "New issue placed in triage." },
                 }),
@@ -185,20 +214,10 @@ describe("dry-run rehearses, observe records", () => {
         },
     };
 
-    const observation = {
-        kind: "issueUpdated",
-        repository,
-        item,
-        position: {
-            kind: "position",
-            state: { meaning: null, blocked: false, closedBy: null },
-            ignored: [],
-        },
-        observedAt,
-    } as const;
+    const facts = webhookIssue({ repository, item, observedAt });
 
     const rehearse = (mode: "dry-run" | "observe", capability = noisy) =>
-        decide({ kind: "observation", observation }, configIn(mode), [capability], externals);
+        decide({ kind: "facts", facts }, configIn(mode), [capability], externals);
 
     it("names every intent that got as far as the mode rule, one finding each", async () => {
         const decision = await rehearse("dry-run");
@@ -240,12 +259,10 @@ describe("dry-run rehearses, observe records", () => {
      * ladder has already refused.
      */
     it("stays silent for an intent an earlier rule refused", async () => {
-        const decision = await decide(
-            { kind: "observation", observation },
-            configIn("dry-run"),
-            [noisy],
-            { ...externals, installationGrants: [] },
-        );
+        const decision = await decide({ kind: "facts", facts }, configIn("dry-run"), [noisy], {
+            ...externals,
+            installationGrants: [],
+        });
         expect(decision.report.findings.map((f) => f.code)).toEqual([
             "permissionMissing",
             "permissionMissing",
@@ -331,8 +348,8 @@ describe("the gates, each visible in the report", () => {
     it("a stale claim is caught by derivation, not by caller honesty", async () => {
         const eager: EngineCapability = {
             declaration: declareCapability({ ...declaration, intents: ["postManagedComment"] }),
-            async evaluate(observation: never): Promise<readonly AnyIntent[]> {
-                const o = observation as Parameters<typeof triage.evaluate>[0] extends never
+            async evaluate(facts: never): Promise<readonly AnyIntent[]> {
+                const o = facts as Parameters<typeof triage.evaluate>[0] extends never
                     ? {
                           repository: { owner: string; repo: string };
                           item: { kind: "issue"; number: number };
@@ -345,7 +362,7 @@ describe("the gates, each visible in the report", () => {
                     item: o.item,
                     operation: "postManagedComment",
                     // The lie: claims no triage label, on a labeled issue.
-                    expected: {
+                    claims: {
                         meaningsPresent: [],
                         meaningsAbsent: ["awaitingTriage"],
                         closed: false,
@@ -353,6 +370,7 @@ describe("the gates, each visible in the report", () => {
                     desired: { kind: "summary", body: "stale claim" },
                     cause: { cause: "issueWithoutPosition", observedAt: o.observedAt },
                     explanation: { capability: "triage", summary: "s", detail: [] },
+                    grace: null,
                 } as const satisfies Omit<Intent<"postManagedComment">, "idempotencyKey">;
                 return [{ ...draft, idempotencyKey: deriveIdempotencyKey(draft) }];
             },
@@ -377,11 +395,12 @@ describe("the gates, each visible in the report", () => {
                         repository: { owner: "o", repo: "r" },
                         item: { kind: "issue", number: 1 },
                         operation: "applyMappedLabel",
-                        expected: { meaningsPresent: [], meaningsAbsent: [], closed: null },
+                        claims: { meaningsPresent: [], meaningsAbsent: [], closed: null },
                         desired: { meaning: "awaitingTriage", cause: "intakeObserved" },
                         cause: { cause: "c", observedAt: new Date("2026-08-07T00:00:00Z") },
                         explanation: { capability: "someoneElse", summary: "s", detail: [] },
                         idempotencyKey: "k",
+                        grace: null,
                     } as AnyIntent,
                 ];
             },
@@ -479,7 +498,7 @@ describe("deliveries that never reach a capability", () => {
 });
 
 describe("paths the delivery tests never walk", () => {
-    it("an observation-kind input skips normalization and decides identically", async () => {
+    it("a facts-kind input skips normalization and decides identically", async () => {
         const viaDelivery = await decide(
             delivery("issues.opened.json"),
             configIn("active"),
@@ -491,15 +510,15 @@ describe("paths the delivery tests never walk", () => {
             payload("issues.opened.json"),
             configIn("active"),
         );
-        if (normalized.kind !== "observation") throw new Error("fixture must normalize");
-        const viaObservation = await decide(
-            { kind: "observation", observation: normalized.observation },
+        if (normalized.kind !== "facts") throw new Error("fixture must normalize");
+        const viaFacts = await decide(
+            { kind: "facts", facts: normalized.facts },
             configIn("active"),
             [triage],
             externals,
         );
-        expect(viaObservation.report).toEqual(viaDelivery.report);
-        expect(viaObservation.approved).toEqual(viaDelivery.approved);
+        expect(viaFacts.report).toEqual(viaDelivery.report);
+        expect(viaFacts.approved).toEqual(viaDelivery.approved);
     });
 
     it("a pull-request delivery reaches a PR-observing capability", async () => {
@@ -507,7 +526,8 @@ describe("paths the delivery tests never walk", () => {
             declaration: declareCapability({
                 ...declaration,
                 name: "triage",
-                observations: ["pullRequestUpdated"],
+                facts: ["pullRequest"],
+                needs: [],
                 intents: [],
             }) as never,
             async evaluate(_o: never, _c: never, platform: never) {
@@ -624,60 +644,112 @@ describe("paths the delivery tests never walk", () => {
         expect(decision.report.findings).toEqual([]);
     });
 
-    it("an active stale sweep refuses closed without an authoritative projection", async () => {
-        const observation = {
-            kind: "staleItemsDue",
-            repository: { owner: "scrubbed-1", repo: "scrubbed-2" },
-            items: [],
-            observedAt: new Date("2026-08-07T00:00:00Z"),
-        } as const;
-        const sweeper: EngineCapability = {
-            declaration: declareCapability({
-                ...declaration,
-                observations: ["staleItemsDue"],
-                intents: ["unassign"],
-            }) as never,
-            async evaluate() {
-                const draft = {
-                    capability: "triage",
-                    repository: observation.repository,
-                    item: { kind: "issue", number: 9 },
-                    operation: "unassign",
-                    expected: { meaningsPresent: [], meaningsAbsent: [], closed: false },
-                    desired: { login: "contributor" },
-                    cause: { cause: "sweep", observedAt: observation.observedAt },
-                    explanation: { capability: "triage", summary: "s", detail: [] },
-                } as const;
-                return [{ ...draft, idempotencyKey: deriveIdempotencyKey(draft) } as never];
-            },
-        };
+    /**
+     * One record is one item (facts.md §4). There is no list to look an item up
+     * in, so the projection every intent of one decision is judged against is
+     * the record's own — and an intent naming a NEIGHBOURING item has no world
+     * of its own here, so it is refused rather than judged against someone
+     * else's closed, blocked and precondition facts.
+     */
+    const SWEPT_REPO = { owner: "scrubbed-1", repo: "scrubbed-2" } as const;
 
+    /** One record, open and unpositioned, every group read — what a sweep hands the ladders. */
+    const swept = (number: number): IssueFacts => ({
+        ...webhookIssue({ repository: SWEPT_REPO, item: { kind: "issue", number } }),
+        trigger: { kind: "sweep" },
+        assignees: [],
+        links: { openPullRequests: [] },
+    });
+
+    const sweeperNaming = (number: number): EngineCapability => ({
+        declaration: declareCapability({
+            ...declaration,
+            needs: ["assignees"],
+            intents: ["unassign"],
+        }) as never,
+        async evaluate() {
+            const draft = {
+                capability: "triage",
+                repository: SWEPT_REPO,
+                item: { kind: "issue", number },
+                operation: "unassign",
+                claims: { meaningsPresent: [], meaningsAbsent: [], closed: false },
+                desired: { login: "contributor" },
+                cause: { cause: "sweep", observedAt: new Date("2026-08-07T00:00:00Z") },
+                explanation: { capability: "triage", summary: "s", detail: [] },
+                grace: null,
+            } as const;
+            return [{ ...draft, idempotencyKey: deriveIdempotencyKey(draft) } as never];
+        },
+    });
+
+    it("judges an intent against the record's own projection, and stops for the switch", async () => {
         const decision = await decide(
-            { kind: "observation", observation },
+            { kind: "facts", facts: swept(8) },
             configIn("active"),
-            [sweeper],
+            [sweeperNaming(8)],
             externals,
         );
-        expect(decision.approved).toEqual([]);
         expect(decision.report.findings.map((finding) => finding.code)).toEqual([
-            "preconditionStale",
+            "capabilityExplained",
+            "applied",
+        ]);
+        expect(decision.approved.map((effect) => effect.intent.item)).toEqual([
+            { kind: "issue", number: 8 },
         ]);
 
         const stopped = await decide(
-            { kind: "observation", observation },
+            { kind: "facts", facts: swept(8) },
             configIn("active"),
-            [sweeper],
+            [sweeperNaming(8)],
             { ...externals, killSwitchActive: true },
         );
         expect(stopped.approved).toEqual([]);
         expect(stopped.report.findings.map((finding) => finding.code)).toEqual(["killSwitch"]);
     });
 
+    it("refuses an intent on an item the record does not carry", async () => {
+        const decision = await decide(
+            { kind: "facts", facts: swept(8) },
+            configIn("active"),
+            [sweeperNaming(9)],
+            externals,
+        );
+        expect(decision.approved).toEqual([]);
+        expect(decision.report.findings.map((finding) => finding.code)).toEqual([
+            "preconditionStale",
+        ]);
+        expect(decision.report.findings[0]?.summary).toBe(
+            "the intent names an item this record does not carry",
+        );
+    });
+
+    /**
+     * facts.md §4's other half. A webhook record marks `assignees` unread, so a
+     * capability that declared the need is skipped and SAYS so — the
+     * alternative is judging a clock from a list nobody read.
+     */
+    it("skips a capability whose needed group this producer did not read", async () => {
+        const decision = await decide(
+            { kind: "facts", facts: webhookIssue({ repository: SWEPT_REPO }) },
+            configIn("active"),
+            [sweeperNaming(9)],
+            externals,
+        );
+        expect(decision.approved).toEqual([]);
+        expect(decision.report.findings.map((finding) => finding.code)).toEqual(["factsUnread"]);
+        expect(decision.report.findings[0]).toMatchObject({
+            severity: "info",
+            subject: { kind: "capability", capability: "triage" },
+        });
+        expect(decision.report.findings[0]?.summary).toContain("assignees");
+    });
     it("a capability observing a different kind is never invoked", async () => {
         const prOnly: EngineCapability = {
             declaration: declareCapability({
                 ...declaration,
-                observations: ["pullRequestUpdated"],
+                facts: ["pullRequest"],
+                needs: [],
             }) as never,
             async evaluate(): Promise<readonly AnyIntent[]> {
                 throw new Error("must not run");
@@ -695,18 +767,18 @@ describe("paths the delivery tests never walk", () => {
 
 /**
  * Pause was platform-enforced and closure was not: the only thing standing
- * between a capability and a closed item was `expected.closed: false`, which
+ * between a capability and a closed item was `claims.closed: false`, which
  * `intentFactory` defaults to no claim at all. These run a capability that
  * makes no claim whatsoever, so nothing but the rule can refuse it.
  */
 describe("closure is a platform fact, not a capability's claim", () => {
     const commenter = declareCapability({ ...declaration, intents: ["postManagedComment"] });
 
-    /** Every `expected` field left to its default, which is "I claim nothing". */
+    /** Every `claims` field left to its default, which is "I claim nothing". */
     const claimless: EngineCapability = {
         declaration: commenter as never,
-        async evaluate(observation: never): Promise<readonly AnyIntent[]> {
-            const o = observation as {
+        async evaluate(facts: never): Promise<readonly AnyIntent[]> {
+            const o = facts as {
                 repository: { owner: string; repo: string };
                 item: { kind: "issue"; number: number };
                 observedAt: Date;
@@ -726,24 +798,20 @@ describe("closure is a platform fact, not a capability's claim", () => {
         },
     };
 
-    const observedAs = (closedBy: ClosureReason | null) =>
-        ({
-            kind: "issueUpdated",
-            repository: { owner: "o", repo: "r" },
-            item: { kind: "issue", number: 7 },
+    const observedAs = (closedBy: ClosureReason | null): IssueFacts =>
+        webhookIssue({
             position: {
                 kind: "position",
                 state: { meaning: null, blocked: false, closedBy },
                 ignored: [],
             },
-            observedAt: new Date("2026-08-07T00:00:00Z"),
-        }) as const;
+        });
 
     it.each(["closedByHuman", "completedByLinkedMerge"] as const)(
         "refuses a write to an item closed as %s",
         async (closedBy) => {
             const decision = await decide(
-                { kind: "observation", observation: observedAs(closedBy) },
+                { kind: "facts", facts: observedAs(closedBy) },
                 configIn("active"),
                 [claimless],
                 externals,
@@ -756,7 +824,7 @@ describe("closure is a platform fact, not a capability's claim", () => {
     /** The other half: nothing about an OPEN item changed. */
     it("the same capability still acts on the same item while it is open", async () => {
         const decision = await decide(
-            { kind: "observation", observation: observedAs(null) },
+            { kind: "facts", facts: observedAs(null) },
             configIn("active"),
             [claimless],
             externals,
@@ -823,7 +891,8 @@ describe("every fallible seam is contained", () => {
                 const handle = platform as {
                     resolve(q: string, i: unknown): Promise<{ ok: boolean; reason?: string }>;
                 };
-                // resolvers.md §6: a broken lookup is never an empty answer.
+                // Unknown is not an answer (`design/contracts/catalogue.md`):
+                // a broken lookup is never an empty one.
                 expect(
                     await handle.resolve("linkedIssues", { item: { kind: "issue", number: 1 } }),
                 ).toMatchObject({ ok: false, reason: "unavailable" });
@@ -924,8 +993,8 @@ describe("managed-comment identity is minted here, not by the capability", () =>
 
     const speaking = (kind: "summary" | "warning" | "notice"): EngineCapability => ({
         declaration: commenter as never,
-        async evaluate(observation: never): Promise<readonly AnyIntent[]> {
-            const o = observation as { repository: { owner: string; repo: string } };
+        async evaluate(facts: never): Promise<readonly AnyIntent[]> {
+            const o = facts as { repository: { owner: string; repo: string } };
             return [
                 intentFactory("triage", { repository: o.repository, item, observedAt })({
                     operation: "postManagedComment",
@@ -937,41 +1006,24 @@ describe("managed-comment identity is minted here, not by the capability", () =>
         },
     });
 
-    const observation = {
-        kind: "issueUpdated",
-        repository: { owner: "o", repo: "r" },
-        item,
-        position: {
-            kind: "position",
-            state: { meaning: null, blocked: false, closedBy: null },
-            ignored: [],
-        },
-        observedAt,
-    } as const;
+    const facts = webhookIssue({ item, observedAt });
 
     const decideWith = (capability: EngineCapability, mode: "active" | "dry-run" = "active") =>
-        decide({ kind: "observation", observation }, configIn(mode), [capability], externals);
+        decide({ kind: "facts", facts }, configIn(mode), [capability], externals);
 
     it("stamps the approved comment with the marker its own fields derive", async () => {
         const decision = await decideWith(speaking("summary"));
         expect(decision.approved).toHaveLength(1);
         const effect = decision.approved[0]!;
+        const identity = { capability: "triage", item, kind: "summary", topic: "" } as const;
         expect(effect.managedComment).toEqual({
-            identity: {
-                capability: "triage",
-                kind: "summary",
-                effectId: effect.intent.idempotencyKey,
-            },
-            marker: deriveManagedMarker({
-                capability: "triage",
-                kind: "summary",
-                effectId: effect.intent.idempotencyKey,
-            }),
+            identity,
+            marker: deriveManagedMarker(identity),
         });
         expect(
             matchesManagedComment(
                 { body: effect.managedComment!.marker, authoredByApp: true },
-                effect.managedComment!.identity,
+                managedMarkerPayload(effect.managedComment!.identity),
             ),
         ).toEqual({ matches: true });
     });
@@ -991,7 +1043,89 @@ describe("managed-comment identity is minted here, not by the capability", () =>
     });
 });
 
-describe("describeChange — effects.md's exact item and value, pinned", () => {
+describe("a comment addressed to a principal is resolved by the platform", () => {
+    const commenter = declareCapability({ ...declaration, intents: ["postManagedComment"] });
+    const observedAt = new Date("2026-08-07T00:00:00Z");
+    const item = { kind: "issue", number: 7 } as const;
+
+    const pinging = (mention: string | undefined): EngineCapability => ({
+        declaration: commenter as never,
+        async evaluate(facts: never): Promise<readonly AnyIntent[]> {
+            const o = facts as { repository: { owner: string; repo: string } };
+            return [
+                intentFactory("triage", { repository: o.repository, item, observedAt })({
+                    operation: "postManagedComment",
+                    desired: {
+                        kind: "notice",
+                        body: "this issue was marked `critical`.",
+                        ...(mention === undefined ? {} : { mention }),
+                    },
+                    cause: "alertArrived:critical",
+                    claims: { closed: false },
+                    explain: { summary: "Pinged about the critical alert." },
+                }),
+            ];
+        },
+    });
+
+    const withPrincipals = (mode: "active" | "dry-run"): RepositoryConfig => ({
+        ...configIn(mode),
+        principals: { maintainerTeam: "hiero-ledger/solo-maintainers" },
+    });
+
+    const facts = webhookIssue({ item, observedAt });
+
+    it("substitutes the handle into the approved effect's body", async () => {
+        const decision = await decide(
+            { kind: "facts", facts },
+            withPrincipals("active"),
+            [pinging("maintainerTeam")],
+            externals,
+        );
+        expect(decision.approved).toHaveLength(1);
+        expect(decision.approved[0]!.intent.desired).toMatchObject({
+            body: "@hiero-ledger/solo-maintainers — this issue was marked `critical`.",
+        });
+    });
+
+    it("leaves a comment naming nobody untouched", async () => {
+        const decision = await decide(
+            { kind: "facts", facts },
+            withPrincipals("active"),
+            [pinging(undefined)],
+            externals,
+        );
+        expect(decision.approved[0]!.intent.desired).toMatchObject({
+            body: "this issue was marked `critical`.",
+        });
+    });
+
+    /**
+     * notifications' design asks dry-run to name "the exact ping". It does not:
+     * `describeChange` for a comment is deliberately the capability and the
+     * purpose and never the body (D125), so a rehearsal says a notice would be
+     * posted and not what it would say. Pinned as what happens, because it is
+     * the design's row that is wrong about the platform rather than the other
+     * way round.
+     */
+    it("rehearses the ping without quoting it, and approves nothing", async () => {
+        const decision = await decide(
+            { kind: "facts", facts },
+            withPrincipals("dry-run"),
+            [pinging("maintainerTeam")],
+            externals,
+        );
+        expect(decision.approved).toEqual([]);
+        const rehearsed = decision.report.findings.filter((f) => f.code === "wouldApply");
+        expect(rehearsed).toHaveLength(1);
+        expect(rehearsed[0]!.summary).toBe(
+            "dry-run: triage would postManagedComment on o/r#7 — managed notice comment from triage. Nothing was written.",
+        );
+        expect(JSON.stringify(rehearsed)).not.toContain("solo-maintainers");
+    });
+});
+
+describe("describeChange — safety.md's exact item and value, pinned", () => {
     it("names each operation's change precisely", () => {
         const base = intentFactory("triage", {
             repository: { owner: "o", repo: "r" },
@@ -1044,5 +1178,61 @@ describe("describeChange — effects.md's exact item and value, pinned", () => {
                 }),
             ),
         ).toBe("unassign someone");
+        // The clock's release reads differently from the request's, because
+        // the warning snapshot compares this string and the two must not
+        // authorize each other (D63, D141).
+        expect(
+            describeChange(
+                base({
+                    operation: "releaseAssignment",
+                    desired: { login: "someone" },
+                    cause: "c",
+                    explain: { summary: "s" },
+                }),
+            ),
+        ).toBe("release someone");
+        expect(
+            describeChange(
+                base({
+                    operation: "closePullRequest",
+                    desired: { reason: "stale for 60 days" },
+                    cause: "c",
+                    explain: { summary: "s" },
+                }),
+            ),
+        ).toBe("close pull request: stale for 60 days");
+        expect(
+            describeChange(
+                base({
+                    operation: "assign",
+                    desired: { login: "someone" },
+                    cause: "c",
+                    explain: { summary: "s" },
+                }),
+            ),
+        ).toBe("assign someone");
+        // The two directions of one moderation read differently for the reason
+        // the two releases do: a journal row names the direction it went, and
+        // an operator never decodes a boolean to learn which.
+        expect(
+            describeChange(
+                base({
+                    operation: "lockIssue",
+                    desired: { reason: "heated after the release" },
+                    cause: "c",
+                    explain: { summary: "s" },
+                }),
+            ),
+        ).toBe("lock issue: heated after the release");
+        expect(
+            describeChange(
+                base({
+                    operation: "unlockIssue",
+                    desired: { reason: "the thread has cooled" },
+                    cause: "c",
+                    explain: { summary: "s" },
+                }),
+            ),
+        ).toBe("unlock issue: the thread has cooled");
     });
 });

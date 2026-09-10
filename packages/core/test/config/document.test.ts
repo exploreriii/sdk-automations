@@ -39,6 +39,16 @@ describe("every rejection the catalogue names is reachable", () => {
         meaningRequired: true,
         labelInvalid: true,
         labelNotInjective: true,
+        commandNotMappable: true,
+        commandInvalid: true,
+        commandNotInjective: true,
+        skillNotMappable: true,
+        skillInvalid: true,
+        skillNotInjective: true,
+        alertInvalid: true,
+        alertNotInjective: true,
+        typeInvalid: true,
+        typeNotInjective: true,
         principalNotAString: true,
     };
 

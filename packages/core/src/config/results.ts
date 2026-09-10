@@ -29,6 +29,16 @@ export type ConfigErrorCode =
     | "meaningRequired"
     | "labelInvalid"
     | "labelNotInjective"
+    | "commandNotMappable"
+    | "commandInvalid"
+    | "commandNotInjective"
+    | "skillNotMappable"
+    | "skillInvalid"
+    | "skillNotInjective"
+    | "alertInvalid"
+    | "alertNotInjective"
+    | "typeInvalid"
+    | "typeNotInjective"
     | "principalNotAString";
 
 /**

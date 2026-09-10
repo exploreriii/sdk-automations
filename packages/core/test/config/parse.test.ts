@@ -168,7 +168,13 @@ describe("parseConfig acceptances (design/contracts/config-schema.md)", () => {
         expect(NO_CONFIG.mode).toBe("observe");
         expect(Object.keys(NO_CONFIG.capabilities)).toHaveLength(0);
         expect(Object.keys(NO_CONFIG.principals)).toHaveLength(0);
-        expect(NO_CONFIG.mappings).toEqual({ labels: {} });
+        expect(NO_CONFIG.mappings).toEqual({
+            labels: {},
+            commands: {},
+            skills: {},
+            alerts: {},
+            types: {},
+        });
         expect(NO_CONFIG.schemaVersion).toBe(1);
     });
 
@@ -249,7 +255,7 @@ describe("parseConfig acceptances (design/contracts/config-schema.md)", () => {
                     {
                         name: "intake",
                         configKeys: ["announce"],
-                        requiredMeanings: ["awaitingTriage"],
+                        requiredMappings: { labels: ["awaitingTriage"] },
                     },
                 ],
             },
@@ -275,7 +281,7 @@ describe("parseConfig acceptances (design/contracts/config-schema.md)", () => {
                     {
                         name: "intake",
                         configKeys: ["announce"],
-                        requiredMeanings: ["awaitingTriage"],
+                        requiredMappings: { labels: ["awaitingTriage"] },
                     },
                 ],
             },

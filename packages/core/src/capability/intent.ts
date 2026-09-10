@@ -6,7 +6,7 @@
  */
 
 import type { MappableMeaning } from "../config/index.js";
-import type { ClaimedFacts } from "../safety/index.js";
+import { MIN_GRACE_DAYS, type ClaimedFacts } from "../safety/index.js";
 import {
     canTransitionIssue,
     canTransitionPr,
@@ -14,28 +14,61 @@ import {
     isIssueMeaning,
     isPrCause,
     isPrMeaning,
-    type ObservationProjection,
+    type Projection,
 } from "../workflow/index.js";
-import {
-    INTENT_OPERATIONS,
-    type DatedCause,
-    type IdempotencyClass,
-    type IntentCatalogue,
-    type IntentOperation,
-    type ItemRef,
-    type RepositoryRef,
-    type StructuredExplanation,
+import type {
+    DatedCause,
+    IdempotencyClass,
+    IntentCatalogue,
+    IntentOperation,
+    ItemRef,
+    RepositoryRef,
+    StructuredExplanation,
 } from "./catalogue.js";
+import { INTENT_OPERATIONS } from "./operations/index.js";
 import type { TypedDeclaration } from "./declaration.js";
 
 // ─── Intents ─────────────────────────────────────────────────────────
 
 /**
- * contract.md §3 `expected`: the facts the capability believes hold. Now an
- * alias of safety's `ClaimedFacts` (D92 phase 4) — the claim and the
- * derivation that checks it share one definition, in the checker's module.
+ * What a capability says ONCE about a clock-triggered destructive act
+ * (`design/guides/grace.md` §1), and the whole of what it says.
+ *
+ * The platform owns WHEN — it posts the warning on first sight, records it,
+ * refuses the act until the grace has run with no qualifying activity, and
+ * posts the notice after the act lands. The capability owns WHAT: the two
+ * bodies are its own voice with the date already rendered, because a
+ * platform-authored sentence would flatten six designs into one template
+ * (grace.md §5).
+ *
+ * `activityAt` is a FACT the capability read, not a judgement: the engine
+ * compares it against the recorded warning, so a capability cannot decide for
+ * itself that activity cancelled its own plan.
  */
-export type ExpectedFacts = ClaimedFacts;
+export interface DestructiveGrace {
+    /** The full grace, in days; at least `MIN_GRACE_DAYS`. */
+    readonly days: number;
+    /**
+     * The discriminator the warning and the notice stand under, `""` by
+     * default (D145).
+     *
+     * An act is one grace is one warning (grace.md §3), and an item can carry
+     * more than one act of the same kind at once — an issue with two stale
+     * assignees earns two releases. Their warnings are two comments only if
+     * their topics differ, so a per-person act names the person here.
+     */
+    readonly topic?: string;
+    /** The words posted on first sight — the date already rendered. */
+    readonly warning: { readonly body: string };
+    /** The words posted after the act lands. */
+    readonly notice: { readonly body: string };
+    /** What cancels the plan, in the warning's own words (grace.md). */
+    readonly cancelledBy: string;
+    /** How a maintainer reverses the act. */
+    readonly reversesWith: string;
+    /** The newest qualifying activity by the affected person, if the facts carry one. */
+    readonly activityAt: Date | null;
+}
 
 /**
  * One request from a capability: what outcome it wants, for which item, and
@@ -51,11 +84,17 @@ export interface Intent<K extends IntentOperation = IntentOperation> {
     readonly repository: RepositoryRef;
     readonly item: ItemRef;
     readonly operation: K;
-    readonly expected: ExpectedFacts;
+    readonly claims: ClaimedFacts;
     readonly desired: IntentCatalogue[K];
     readonly cause: DatedCause;
     readonly explanation: StructuredExplanation;
     readonly idempotencyKey: string;
+    /**
+     * The grace terms, for a clock-triggered destructive operation and for no
+     * other (grace.md §1). `null` is the only value every other class may
+     * carry, and the screen refuses both mistakes.
+     */
+    readonly grace: DestructiveGrace | null;
 }
 
 /** Discriminated over `operation`, so `desired` narrows with it. */
@@ -105,6 +144,8 @@ export const INTENT_SCREEN_REFUSAL_CODES = [
     "meaningWrongEntity",
     "positionConflict",
     "transitionNotOnMap",
+    "graceMismatch",
+    "graceBelowFloor",
 ] as const;
 
 /** One of `INTENT_SCREEN_REFUSAL_CODES`. */
@@ -125,7 +166,7 @@ export type IntentScreen =
  */
 function screenTransition(
     intent: Intent<"applyMappedLabel">,
-    projection: ObservationProjection<MappableMeaning>,
+    projection: Projection<MappableMeaning>,
 ): IntentScreen {
     if (projection.kind === "conflict") {
         return {
@@ -186,6 +227,52 @@ function screenTransition(
 }
 
 /**
+ * Does the intent carry the grace terms its ACTION CLASS demands, and no
+ * others (grace.md §1)?
+ *
+ * The class comes from `INTENT_OPERATIONS`, never from the intent, so a
+ * capability cannot exempt itself by mislabelling what it is asking for. Both
+ * mistakes are refused: a clock-triggered destructive act without terms would
+ * reach the destructive door with nothing to warn in, and terms on any other
+ * class would be words the platform promised to post and never will.
+ *
+ * The floor is named here as well as at the door. `graceBelowFloor` is the
+ * destructive gate's own code and is reused rather than twinned: a maintainer
+ * who reads it in a report should not have to learn which of two identical
+ * refusals they are looking at.
+ */
+function screenGrace(intent: AnyIntent): IntentScreen {
+    const destructive =
+        INTENT_OPERATIONS[intent.operation].actionClassFloor === "clockTriggeredDestructive";
+    // An absent field reads as `null`, the value the type spells for "no
+    // terms": an intent built from `unknown` may simply not have the property,
+    // and the safe reading of a missing promise is that none was made.
+    const grace = intent.grace ?? null;
+    if (destructive && grace === null) {
+        return {
+            ok: false,
+            code: "graceMismatch",
+            reason: `"${intent.operation}" is clock-triggered destructive, and such an intent must carry the grace terms the platform warns, waits and reports with (grace.md §1)`,
+        };
+    }
+    if (!destructive && grace !== null) {
+        return {
+            ok: false,
+            code: "graceMismatch",
+            reason: `"${intent.operation}" is not clock-triggered destructive, so the grace terms it carries name a warning and a notice the platform would never post (grace.md §1)`,
+        };
+    }
+    if (grace !== null && !(grace.days >= MIN_GRACE_DAYS)) {
+        return {
+            ok: false,
+            code: "graceBelowFloor",
+            reason: `grace period ${String(grace.days)}d is below the ${String(MIN_GRACE_DAYS)}d floor (grace.md)`,
+        };
+    }
+    return { ok: true };
+}
+
+/**
  * The per-intent screen, run on everything `evaluate` returns. The typed
  * handle already makes an undeclared intent a compile error; this repeats
  * the check at runtime because a capability is ordinary code that can be
@@ -195,7 +282,7 @@ function screenTransition(
 export function screenIntent(
     intent: AnyIntent,
     declaration: TypedDeclaration,
-    projection: ObservationProjection<MappableMeaning> | null,
+    projection: Projection<MappableMeaning> | null,
 ): IntentScreen {
     if (intent.capability !== declaration.name) {
         return {
@@ -232,6 +319,8 @@ export function screenIntent(
             reason: "the intent's idempotency key is not the one this occasion derives",
         };
     }
+    const grace = screenGrace(intent);
+    if (!grace.ok) return grace;
     if (intent.operation === "applyMappedLabel") {
         if (projection === null) {
             return {

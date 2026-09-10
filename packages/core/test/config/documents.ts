@@ -313,6 +313,142 @@ export const DOCUMENT_REJECTIONS: readonly DocumentRejection[] = [
         why: "the collision is only visible after trimming and lowercasing",
         yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  labels:\n    ready: "Status: Go"\n    readyToMerge: "status: go  "\n`,
     },
+    {
+        code: "commandNotMappable",
+        why: "a command the platform does not have",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  commands:\n    approve: "/approve"\n`,
+    },
+    {
+        code: "commandInvalid",
+        why: "an empty command maps an act onto nothing",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  commands:\n    assign: ""\n`,
+    },
+    /**
+     * The slash is demanded rather than added: a repository that writes a bare
+     * word means a bare word, and prefixing it silently would map a command
+     * nobody typing the file's own spelling could ever invoke.
+     */
+    {
+        code: "commandInvalid",
+        why: "a bare word is not a command",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  commands:\n    assign: "take"\n`,
+        messageIncludes: ['command must start with "/"'],
+    },
+    {
+        code: "commandNotInjective",
+        why: "two commands share a word, and a comment cannot mean both",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  commands:\n    assign: "/take"\n    unassign: "/Take "\n`,
+    },
+    {
+        code: "skillNotMappable",
+        why: "a tier outside the ladder",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  skills:\n    expert: "skill: expert"\n`,
+    },
+    {
+        code: "skillInvalid",
+        why: "a tier label that YAML read as a number",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  skills:\n    beginner: 3\n`,
+    },
+    {
+        code: "skillNotInjective",
+        why: "two tiers share a label",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  skills:\n    beginner: "skill: easy"\n    intermediate: "Skill: Easy"\n`,
+    },
+    /**
+     * Tiers and positions are both GitHub labels, so one spelling cannot be
+     * both. Within a family the injectivity rule already says so; this is the
+     * half that spans two families and nothing else would catch.
+     */
+    {
+        code: "skillNotInjective",
+        why: "one label is both a position and a tier",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  labels:\n    ready: "up for grabs"\n  skills:\n    goodFirstIssue: "Up For Grabs"\n`,
+        messageIncludes: ['already mapped to "ready" under mappings.labels'],
+        errorCount: 1,
+    },
+
+    // ---- alerts (open-keyed: no notMappable, the names are the file's own) ----
+    {
+        code: "alertInvalid",
+        why: "an alert is a mapping with a label, not a bare string",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  alerts:\n    critical: "P0"\n`,
+    },
+    {
+        code: "alertInvalid",
+        why: "an alert label that YAML read as a number",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  alerts:\n    critical: { label: 3 }\n`,
+    },
+    /**
+     * The native project-field form is notifications phase 2. Refused BY NAME:
+     * a maintainer who writes the shape their design doc shows deserves to be
+     * told which phase they are waiting on, not to watch an alert never fire.
+     */
+    {
+        code: "alertInvalid",
+        why: "the native field form is not implemented yet",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  alerts:\n    critical: { field: Priority, value: Critical }\n`,
+        messageIncludes: ["notifications phase 2"],
+        errorCount: 1,
+    },
+    {
+        code: "unknownKey",
+        why: "an alert entry carries a key that is not label",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  alerts:\n    critical: { label: "P0", colour: red }\n`,
+    },
+    {
+        code: "alertNotInjective",
+        why: "two alerts share a label",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  alerts:\n    critical: { label: "P0" }\n    urgent: { label: "p0 " }\n`,
+    },
+    {
+        code: "alertNotInjective",
+        why: "one label is both a position and an alert",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  labels:\n    blocked: "On Fire"\n  alerts:\n    critical: { label: "on fire" }\n`,
+        messageIncludes: ['already mapped to "blocked" under mappings.labels'],
+        errorCount: 1,
+    },
+
+    {
+        code: "notAMapping",
+        why: "an open family that is not a mapping at all",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  alerts: "P0"\n`,
+    },
+
+    // ---- types (the second open family: same reader, its own two codes) ----
+    {
+        code: "typeInvalid",
+        why: "a type is a mapping with a label, not a bare string",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  types:\n    bug: "Defect"\n`,
+    },
+    {
+        code: "typeInvalid",
+        why: "a type label that YAML read as a number",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  types:\n    bug: { label: 7 }\n`,
+    },
+    {
+        code: "typeNotInjective",
+        why: "two types share a label",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  types:\n    bug: { label: "Defect" }\n    regression: { label: " defect " }\n`,
+    },
+    /**
+     * Types, tiers, positions and alerts are all GitHub labels, so one
+     * spelling cannot be two of them. Types are read last, so this is the
+     * label the maintainer is told to change.
+     */
+    {
+        code: "typeNotInjective",
+        why: "one label is both a tier and a type",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  skills:\n    goodFirstIssue: "good first issue"\n  types:\n    bug: { label: "Good First Issue" }\n`,
+        messageIncludes: ['already mapped to "goodFirstIssue" under mappings.skills'],
+        errorCount: 1,
+    },
+    {
+        code: "typeNotInjective",
+        why: "one label is both an alert and a type",
+        yaml: `schemaVersion: 1\nmode: observe\n${VALID_TAIL}mappings:\n  alerts:\n    critical: { label: "On Fire" }\n  types:\n    bug: { label: "on fire" }\n`,
+        messageIncludes: ['already mapped to "critical" under mappings.alerts'],
+        errorCount: 1,
+    },
 
     // ---- principals ----
     {
@@ -347,13 +483,13 @@ const INTAKE = ["intake"];
 const SHIPPED = ["prQuality", "assignment"];
 
 /**
- * What the DOCUMENT driver admits: two probes declared rather than named, so
- * a document row reaches the two rules that need a declaration (D84). Shaped
- * on the real probes, so a row fails the way a repository would.
+ * What the DOCUMENT driver admits: two capabilities declared rather than
+ * named, so a document row reaches the two rules that need a declaration
+ * (D84). Shaped on the real ones, so a row fails the way a repository would.
  */
 export const DOCUMENT_ADMISSIONS = [
-    { name: "intake", configKeys: ["announce"], requiredMeanings: ["awaitingTriage"] },
-    { name: "prQuality", configKeys: ["marker"], requiredMeanings: [] },
+    { name: "intake", configKeys: ["announce"], requiredMappings: { labels: ["awaitingTriage"] } },
+    { name: "prQuality", configKeys: ["marker"], requiredMappings: {} },
 ] as const satisfies readonly AdmittedCapability[];
 
 /** `intake` alone, for the value rows about one capability's declaration. */
@@ -364,7 +500,7 @@ const TRIAGE_DECLARED = [
     {
         name: "triage",
         configKeys: [],
-        requiredMeanings: ["awaitingTriage", "needsReview"],
+        requiredMappings: { labels: ["awaitingTriage", "needsReview"] },
     },
 ] as const satisfies readonly AdmittedCapability[];
 
@@ -792,7 +928,7 @@ export const VALUE_REJECTIONS: readonly ValueRejection[] = [
     },
     {
         code: "unknownKey",
-        why: "labels is the only thing mappings has",
+        why: "a family mappings does not have",
         raw: { schemaVersion: 1, mappings: { fields: {} } },
         path: "mappings.fields",
         messageIncludes: ['mappings: unknown key "fields"'],

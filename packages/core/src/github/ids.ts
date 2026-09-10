@@ -1,4 +1,9 @@
 /**
+ * PROBED by experiment 6.2, 2026-07-23. Goes stale when the delivery id
+ * format changes; the first symptom is duplicate deliveries surviving dedup.
+ * It degrades rather than failing loudly, so only the re-probe closes the
+ * gap (D40).
+ *
  * GitHub exposes two different webhook-delivery identifiers:
  *
  * - `X-GitHub-Delivery` and a delivery record's `guid` identify the

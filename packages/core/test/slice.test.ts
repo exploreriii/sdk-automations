@@ -5,10 +5,9 @@
  * mocks of GitHub — the payload is the testkit's `issues.opened.json` from
  * the 2026-08-07 capture session.
  *
- * `scenario.test.ts` walks the same modules from a synthetic observation;
- * this file's whole point is that NOTHING here is synthetic until the
- * capability speaks. When GitHub changes shape, this is the test that
- * notices first.
+ * Nothing here is synthetic until the capability speaks, which is the whole
+ * point: when GitHub changes shape, this is the test that notices first. The
+ * second describe is the one exception, and says why.
  *
  * The parity test is the one place the pipeline is still hand-wired: it
  * builds the expected report from the same primitives `decide()` composes
@@ -39,11 +38,14 @@ import {
     meaningsOfLabels,
     normalizeDelivery,
     problems,
-    projectIssueObservation,
+    projectIssue,
     screenIntent,
     verdictFinding,
-    type DecideExternals,
+    applyIssueTransition,
     type EngineCapability,
+    type Externals,
+    type IssueMeaning,
+    type WorkItemState,
 } from "../src/index.js";
 import { triageConfig } from "./config/builders.js";
 
@@ -53,8 +55,9 @@ const declaration = declareCapability({
     name: "triage",
     triggers: [{ kind: "event", event: "issues" }],
     configKeys: [],
-    requiredMeanings: [],
-    observations: ["issueUpdated"],
+    requiredMappings: {},
+    facts: ["issue"],
+    needs: [],
     resolvers: [],
     intents: ["applyMappedLabel"],
     operationalNeeds: {
@@ -68,7 +71,7 @@ const declaration = declareCapability({
 /** The shared triage repository, stamped with this file's revision. */
 const configIn = (mode: "active" | "dry-run") => triageConfig(mode, "rev-slice-1");
 
-const externals: DecideExternals = {
+const externals: Externals = {
     killSwitchActive: false,
     installationGrants: ["issues:write"],
     latestHumanChangeAt: () => null,
@@ -77,19 +80,19 @@ const externals: DecideExternals = {
 describe("one real delivery, end to end", () => {
     const config = configIn("active");
     const normalized = normalizeDelivery("issues", payload, config);
-    if (normalized.kind !== "observation") throw new Error("fixture must normalize");
-    const observation = normalized.observation;
+    if (normalized.kind !== "facts") throw new Error("fixture must normalize");
+    const facts = normalized.facts;
 
     /** The capability's one decision, stated once: triage this issue. */
     const keyed = intentFactoryFor(declaration, {
-        repository: observation.repository,
-        item: observation.item,
-        observedAt: observation.observedAt,
+        repository: facts.repository,
+        item: facts.item,
+        observedAt: facts.observedAt,
     })({
         operation: "applyMappedLabel",
         desired: { meaning: "awaitingTriage", cause: "intakeObserved" },
         cause: "issueWithoutPosition",
-        expected: { meaningsAbsent: ["awaitingTriage"], closed: false },
+        claims: { meaningsAbsent: ["awaitingTriage"], closed: false },
         explain: {
             summary: "New issue placed in triage.",
             detail: ["no mapped position on arrival"],
@@ -105,7 +108,7 @@ describe("one real delivery, end to end", () => {
 
     const send = (mode: "active" | "dry-run") =>
         decide(
-            { kind: "delivery", repository: observation.repository, event: "issues", payload },
+            { kind: "delivery", repository: facts.repository, event: "issues", payload },
             configIn(mode),
             [triage],
             externals,
@@ -113,7 +116,7 @@ describe("one real delivery, end to end", () => {
 
     it("triages the unpositioned issue and closes clean: nothing needs a human", async () => {
         const decision = await send("active");
-        expect(decision.approved).toEqual([{ intent: keyed, managedComment: null }]);
+        expect(decision.approved).toEqual([{ intent: keyed, managedComment: null, records: null }]);
         expect(decision.report.findings.map((f) => f.code)).toEqual([
             "capabilityExplained",
             "applied",
@@ -140,18 +143,18 @@ describe("one real delivery, end to end", () => {
     const capturedLabels: readonly string[] = [];
 
     it("parity: decide() equals the hand-wired report, finding for finding", async () => {
-        const screen = screenIntent(keyed, declaration, observation.position);
+        const screen = screenIntent(keyed, declaration, facts.position);
         expect(screen).toEqual({ ok: true });
 
         // The world by decide()'s recipe: a projection of the capture's own
         // labels, derived against the intent's claim. Equal to the one the
         // normalizer built, or this fixture no longer says what it says.
-        const projection = projectIssueObservation({
+        const projection = projectIssue({
             closedBy: null,
             meanings: meaningsOfLabels(config, capturedLabels),
         });
-        expect(projection).toEqual(observation.position);
-        const world = deriveWorld(projection, keyed.expected);
+        expect(projection).toEqual(facts.position);
+        const world = deriveWorld(projection, keyed.claims);
         expect(world).toMatchObject({
             observedMeanings: [],
             preconditionHolds: true,
@@ -177,23 +180,81 @@ describe("one real delivery, end to end", () => {
             installationGrants: externals.installationGrants,
             killSwitchActive: externals.killSwitchActive,
             world,
-            latestHumanChangeAt: await externals.latestHumanChangeAt(observation.item),
+            latestHumanChangeAt: await externals.latestHumanChangeAt(facts.item),
         });
         const expectedFindings = [
             explanationFinding(keyed.explanation, {
                 kind: "item",
                 capability: "triage",
-                item: observation.item,
+                item: facts.item,
             }),
             verdictFinding(verdict, {
                 kind: "effect",
                 capability: "triage",
-                item: observation.item,
+                item: facts.item,
                 operation: "applyMappedLabel",
             }),
         ];
 
         const decision = await send("active");
         expect(decision.report.findings).toEqual(expectedFindings);
+    });
+});
+
+/**
+ * Defence in depth, asserted rather than described — the one claim
+ * `scenario.test.ts` made that no other test makes. Every piece below is
+ * covered on its own (`workflow/transitions.test.ts` for `itemClosed`,
+ * `safety/write.test.ts` for `newerHumanChange`); what is unique is that the
+ * SAME stale story is refused by two independent layers, so a bypass of
+ * either is still caught by the other. Synthetic on purpose: no captured
+ * delivery arrives already stale.
+ */
+describe("a human closing the issue defeats a stale scheduled intent at BOTH layers", () => {
+    const config = configIn("active");
+
+    it("the state machine refuses, and safety refuses on the close alone", () => {
+        // A scheduled evaluation still believes the issue is inProgress.
+        const closed: WorkItemState<IssueMeaning> = {
+            meaning: null,
+            blocked: false,
+            closedBy: "closedByHuman",
+        };
+        const stale = applyIssueTransition(closed, {
+            from: "inProgress",
+            to: "ready",
+            cause: "reclaimCompleted",
+        });
+        expect(stale.verdict).toMatchObject({ allowed: false, code: "itemClosed" });
+
+        // Even if the state machine were bypassed, safety refuses on the newer
+        // human change ALONE — so the world here is the one a recheck that
+        // MISSED the close would derive: still open, still positioned,
+        // precondition intact. Every other rule is satisfied; only the close's
+        // timestamp is left to refuse, which is the whole claim.
+        const missedTheClose = deriveWorld(
+            projectIssue({ closedBy: null, meanings: ["awaitingTriage"] }),
+            { meaningsPresent: ["awaitingTriage"], meaningsAbsent: [], closed: false },
+        );
+        expect(missedTheClose).toMatchObject({ preconditionHolds: true, closure: null });
+
+        const write = evaluateWrite(
+            {
+                actionClass: "reversibleStateChange",
+                capability: "triage",
+                requiredPermissions: ["issues:write"],
+                causeObservedAt: new Date("2026-07-25T10:00:00Z"),
+                cause: "scheduled reclaim evaluation",
+                target: { item: "issue #7", change: "clear mapped position awaitingTriage" },
+            },
+            config,
+            {
+                installationGrants: externals.installationGrants,
+                killSwitchActive: false,
+                world: missedTheClose,
+                latestHumanChangeAt: new Date("2026-07-25T10:05:00Z"), // the close
+            },
+        );
+        expect(write).toMatchObject({ outcome: "refuse", code: "newerHumanChange" });
     });
 });

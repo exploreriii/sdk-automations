@@ -1,6 +1,11 @@
 /**
  * GitHub's permission strings, as a shape rather than a list.
  *
+ * DOCUMENTED knowledge, not perishable: no `probedAt`, because GitHub
+ * publishes this form. It goes stale only if the `scope:level` form changes,
+ * and it fails loudly when it does — a real grant stops satisfying
+ * `isPermissionGrant`.
+ *
  * The FORM is a GitHub fact — `scope:level` — so it belongs here. The
  * ratified permission CEILING is a project decision and does not: that stays
  * with the register and the App manifest. This file says what a permission

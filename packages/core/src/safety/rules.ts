@@ -4,7 +4,7 @@
  * `design/contracts/safety.md`'s mechanically checkable subset only. Rules
  * 6–10 — naming the exact value, postcondition verification, unclear-outcome
  * reconciliation, tested rollback, dry-run-before-active rollout — cannot be
- * decided from one request and are `design/guides/effects.md`'s.
+ * decided from one request and are `design/guides/write-operations.md` §8's.
  *
  * Precedence is policy: kill switch → authoritative precondition → observation
  * → consent → permissions → closure → pause → human conflict → mode. Only the
@@ -148,7 +148,7 @@ export const GENERAL_RULES: readonly GeneralRule[] = [
     // item's flow ended. Reporting the pause on a closed item would name
     // the reversible fact and hide the terminal one.
     //
-    // A capability may still claim `expected.closed: false`, but that
+    // A capability may still claim `claims.closed: false`, but that
     // claim is optional and defaults to no claim (D47, `factory.ts`), so
     // it protects only the capabilities that remember to make it. This
     // rule reads the derived world instead, and therefore holds for every
@@ -172,7 +172,7 @@ export const GENERAL_RULES: readonly GeneralRule[] = [
         f.context.latestHumanChangeAt === "unknown"
             ? refuse(
                   "humanOrderingUnknown",
-                  "ordering evidence for the newest human change is unavailable; the safe default is a conflict (manual-edits.md §2)",
+                  "ordering evidence for the newest human change is unavailable; the safe default is a conflict (contracts/safety.md §3)",
               )
             : null,
     ),

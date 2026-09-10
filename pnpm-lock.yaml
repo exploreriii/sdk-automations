@@ -27,7 +27,7 @@ importers:
         specifier: ^8.68.0
         version: 8.68.0(eslint@10.9.1)(typescript@5.9.3)
 
-  packages/adapter:
+  packages/capabilities:
     dependencies:
       '@hiero-hackers/automation-core':
         specifier: workspace:*
@@ -91,6 +91,9 @@ importers:
       dependency-cruiser:
         specifier: ^18.2.0
         version: 18.2.0
+      tsx:
+        specifier: ^4.23.12
+        version: 4.23.12
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -132,67 +135,11 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@24.13.3)(@vitest/coverage-v8@4.1.11)(vite@8.1.5(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0))
 
-  packages/probes:
+  packages/runtime:
     dependencies:
-      '@hiero-hackers/automation-core':
+      '@hiero-hackers/automation-capabilities':
         specifier: workspace:*
-        version: link:../core
-    devDependencies:
-      '@stryker-mutator/core':
-        specifier: ^10.0.0
-        version: 10.0.0(@types/node@24.13.3)
-      '@stryker-mutator/vitest-runner':
-        specifier: ^10.0.0
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@4.1.11)
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.3
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.11
-        version: 4.1.11(@types/node@24.13.3)(@vitest/coverage-v8@4.1.11)(vite@8.1.5(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0))
-
-  packages/shell:
-    dependencies:
-      '@hiero-hackers/automation-adapter':
-        specifier: workspace:*
-        version: link:../adapter
-      '@hiero-hackers/automation-core':
-        specifier: workspace:*
-        version: link:../core
-      '@hiero-hackers/automation-probes':
-        specifier: workspace:*
-        version: link:../probes
-      '@hiero-hackers/automation-store':
-        specifier: workspace:*
-        version: link:../store
-    devDependencies:
-      '@hiero-hackers/automation-testkit':
-        specifier: workspace:*
-        version: link:../dev/testkit
-      '@stryker-mutator/core':
-        specifier: ^10.0.0
-        version: 10.0.0(@types/node@24.13.3)
-      '@stryker-mutator/vitest-runner':
-        specifier: ^10.0.0
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@4.1.11)
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.3
-      tsx:
-        specifier: ^4.23.12
-        version: 4.23.12
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.11
-        version: 4.1.11(@types/node@24.13.3)(@vitest/coverage-v8@4.1.11)(vite@8.1.5(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0))
-
-  packages/store:
-    dependencies:
+        version: link:../capabilities
       '@hiero-hackers/automation-core':
         specifier: workspace:*
         version: link:../core
@@ -212,6 +159,9 @@ importers:
       fast-check:
         specifier: ^4.9.0
         version: 4.9.0
+      tsx:
+        specifier: ^4.23.12
+        version: 4.23.12
       typescript:
         specifier: ^5.6.0
         version: 5.9.3

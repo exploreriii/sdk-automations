@@ -36,8 +36,12 @@ That is the whole setup.
 
 ## What happens next
 
-The runnable shell observes deliveries and records a report explaining what it found. Active GitHub
-writes and effect recovery are not implemented.
+The App wakes on two things: a webhook from GitHub, and its own daily schedule, which sweeps every
+open issue and pull request for the capabilities that judge clocks. Either way it records a report
+per delivery naming every decision and why. Writes happen only in `active`, and only when the
+endpoint was started with a write path wired, which is not the default; anything the App would
+close or release is warned about first, and the warning is honoured. [Capabilities](capabilities.md)
+says what each automation does and what it may write.
 
 ## Choosing a mode
 
@@ -101,12 +105,15 @@ copy the one closest to what you want and edit the label names:
 
 | File | What you get |
 |---|---|
-| [`active.yml`](examples/active.yml) | A reserved active configuration that the runnable shell rejects |
+| [`full.yml`](examples/full.yml) | Every capability on, every mapping family filled, every option with a comment — the catalogue |
+| [`inactivity.yml`](examples/inactivity.yml) | The scheduled capability alone: reminders and releases, with the defaults |
+| [`active.yml`](examples/active.yml) | A reserved active configuration; rejected unless the endpoint wires a write path |
 | [`observe-only.yml`](examples/observe-only.yml) | The same repository, reporting instead of acting |
 | [`minimal.yml`](examples/minimal.yml) | Reports only, nothing enabled — the smallest useful file |
 | [`empty.yml`](examples/empty.yml) | Nothing at all, spelled out |
 
 ## What's next
 
+- **[Capabilities](capabilities.md)** — each automation, what it needs mapped, and what it may write
 - **[Configuration](configuration.md)** — every key defined, with types, defaults, and every error code
 - **[Troubleshooting](troubleshooting.md)** — what each reported code means, and what to do about it

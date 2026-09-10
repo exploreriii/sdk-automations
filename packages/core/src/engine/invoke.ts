@@ -22,7 +22,7 @@ import type {
 /** A capability with its declaration type erased — what a list can hold. */
 export interface EngineCapability {
     readonly declaration: TypedDeclaration;
-    evaluate(observation: never, config: never, platform: never): Promise<readonly AnyIntent[]>;
+    evaluate(facts: never, config: never, platform: never): Promise<readonly AnyIntent[]>;
 }
 
 /**
@@ -85,9 +85,10 @@ export class EngineHandle {
         try {
             return await this.source(query, input as never);
         } catch (thrown) {
-            // `unavailable`, never an empty value: resolvers.md §6 forbids a
-            // capability reading a broken lookup as a negative answer, and a
-            // source that threw established nothing at all.
+            // `unavailable`, never an empty value: "unknown is not an answer"
+            // (`design/contracts/catalogue.md`) forbids a capability reading a
+            // broken lookup as a negative answer, and a source that threw
+            // established nothing at all.
             const detail = thrownDetail(thrown);
             this.failures.push(`${query}: ${detail}`);
             return { ok: false, reason: "unavailable", detail };

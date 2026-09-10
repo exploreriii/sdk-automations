@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { GENERAL_RULES } from "../../src/safety/index.js";
+import { evaluateStandingRules, GENERAL_RULES } from "../../src/safety/index.js";
 import { assertedWorld } from "../../src/safety/world.js";
 import { capabilityOff, config, context, evalWrite, request } from "./builders.js";
 
@@ -93,5 +93,46 @@ describe("the check order is contract, and now assertable directly", () => {
         expect(names.indexOf("capabilityDisabled")).toBeLessThan(
             names.indexOf("permissionMissing"),
         );
+    });
+});
+
+describe("the standing rules — the item-independent half a resend re-checks", () => {
+    const standing = {
+        capability: "assignment",
+        actionClass: "reversibleStateChange",
+        requiredPermissions: ["issues:write"],
+    } as const;
+
+    it("applies when the repository still says yes", () => {
+        expect(
+            evaluateStandingRules(standing, config(), {
+                installationGrants: ["issues:write"],
+                killSwitchActive: false,
+            }),
+        ).toEqual({ outcome: "apply" });
+    });
+
+    it("refuses under the kill switch before any rule", () => {
+        expect(
+            evaluateStandingRules(standing, capabilityOff, {
+                installationGrants: [],
+                killSwitchActive: true,
+            }),
+        ).toMatchObject({ outcome: "refuse", code: "killSwitch" });
+    });
+
+    it("refuses a capability the repository turned off, and a grant the installation lost", () => {
+        expect(
+            evaluateStandingRules(standing, capabilityOff, {
+                installationGrants: ["issues:write"],
+                killSwitchActive: false,
+            }),
+        ).toMatchObject({ outcome: "refuse", code: "capabilityDisabled" });
+        expect(
+            evaluateStandingRules(standing, config(), {
+                installationGrants: [],
+                killSwitchActive: false,
+            }),
+        ).toMatchObject({ outcome: "refuse", code: "permissionMissing" });
     });
 });

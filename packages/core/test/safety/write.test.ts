@@ -78,7 +78,13 @@ describe("evaluateWrite: apply ⇔ every rule passes (full sweep)", () => {
                                                         settings: {},
                                                     },
                                                 },
-                                                mappings: { labels: {} },
+                                                mappings: {
+                                                    labels: {},
+                                                    commands: {},
+                                                    skills: {},
+                                                    alerts: {},
+                                                    types: {},
+                                                },
                                                 principals: {},
                                             };
                                             const context: WriteContext = {
@@ -227,7 +233,7 @@ describe("evaluateWrite (contracts/safety.md)", () => {
 
     /**
      * Closure is platform-enforced, not a capability's favour to ask. A
-     * capability may claim `expected.closed: false`, but the claim is
+     * capability may claim `claims.closed: false`, but the claim is
      * optional and `intentFactory` defaults it to no claim — so before this
      * rule a closed item was protected only by the capabilities that
      * remembered. Nothing in the request below mentions closure at all.
@@ -373,7 +379,7 @@ describe("audit findings, pinned (D51-D53)", () => {
     });
 
     // D51 — unknown ordering is a conflict, not an absence.
-    it("unestablished human-change ordering refuses (manual-edits.md §2)", () => {
+    it("unestablished human-change ordering refuses (contracts/safety.md §3)", () => {
         expect(evalWrite(request(), context({ latestHumanChangeAt: "unknown" }))).toMatchObject({
             outcome: "refuse",
             code: "humanOrderingUnknown",

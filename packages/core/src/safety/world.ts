@@ -14,12 +14,12 @@
  */
 
 import { MAPPABLE_MEANINGS, type MappableMeaning } from "../config/index.js";
-import { closureOf, type ClosureReason, type ObservationProjection } from "../workflow/index.js";
+import { closureOf, type ClosureReason, type Projection } from "../workflow/index.js";
 
 /**
- * What a capability claims about the world — contracts/safety.md's language. The
- * intent layer re-exports this as `ExpectedFacts`; it is defined here so
- * the derivation and the claim share one shape without the safety module
+ * What a capability claims about the world — contracts/safety.md's language.
+ * `Intent.claims` is typed with it directly; it is defined here so the
+ * derivation and the claim share one shape without the safety module
  * depending on the capability layer.
  */
 export interface ClaimedFacts {
@@ -39,7 +39,7 @@ export const DERIVED: unique symbol = Symbol("derived-by-engine");
  *
  * `closure` is here for the same reason `observedMeanings` is: the
  * `itemClosed` rule must read the platform's own reading of the observation,
- * not a capability's `expected.closed` claim, which defaults to no claim.
+ * not a capability's `claims.closed` claim, which defaults to no claim.
  */
 export interface DerivedWorld {
     readonly observedMeanings: readonly MappableMeaning[];
@@ -54,7 +54,7 @@ export interface DerivedWorld {
  * the projection — both branches, in `MAPPABLE_MEANINGS` order.
  */
 export function observedMeaningsOf<M extends MappableMeaning>(
-    projection: ObservationProjection<M>,
+    projection: Projection<M>,
 ): readonly MappableMeaning[] {
     const present = new Set<MappableMeaning>();
     if (projection.kind === "position") {
@@ -75,7 +75,7 @@ export function observedMeaningsOf<M extends MappableMeaning>(
  */
 export function expectedHolds<M extends MappableMeaning>(
     claims: ClaimedFacts,
-    projection: ObservationProjection<M>,
+    projection: Projection<M>,
 ): boolean {
     const observed = new Set(observedMeaningsOf(projection));
     for (const meaning of claims.meaningsPresent) {
@@ -102,7 +102,7 @@ export function expectedHolds<M extends MappableMeaning>(
  * shared preflight refuses `preconditionStale` before the rules run.
  */
 export function deriveWorld<M extends MappableMeaning>(
-    projection: ObservationProjection<M> | null,
+    projection: Projection<M> | null,
     claims: ClaimedFacts,
 ): DerivedWorld {
     return {

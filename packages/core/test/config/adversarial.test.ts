@@ -91,7 +91,7 @@ describe("hostile keys survive as data, never as prototype", () => {
             {
                 revision: "rev-test",
                 knownCapabilities: [
-                    { name: "intake", configKeys: ["announce"], requiredMeanings: [] },
+                    { name: "intake", configKeys: ["announce"], requiredMappings: {} },
                 ],
             },
         );
@@ -118,7 +118,7 @@ describe("hostile keys survive as data, never as prototype", () => {
                     {
                         name: "intake",
                         configKeys: [],
-                        requiredMeanings: ["awaitingTriage"],
+                        requiredMappings: { labels: ["awaitingTriage"] },
                     },
                 ],
             },

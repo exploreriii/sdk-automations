@@ -1,17 +1,16 @@
 /**
  * The capability runtime boundary, tested from inside its own package.
  *
- * These assertions existed before, in `packages/probes/test/boundary.test.ts` — and
- * only there. `probes/` is deliberately disposable and its README gives the
- * procedure for deleting it once stage four names a real capability, so the
- * boundary's only tests were scheduled for deletion along with the scaffold
- * that happened to exercise them. The 2026-08-05 mutation run made it
- * visible: `runtime.ts` scored 0.00 with 98 uncovered mutants, because
- * Stryker runs this package's suite and this package tested none of it.
+ * These assertions existed before, and only in the capabilities package —
+ * which was then deliberately disposable, so the boundary's only tests were
+ * scheduled for deletion along with the scaffold that happened to exercise
+ * them. The 2026-08-05 mutation run made it visible: `runtime.ts` scored 0.00
+ * with 98 uncovered mutants, because Stryker runs this package's suite and
+ * this package tested none of it.
  *
- * The probe suites stay. They test the boundary in COMPOSITION — a real
- * capability, the planner, the store. This file tests it in ISOLATION, which
- * is what has to survive the probes being deleted.
+ * The capabilities package's suites stay. They test the boundary in
+ * COMPOSITION — a real capability, the planner, the store. This file tests it
+ * in ISOLATION, which is what had to survive that scaffold being deleted.
  */
 
 import { describe, expect, it } from "vitest";
@@ -31,8 +30,9 @@ const declaration = declareCapability({
     name: "fixture",
     triggers: [{ kind: "event", event: "issues" }],
     configKeys: ["announce"],
-    requiredMeanings: [],
-    observations: ["issueUpdated"],
+    requiredMappings: {},
+    facts: ["issue"],
+    needs: [],
     resolvers: ["linkedIssues"],
     intents: ["applyMappedLabel", "unassign"],
     operationalNeeds: {
@@ -58,10 +58,11 @@ const intent = (over: Record<string, unknown> = {}): AnyIntent => {
         repository: { owner: "o", repo: "r" },
         item: { kind: "issue", number: 1 },
         operation: "applyMappedLabel",
-        expected: { meaningsPresent: [], meaningsAbsent: [], closed: false },
+        claims: { meaningsPresent: [], meaningsAbsent: [], closed: false },
         desired: { meaning: "awaitingTriage", cause: "intakeObserved" },
         cause: { cause: "someCause", observedAt: AT },
         explanation: { capability: "fixture", summary: "s", detail: [] },
+        grace: null,
         ...over,
     } as unknown as Omit<AnyIntent, "idempotencyKey"> & { readonly idempotencyKey?: string };
     return {
@@ -76,6 +77,8 @@ describe("the operation catalogue owns platform facts", () => {
         expect(idempotencyOf("postManagedComment")).toBe("nonIdempotent");
         expect(idempotencyOf("applyMappedLabel")).toBe("idempotent");
         expect(idempotencyOf("unassign")).toBe("idempotent");
+        expect(idempotencyOf("releaseAssignment")).toBe("idempotent");
+        expect(idempotencyOf("closePullRequest")).toBe("idempotent");
     });
 
     it("pins the action-class floor and required permission of every operation", () => {
@@ -91,6 +94,22 @@ describe("the operation catalogue owns platform facts", () => {
                 permission: "issues:write",
             });
         }
+        /**
+         * The clock's two, and the whole of D63's split: `releaseAssignment`
+         * takes the same person off the same list as `unassign` and is a
+         * different action class, so only one of them can reach GitHub without
+         * a warning behind it.
+         */
+        expect(INTENT_OPERATIONS.releaseAssignment).toEqual({
+            idempotencyClass: "idempotent",
+            actionClassFloor: "clockTriggeredDestructive",
+            permission: "issues:write",
+        });
+        expect(INTENT_OPERATIONS.closePullRequest).toEqual({
+            idempotencyClass: "idempotent",
+            actionClassFloor: "clockTriggeredDestructive",
+            permission: "pull_requests:write",
+        });
     });
 });
 
@@ -182,7 +201,7 @@ describe("screenIntent", () => {
             operation: "applyMappedLabel",
             desired: { meaning: "awaitingTriage", cause: "intakeObserved" },
             cause: "someCause",
-            expected: { closed: false },
+            claims: { closed: false },
             explain: { summary: "s" },
         });
         expect(screenIntent(built, declaration, position())).toEqual({ ok: true });
@@ -199,7 +218,7 @@ describe("screenIntent", () => {
     it("uses an observed conflict even when the capability claims a clean state", () => {
         const screen = screenIntent(
             intent({
-                expected: {
+                claims: {
                     meaningsPresent: [],
                     meaningsAbsent: ["ready", "inProgress"],
                     closed: false,
@@ -219,7 +238,7 @@ describe("screenIntent", () => {
         expect(
             screenIntent(
                 intent({
-                    expected: { meaningsPresent: ["ready"], meaningsAbsent: [], closed: false },
+                    claims: { meaningsPresent: ["ready"], meaningsAbsent: [], closed: false },
                 }),
                 declaration,
                 position(),
@@ -228,7 +247,7 @@ describe("screenIntent", () => {
         expect(
             screenIntent(
                 intent({
-                    expected: { meaningsPresent: [], meaningsAbsent: ["ready"], closed: false },
+                    claims: { meaningsPresent: [], meaningsAbsent: ["ready"], closed: false },
                     desired: { meaning: "inProgress", cause: "contributorAssigned" },
                 }),
                 declaration,
@@ -325,14 +344,20 @@ describe("projectCapabilityView (contract.md §2)", () => {
     /** D71 — availability of a meaning, never the repository's word for it. */
     it("reports mapped meanings without exposing a label string", () => {
         const view = projectCapabilityView(declaration, config);
-        expect([...view.mappedMeanings].sort()).toEqual(["awaitingTriage", "blocked"]);
+        expect([...view.mapped.labels].sort()).toEqual(["awaitingTriage", "blocked"]);
         expect(JSON.stringify(view)).not.toContain("status: triage");
     });
 
     it("reports no mapped meanings when the repository mapped none", () => {
         const bare = configWith({ mode: "observe", known: ["fixture"] });
         const view = projectCapabilityView(declaration, bare);
-        expect(view.mappedMeanings).toEqual([]);
+        expect(view.mapped).toEqual({
+            labels: [],
+            commands: [],
+            skills: [],
+            alerts: [],
+            types: [],
+        });
         expect(view.settings).toEqual({});
     });
 });

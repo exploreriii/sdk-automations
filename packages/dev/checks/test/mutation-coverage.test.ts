@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parse } from "yaml";
-import { normalizeRepoPath, repoRoot, trackedFiles, workspacePackages } from "./repository.js";
+import { normalizeRepoPath, repoRoot, repositoryFiles, workspacePackages } from "./repository.js";
 
 interface StrykerConfig {
     readonly mutate: readonly string[];
@@ -92,7 +92,7 @@ interface CoveragePackage {
     readonly script: string;
 }
 
-const tracked = trackedFiles();
+const tracked = repositoryFiles();
 const trackedSet = new Set(tracked);
 const configuredPackages: ConfiguredPackage[] = workspacePackages()
     .filter((packagePath) => trackedSet.has(`${packagePath}/stryker.config.json`))
@@ -135,21 +135,27 @@ const coverage = coverageJob(workflowContent);
 describe("mutation policy stays complete across packages and CI", () => {
     it("discovers every configured workspace package", () => {
         expect(configuredPackages.map(({ name }) => name).sort()).toEqual([
-            "adapter",
+            "capabilities",
             "core",
-            "probes",
-            "shell",
-            "store",
+            "runtime",
         ]);
     });
 
     /**
      * Two facts: the scope is EXACTLY the recursive glob, and the package has
-     * sources for it to reach. Glob semantics are not reimplemented here.
+     * sources for it to reach. Glob semantics are not reimplemented here. A
+     * package whose specs sit beside their modules (`capabilities`, since R1 of
+     * the code-structure migration) may exclude exactly those specs, and nothing
+     * else — a spec is not a source, and mutating one proves nothing.
      */
     it("mutates every tracked TypeScript source recursively", () => {
         for (const subject of configuredPackages) {
-            expect(subject.config.mutate, subject.path).toEqual(["src/**/*.ts"]);
+            const [scope, ...exclusions] = subject.config.mutate;
+            expect(scope, subject.path).toBe("src/**/*.ts");
+            expect(exclusions, subject.path).toSatisfy(
+                (rest: readonly string[]) =>
+                    rest.length === 0 || (rest.length === 1 && rest[0] === "!src/**/*.test.ts"),
+            );
             expect(subject.sources.length, subject.path).toBeGreaterThan(0);
         }
     });
@@ -176,9 +182,11 @@ describe("mutation policy stays complete across packages and CI", () => {
     });
 
     it("proves misspelled scopes fail in both directions, and reformatting does not", () => {
-        expect(matrixDrift(["core", "shell", "store"], ["core", "shell", "stroe"])).toEqual({
-            missing: ["store"],
-            extra: ["stroe"],
+        expect(
+            matrixDrift(["capabilities", "core", "runtime"], ["capabilities", "core", "rutnime"]),
+        ).toEqual({
+            missing: ["runtime"],
+            extra: ["rutnime"],
         });
         // The same matrix as a block sequence, keys reordered, run command
         // folded: the old `package:\s*\[([^\]]+)\]` slice read nothing here
@@ -190,11 +198,9 @@ describe("mutation policy stays complete across packages and CI", () => {
                 "    strategy:",
                 "      matrix:",
                 "        package:",
-                "          - adapter",
+                "          - capabilities",
                 "          - core",
-                "          - probes",
-                "          - shell",
-                "          - store",
+                "          - runtime",
                 "    name: mutation testing (${{ matrix.package }})",
                 "    steps:",
                 "      - run: >-",
@@ -213,11 +219,9 @@ describe("mutation policy stays complete across packages and CI", () => {
 describe("coverage policy stays complete across packages and CI", () => {
     it("discovers every package owning a test:coverage script", () => {
         expect(coveragePackages.map(({ name }) => name).sort()).toEqual([
-            "adapter",
+            "capabilities",
             "core",
-            "probes",
-            "shell",
-            "store",
+            "runtime",
         ]);
     });
 
@@ -237,19 +241,17 @@ describe("coverage policy stays complete across packages and CI", () => {
 
     it("proves missing, extra, or misspelled coverage matrix packages fail", () => {
         const configured = coveragePackages.map(({ name }) => name);
-        expect(matrixDrift(configured, ["adapter", "core", "shell", "store"])).toEqual({
-            missing: ["probes"],
+        expect(matrixDrift(configured, ["core", "runtime"])).toEqual({
+            missing: ["capabilities"],
             extra: [],
         });
-        expect(
-            matrixDrift(configured, ["adapter", "core", "probes", "shell", "store", "checks"]),
-        ).toEqual({
+        expect(matrixDrift(configured, ["capabilities", "core", "runtime", "checks"])).toEqual({
             missing: [],
             extra: ["checks"],
         });
-        expect(matrixDrift(configured, ["adapter", "core", "probes", "shlel", "store"])).toEqual({
-            missing: ["shell"],
-            extra: ["shlel"],
+        expect(matrixDrift(configured, ["capabilities", "core", "rutnime"])).toEqual({
+            missing: ["runtime"],
+            extra: ["rutnime"],
         });
     });
 });

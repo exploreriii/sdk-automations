@@ -48,7 +48,7 @@ A blind retry that skips the resolver duplicated the managed comment on the firs
   canonical decision report with delivery completion.
 
   The live schema — five tables since D110 — is drawn in
-  [`../architecture.md`](../architecture.md) §8 and defined in `packages/store/src/schema.ts`,
+  [`../architecture.md`](../architecture.md) §6 and defined in `packages/runtime/src/store/schema.ts`,
   whose version fingerprint rejects any drift.
 
 

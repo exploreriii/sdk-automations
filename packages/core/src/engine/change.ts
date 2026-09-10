@@ -7,34 +7,30 @@
  * a re-gate can never judge a differently-shaped request than the decision did.
  * `decide.ts` composes; this file only says what a change IS.
  *
- * The switches here are exhaustive on purpose. They are the compile-checked
- * half of the "adding an operation" checklist `capability/catalogue.ts` names:
- * a new operation fails to build until someone states what it changes.
+ * No operation is named here. The wording of a change lives in that
+ * operation's own module under `capability/operations/`, and the registry
+ * those modules are listed in is the "adding an operation" checklist.
  */
 
-import { INTENT_OPERATIONS, type AnyIntent } from "../capability/index.js";
+import { INTENT_OPERATIONS, type AnyIntent, type IntentOperation } from "../capability/index.js";
+import { OPERATIONS, type OperationModule } from "../capability/operations/index.js";
 import type { WriteRequest } from "../safety/index.js";
 import { finding, type Finding, type Subject } from "../report/index.js";
 
 /**
  * contracts/safety.md requires the exact item and value an adapter may change.
- * The exhaustive switch means a new catalogue operation fails to compile
- * until someone states what it changes.
+ * The registry answers for every operation, so an operation with no module
+ * fails to compile there rather than going unworded here.
  */
 export function describeChange(intent: AnyIntent): string {
-    switch (intent.operation) {
-        case "postManagedComment":
-            // Capability and purpose, never the marker: the marker is derived
-            // identity, and a safety record naming it would read as a value
-            // someone chose rather than the change being made (D125).
-            return `managed ${intent.desired.kind} comment from ${intent.capability}`;
-        case "applyMappedLabel":
-            // "set", not "add": the adapter swaps the previous position
-            // label as part of realising this (D4, D80).
-            return `set mapped position ${intent.desired.meaning}`;
-        case "unassign":
-            return `unassign ${intent.desired.login}`;
-    }
+    // The registry's value and the intent both narrow on `intent.operation`,
+    // but they narrow SEPARATELY: TypeScript checks the call against the union
+    // of the three modules, whose parameters intersect to a `desired` no
+    // single intent has. The cast correlates the pair the key already pairs —
+    // both sides are indexed by this same `intent.operation` — and it is
+    // written once here, the way `invoke.ts` argues `toEngine`.
+    const module = OPERATIONS[intent.operation] as OperationModule<IntentOperation>;
+    return module.describeChange(intent);
 }
 
 /**

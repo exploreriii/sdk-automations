@@ -27,9 +27,17 @@ capabilities:                 # ── top level. Optional, default: nothing ena
       announce: true          #          └─ keys defined by the capability, not this schema
 
 mappings:                     # ── top level. Optional, default: no meanings available
-  labels:                     #    └─ the only key that may appear under mappings
+  labels:                     #    └─ one of five families that may appear under mappings
     awaitingTriage: "status: triage"    # └─ one line per meaning: your label name
     ready: "status: ready for dev"
+  commands:                   #    └─ the words contributors type
+    assign: "/assign"
+  skills:                     #    └─ the difficulty ladder, as labels
+    goodFirstIssue: "good first issue"
+  alerts:                     #    └─ YOUR alert names, each carried by a label
+    p0: { label: "P0-🔥" }
+  types:                      #    └─ YOUR kinds of work, each carried by a label
+    bug: { label: "Bug" }
 
 principals:                   # ── top level. Optional, default: none
   maintainerTeam: "hiero-sdk-js-maintainers"    # └─ one line per role: a single name
@@ -128,9 +136,11 @@ that list is an `unknownKey` error naming the exact path — so `annouce:` fails
 nothing. Disabled blocks are checked too: a typo that waits for the day you flip `enabled` is the
 surprise this rule exists to end.
 
-Names only. The **values** are not validated, because they belong to the capability rather than to this
-schema. A real capability must validate its own settings before it can ship; until then, enabling cannot
-be treated as a pre-reviewed one-word activation.
+Names here; values there. This schema checks the names, and the capability checks the values with its
+own spec the moment it runs: a number where a boolean belongs, or a clock that reaps before it reminds,
+is reported on every delivery as `Skipped: settings unusable — capabilities.<name>.settings.<path>: <why>`
+and the capability does nothing until the file is fixed. The keys each capability reads are listed on
+[capabilities](capabilities.md).
 
 Each capability only ever sees its own block. It cannot read another capability's settings.
 
@@ -138,11 +148,12 @@ Each capability only ever sees its own block. It cannot read another capability'
 
 | | |
 |---|---|
-| Type | mapping with one key, `labels` |
+| Type | mapping with up to five keys: `labels`, `commands`, `skills`, `alerts`, `types` |
 | Required | no |
 | Default | `{}` — no meanings available |
 
-See [Label mappings](#label-mappings) below.
+See [Label mappings](#label-mappings) below, then [Command mappings](#command-mappings),
+[Skill mappings](#skill-mappings) and [Alerts and types](#alerts-and-types).
 
 ### `principals`
 
@@ -196,6 +207,74 @@ Rules: a label must be a non-empty string, and no two meanings may share one. Th
 ignores case and surrounding spaces, but the label is otherwise used **exactly as written** — it has
 to match your real GitHub label character for character.
 
+## Command mappings
+
+The same translation, for the words a contributor types in a comment. The App knows three acts; your
+repository chooses what each is called, so a project already telling people to write `/take` keeps
+saying `/take`.
+
+```yaml
+mappings:
+  commands:
+    assign: "/assign"       # claim an issue
+    unassign: "/unassign"   # give it back
+    working: "/working"     # "still on it" — resets the inactivity clock
+```
+
+Rules: a command must be a non-empty string **starting with `/`**, and no two acts may share one. As
+with labels, the duplicate check ignores case and surrounding spaces, because a comment typed
+`/Assign` is the same instruction as `/assign`. A bare word is rejected rather than silently given a
+slash — a command nobody can type is worse than an error.
+
+Map nothing here and no command works. An unmapped act is invisible, exactly as an unmapped label is.
+
+## Skill mappings
+
+The difficulty ladder, as labels. Four tiers, easiest first — the **order is fixed**, and it is what
+"at least beginner" means to a capability that gates on tiers.
+
+```yaml
+mappings:
+  skills:
+    goodFirstIssue: "good first issue"
+    beginner: "skill: beginner"
+    intermediate: "skill: intermediate"
+    advanced: "skill: advanced"
+```
+
+Rules: the same as labels — a non-empty string, no two tiers sharing one, duplicates judged ignoring
+case and surrounding spaces. One rule more: **a label cannot be both a tier and a meaning.** Tiers and
+meanings are both real GitHub labels, so `status: ready` cannot appear under both `labels` and
+`skills`; the App would have no way to read it back.
+
+## Alerts and types
+
+The three families above are **closed**: the App names the meanings and you choose the words. These
+two are **open** — you name the meanings as well, because neither has any meaning to the App beyond
+"a capability's settings may refer to it".
+
+```yaml
+mappings:
+  alerts:                     # you invent these names
+    p0: { label: "P0-🔥" }
+    security: { label: "Security" }
+  types:
+    bug: { label: "Bug" }
+    docs: { label: "Documentation" }
+```
+
+Three things worth knowing:
+
+- **Each entry is a mapping naming a `label`, not a bare label string.** The extra line buys room for
+  a second way of carrying an alert later: `notifications` also wants to read a project field
+  (`{ field: Priority, value: Critical }`), which is not built — write it and you are told which
+  phase you are waiting on, rather than watching an alert never fire.
+- **The names are yours, so nothing can require one.** A capability may say "notify this principal
+  about `p0`", and if you never mapped `p0` that setting is reported as an error naming the alert.
+- **The one label namespace still holds.** An alert label cannot also be a position, a tier, or a
+  type: the App would have no way to read it back. These two families are read last, so the label
+  you are told to change is the one in `alerts` or `types`.
+
 ## Rules that may surprise you
 
 - **Any error rejects the whole file.** The shell stores one `configRejected` record, completes the
@@ -223,7 +302,17 @@ The exact codes the App reports, and what to fix.
 | `capabilityEnabledNotBoolean` | `enabled` must be literally `true` or `false` — not `"true"`, not `1` |
 | `capabilityUnknown` | The capability is not available in this application; remove its block or run an application that ships it |
 | `meaningNotMappable` | A key under `mappings.labels` is not in the meanings table above |
-| `meaningRequired` | An enabled capability needs a meaning you have not mapped; the message names the line to add |
+| `meaningRequired` | An enabled capability needs a mapping you have not made; the message names the line to add |
 | `labelInvalid` | A label that is empty, only spaces, or not a string |
 | `labelNotInjective` | Two meanings map to the same label; give one a different name |
+| `commandNotMappable` | A key under `mappings.commands` is not one of `assign`, `unassign`, `working` |
+| `commandInvalid` | A command that is empty, not a string, or does not start with `/` |
+| `commandNotInjective` | Two acts map to the same word; give one a different one |
+| `skillNotMappable` | A key under `mappings.skills` is not one of the four tiers |
+| `skillInvalid` | A tier label that is empty, only spaces, or not a string |
+| `skillNotInjective` | Two tiers share a label, or a tier uses a label `mappings.labels` already claims |
+| `alertInvalid` | An alert is not a mapping naming a `label` — the `{ field, value }` form is not built yet |
+| `alertNotInjective` | Two alerts share a label, or an alert uses a label another family already claims |
+| `typeInvalid` | A type is not a mapping naming a `label` |
+| `typeNotInjective` | Two types share a label, or a type uses a label another family already claims |
 | `principalNotAString` | A principal must be a single name, as a string |

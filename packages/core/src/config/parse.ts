@@ -8,7 +8,7 @@
 import type { ParseConfigOptions, RepositoryConfig } from "./schema.js";
 import { err, type ConfigResult } from "./results.js";
 import {
-    checkRequiredMeanings,
+    checkRequiredMappings,
     checkSchemaVersion,
     checkTopLevelKeys,
     isPlainObject,
@@ -45,7 +45,7 @@ export const NO_CONFIG: RepositoryConfig = {
     schemaVersion: 1,
     mode: "observe",
     capabilities: cleanRecord([]),
-    mappings: { labels: {} },
+    mappings: { labels: {}, commands: {}, skills: {}, alerts: {}, types: {} },
     principals: cleanRecord([]),
 };
 
@@ -71,16 +71,16 @@ export function parseConfig(raw: unknown, options: ParseConfigOptions): ConfigRe
 
     /**
      * Whether an enabled capability's declared needs are met is a question
-     * about its block AND the label table, so it is asked only when both
+     * about its block AND the mapping families, so it is asked only when both
      * parsed. When one did not, the file is rejected anyway and an unmet-need
-     * error read off a broken table would point at the wrong line.
+     * error read off a broken family would point at the wrong line.
      *
      * It comes last in the error list because it is the only rule a maintainer
      * cannot see by looking at one section (D84).
      */
     const unmet =
         capabilities.ok && mappings.ok
-            ? checkRequiredMeanings(capabilities.value, mappings.value, options.knownCapabilities)
+            ? checkRequiredMappings(capabilities.value, mappings.value, options.knownCapabilities)
             : [];
 
     // One test doing two jobs: it reports every failed section and narrows
@@ -109,7 +109,7 @@ export function parseConfig(raw: unknown, options: ParseConfigOptions): ConfigRe
             schemaVersion: 1,
             mode: mode.value,
             capabilities: cleanRecord(capabilities.value),
-            mappings: { labels: mappings.value },
+            mappings: mappings.value,
             principals: cleanRecord(principals.value),
         },
     };

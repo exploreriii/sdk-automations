@@ -11,87 +11,26 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseConfigDocument, type AdmittedCapability } from "@hiero-hackers/automation-core";
-import { docsDir, exampleFiles, normalizeNewlines, repoRoot, sourceFiles } from "./repository.js";
+import {
+    MAPPING_SECTION_KEYS,
+    parseConfigDocument,
+    type AdmittedCapability,
+} from "@hiero-hackers/automation-core";
+import { declaredCapabilityNames, shippedCapabilities } from "./capabilities.js";
+import { docsDir, exampleFiles } from "./repository.js";
 
 const examplesDir = join(docsDir, "examples");
 
-const read = (path: string) => normalizeNewlines(readFileSync(join(repoRoot, path), "utf8"));
-
-/** The quoted names in one flat `field: [...]` list of a declaration. */
-function declaredList(text: string, field: string): string[] {
-    const body = new RegExp(`${field}: \\[([^\\]]*)\\]`).exec(text)?.[1] ?? "";
-    return [...body.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]!);
-}
-
 /**
- * Each probe's wiring identifier and everything the parser judges a document
- * against: its name, the settings keys it declares, and the meanings it
- * requires (D84).
+ * The declarations the parser judges a document against: name, the settings
+ * keys each declares, and the mappings it requires (D84). Read off the
+ * shipped list (`capabilities.ts`), so an example that configures a
+ * capability the shell does not ship fails here rather than in a
+ * maintainer's repository.
  */
-function probeDeclarations(): {
-    readonly binding: string;
-    readonly name: string;
-    readonly configKeys: string[];
-    readonly requiredMeanings: string[];
-}[] {
-    return sourceFiles(["src"])
-        .filter((path) => path.startsWith("packages/probes/src/") && !path.endsWith("/index.ts"))
-        .map((path) => {
-            const text = read(path);
-            const name = /declareCapability\(\{\s*name: "([A-Za-z]+)"/.exec(text)?.[1];
-            const binding = /export const ([A-Za-z]+): Capability</.exec(text)?.[1];
-            expect({ path, named: name !== undefined, bound: binding !== undefined }).toEqual({
-                path,
-                named: true,
-                bound: true,
-            });
-            return {
-                binding: binding!,
-                name: name!,
-                configKeys: declaredList(text, "configKeys"),
-                requiredMeanings: declaredList(text, "requiredMeanings"),
-            };
-        });
-}
-
-/** The identifiers `createShell` is handed at the composition root. */
-function wiredBindings(): string[] {
-    const main = read("packages/shell/src/main.ts");
-    const list = main.split("capabilities: [")[1]?.split("]")[0] ?? "";
-    return [...list.matchAll(/toEngine\(([A-Za-z]+)\)/g)].map((m) => m[1]!);
-}
-
-/**
- * The capabilities the shipped shell admits — the probe declarations `main.ts`
- * wires, which is the same list the parser fails closed against with
- * `capabilityUnknown`. Read as text because this package depends on core's
- * barrel and nothing downstream of it (D85), so the probes are a file to open
- * rather than an import.
- *
- * A hand-typed literal here was the defect: it named `assignment`, which no
- * probe declares, so an example the real shell would reject parsed clean.
- *
- * Admitted as DECLARATIONS rather than names, so the examples are held to the
- * two rules a name alone cannot reach: a settings key no capability declares,
- * and an enabled capability missing a meaning it needs (D84).
- */
-function shippedCapabilities(): AdmittedCapability[] {
-    const byBinding = new Map(probeDeclarations().map((probe) => [probe.binding, probe]));
-    return wiredBindings()
-        .map((binding) => {
-            const probe = byBinding.get(binding);
-            expect(probe, `${binding} is a probe declaration main.ts can wire`).toBeDefined();
-            return {
-                name: probe!.name,
-                configKeys: probe!.configKeys,
-                requiredMeanings: probe!.requiredMeanings as AdmittedCapability["requiredMeanings"],
-            };
-        })
-        .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-const KNOWN = shippedCapabilities();
+const KNOWN: AdmittedCapability[] = shippedCapabilities()
+    .map(({ name, configKeys, requiredMappings }) => ({ name, configKeys, requiredMappings }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
 const parseText = (text: string, revision: string) =>
     parseConfigDocument(text, { revision, knownCapabilities: KNOWN });
@@ -106,32 +45,30 @@ describe("the shipped examples", () => {
         expect(files.sort()).toEqual([
             "active.yml",
             "empty.yml",
+            "full.yml",
+            "inactivity.yml",
             "minimal.yml",
             "observe-only.yml",
         ]);
     });
 
     /** A derivation that finds nothing admits nothing, and silently. */
-    it("reads the admitted capability list off the shipped probes", () => {
+    it("reads the admitted capability list off the shipped capabilities", () => {
         expect(KNOWN.length).toBeGreaterThan(0);
-        expect(KNOWN.map(({ name }) => name)).toEqual(
-            probeDeclarations()
-                .map(({ name }) => name)
-                .sort(),
-        );
+        expect(KNOWN.map(({ name }) => name)).toEqual(declaredCapabilityNames());
     });
 
     /**
      * The declarations are read out of source text, so an expression that
      * matched nothing would admit every capability with no settings keys and
-     * no required meanings — and every check below would pass in silence.
-     * `intake` is the probe that has both, so it is the one worth pinning.
+     * no required mappings — and every check below would pass in silence.
+     * `intake` is the capability that has both, so it is the one worth pinning.
      */
-    it("reads each probe's declared settings keys and required meanings", () => {
+    it("reads each capability's declared settings keys and required mappings", () => {
         expect(KNOWN.find(({ name }) => name === "intake")).toEqual({
             name: "intake",
             configKeys: ["announce"],
-            requiredMeanings: ["awaitingTriage"],
+            requiredMappings: { labels: ["awaitingTriage"] },
         });
     });
 
@@ -139,10 +76,16 @@ describe("the shipped examples", () => {
      * The negative control for the list above: a name outside it is refused,
      * so a future example that configures an unshipped capability fails here
      * rather than in a maintainer's repository.
+     *
+     * The name has to be one NO capability will ever have (D8). This control
+     * named `assignment` — a real design, unshipped on the day it was written —
+     * and shipping that capability would have broken the test proving unknown
+     * names are refused, which is a negative control that expires the moment it
+     * matters.
      */
     it("refuses a capability the shell does not ship", () => {
         const invented = parseText(
-            "schemaVersion: 1\ncapabilities:\n  assignment:\n    enabled: false\n",
+            "schemaVersion: 1\ncapabilities:\n  neverShipped:\n    enabled: false\n",
             "invented",
         );
         expect(invented.ok ? [] : invented.errors.map((e) => e.code)).toEqual([
@@ -204,6 +147,60 @@ describe("the shipped examples", () => {
         expect(active.ok).toBe(true);
         if (!active.ok) return;
         expect(active.config.capabilities.inactivity).toMatchObject({ enabled: false });
+    });
+
+    /**
+     * The one example that shows everything: every shipped capability switched
+     * on, every mapping family filled. A capability the registry gains and
+     * this file does not is a capability the documentation never shows
+     * configured — and the file's own comment claims completeness.
+     */
+    it("full.yml enables every shipped capability and fills every mapping family", () => {
+        const full = parse("full.yml");
+        expect(full.ok).toBe(true);
+        if (!full.ok) return;
+        const enabled = Object.entries(full.config.capabilities)
+            .filter(([, block]) => block.enabled)
+            .map(([name]) => name)
+            .sort();
+        expect(enabled).toEqual(KNOWN.map(({ name }) => name));
+        for (const family of MAPPING_SECTION_KEYS) {
+            expect(Object.keys(full.config.mappings[family]), family).not.toEqual([]);
+        }
+        expect(Object.keys(full.config.principals)).not.toEqual([]);
+    });
+
+    /** The schedule-driven example enables the one capability with no webhook. */
+    it("inactivity.yml enables only the scheduled capability", () => {
+        const scheduled = shippedCapabilities()
+            .filter(({ triggers }) => triggers.every((t) => t.kind === "schedule"))
+            .map(({ name }) => name);
+        const example = parse("inactivity.yml");
+        expect(example.ok).toBe(true);
+        if (!example.ok) return;
+        const enabled = Object.entries(example.config.capabilities)
+            .filter(([, block]) => block.enabled)
+            .map(([name]) => name);
+        expect(enabled).toEqual(scheduled);
+    });
+
+    /**
+     * The quickstart's own blocks are complete documents a reader is told to
+     * copy, so they are held to the parser the same way the files are — a
+     * setup that stopped parsing would surface only as a maintainer's
+     * `configRejected` record.
+     */
+    it("every configuration block in the quickstart parses", () => {
+        const quickstart = readFileSync(join(docsDir, "quickstart.md"), "utf8");
+        const blocks = [...quickstart.matchAll(/```yaml\n([\s\S]*?)```/g)].map((m) => m[1]!);
+        expect(blocks.length).toBeGreaterThan(1);
+        for (const [i, block] of blocks.entries()) {
+            const result = parseText(block, `quickstart block ${String(i + 1)}`);
+            expect(
+                result.ok ? [] : result.errors.map((e) => `${e.code} @ ${e.path}`),
+                `quickstart block ${String(i + 1)}`,
+            ).toEqual([]);
+        }
     });
 
     /** A file with no README row is one nobody will read; a row with no file is a promise. */

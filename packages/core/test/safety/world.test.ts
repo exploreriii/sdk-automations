@@ -9,11 +9,11 @@ import {
     deriveWorld,
     expectedHolds,
     observedMeaningsOf,
-    projectIssueObservation,
-    projectPrObservation,
+    projectIssue,
+    projectPullRequest,
 } from "../../src/index.js";
 
-const project = projectIssueObservation;
+const project = projectIssue;
 
 describe("observedMeaningsOf reassembles what projection split", () => {
     it("a bare item observes nothing", () => {
@@ -77,20 +77,20 @@ describe("expectedHolds — the claim against the world", () => {
     });
 
     it("present must be present", () => {
-        const expected = { meaningsPresent: ["ready"], meaningsAbsent: [], closed: null } as const;
-        expect(expectedHolds(expected, at(["ready"]))).toBe(true);
-        expect(expectedHolds(expected, at([]))).toBe(false);
+        const claims = { meaningsPresent: ["ready"], meaningsAbsent: [], closed: null } as const;
+        expect(expectedHolds(claims, at(["ready"]))).toBe(true);
+        expect(expectedHolds(claims, at([]))).toBe(false);
     });
 
     it("absent must be absent — the intake case", () => {
-        const expected = {
+        const claims = {
             meaningsPresent: [],
             meaningsAbsent: ["awaitingTriage"],
             closed: false,
         } as const;
-        expect(expectedHolds(expected, project({ closedBy: null, meanings: [] }))).toBe(true);
+        expect(expectedHolds(claims, project({ closedBy: null, meanings: [] }))).toBe(true);
         expect(
-            expectedHolds(expected, project({ closedBy: null, meanings: ["awaitingTriage"] })),
+            expectedHolds(claims, project({ closedBy: null, meanings: ["awaitingTriage"] })),
         ).toBe(false);
     });
 
@@ -113,7 +113,7 @@ describe("expectedHolds — the claim against the world", () => {
     });
 
     it("cross-flow noise neither satisfies nor violates an own-flow claim wrongly", () => {
-        const projection = projectPrObservation({
+        const projection = projectPullRequest({
             closedBy: null,
             meanings: ["needsReview", "awaitingTriage"],
         });

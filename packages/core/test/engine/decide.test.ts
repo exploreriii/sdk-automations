@@ -295,6 +295,37 @@ describe("the gates, each visible in the report", () => {
         expect(decision.approved).toEqual([]);
     });
 
+    it("refuses an intent naming another repository", async () => {
+        const foreign: EngineCapability = {
+            declaration: triage.declaration,
+            async evaluate(facts: never): Promise<readonly AnyIntent[]> {
+                const current = facts as IssueFacts;
+                return [
+                    intentFactory("triage", {
+                        repository: { owner: "other", repo: current.repository.repo },
+                        item: current.item,
+                        observedAt: current.observedAt,
+                    })({
+                        operation: "applyMappedLabel",
+                        desired: { meaning: "awaitingTriage", cause: "intakeObserved" },
+                        cause: "sawTheItem",
+                        explain: { summary: "s" },
+                    }),
+                ];
+            },
+        };
+        const decision = await decide(
+            delivery("issues.opened.json"),
+            configIn("active"),
+            [foreign],
+            externals,
+        );
+        expect(decision.approved).toEqual([]);
+        expect(decision.report.findings.map((finding) => finding.code)).toEqual([
+            "preconditionStale",
+        ]);
+    });
+
     /**
      * The commonest configuration of all: a capability the repository has
      * never heard of. `capabilities` is a null-prototype record, so the
@@ -835,6 +866,35 @@ describe("closure is a platform fact, not a capability's claim", () => {
             "applied",
         ]);
     });
+
+    it("uses the record time even when a capability supplies a later cutoff", async () => {
+        const spoofed: EngineCapability = {
+            ...claimless,
+            async evaluate(facts: never): Promise<readonly AnyIntent[]> {
+                const [intent] = await claimless.evaluate(
+                    facts,
+                    undefined as never,
+                    undefined as never,
+                );
+                return [{ ...intent!, evaluatedAt: new Date("2099-01-01T00:00:00Z") }];
+            },
+        };
+        const observed = observedAs(null);
+        const decision = await decide(
+            { kind: "facts", facts: observed },
+            configIn("active"),
+            [spoofed],
+            {
+                ...externals,
+                latestHumanChangeAt: () => observed.observedAt,
+            },
+        );
+
+        expect(decision.approved).toEqual([]);
+        expect(decision.report.findings.map((finding) => finding.code)).toEqual([
+            "newerHumanChange",
+        ]);
+    });
 });
 
 /**
@@ -881,6 +941,52 @@ describe("every fallible seam is contained", () => {
         expect(decision.approved).toHaveLength(1);
     });
 
+    it("contains malformed entries and a non-array result", async () => {
+        const malformed: EngineCapability = {
+            declaration: brittle as never,
+            async evaluate(): Promise<readonly AnyIntent[]> {
+                return [null] as never;
+            },
+        };
+        const nonArray: EngineCapability = {
+            declaration: brittle as never,
+            async evaluate(): Promise<readonly AnyIntent[]> {
+                return null as never;
+            },
+        };
+        const decision = await decide(
+            delivery("issues.opened.json"),
+            twoCapabilities,
+            [malformed, nonArray, triage],
+            externals,
+        );
+        expect(decision.report.findings.map((finding) => finding.code)).toEqual([
+            "malformedIntent",
+            "capabilityFailed",
+            "capabilityExplained",
+            "applied",
+        ]);
+        expect(decision.approved).toHaveLength(1);
+    });
+
+    it("contains an unprintable thrown value", async () => {
+        const revoked = Proxy.revocable({}, {});
+        revoked.revoke();
+        const capability: EngineCapability = {
+            declaration: brittle as never,
+            async evaluate(): Promise<readonly AnyIntent[]> {
+                throw revoked.proxy;
+            },
+        };
+        const decision = await decide(
+            delivery("issues.opened.json"),
+            twoCapabilities,
+            [capability],
+            externals,
+        );
+        expect(decision.report.findings[0]?.summary).toContain("an unprintable value");
+    });
+
     it("a resolver source that rejects answers unavailable, and is a problem finding", async () => {
         const asker: EngineCapability = {
             declaration: declareCapability({
@@ -917,6 +1023,27 @@ describe("every fallible seam is contained", () => {
         ]);
         expect(problems(decision.report)[0]!.summary).toContain("socket hang up");
         expect(decision.approved).toHaveLength(1);
+    });
+
+    it("treats a malformed resolver answer as unavailable", async () => {
+        const asker: EngineCapability = {
+            declaration: declareCapability({ ...brittle, resolvers: ["linkedIssues"] }) as never,
+            async evaluate(_o: never, _c: never, platform: never): Promise<readonly AnyIntent[]> {
+                const handle = platform as {
+                    resolve(q: string, i: unknown): Promise<{ ok: boolean; reason?: string }>;
+                };
+                expect(await handle.resolve("linkedIssues", {})).toMatchObject({
+                    ok: false,
+                    reason: "unavailable",
+                });
+                return [];
+            },
+        };
+        const decision = await decide(delivery("issues.opened.json"), twoCapabilities, [asker], {
+            ...externals,
+            resolve: async () => ({ ok: true }) as never,
+        });
+        expect(decision.report.findings.map((finding) => finding.code)).toEqual(["resolverFailed"]);
     });
 
     /**

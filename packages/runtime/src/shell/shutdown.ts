@@ -58,21 +58,45 @@ export function createShutdown(parts: ShutdownParts): (signal: NodeJS.Signals) =
         stopping = true;
         void (async () => {
             const closed = new Promise<void>((resolve) => {
-                server.close(() => resolve());
-                server.closeIdleConnections();
+                try {
+                    server.close(() => resolve());
+                } catch {
+                    resolve();
+                }
+                try {
+                    server.closeIdleConnections();
+                } catch {}
             });
-            stopSweep();
-            await closed;
-            await settled();
+            try {
+                stopSweep();
+            } catch {}
+            try {
+                await closed;
+            } catch {}
+            try {
+                await settled();
+            } catch {}
             try {
                 store.close();
             } catch (error) {
-                log({ event: "storeCloseFailed", detail: detailOf(error) });
+                try {
+                    log({ event: "storeCloseFailed", detail: detailOf(error) });
+                } catch {}
             }
-            log({ event: "shutdown", signal });
-            out.write("", () => {
+            try {
+                log({ event: "shutdown", signal });
+            } catch {}
+            let left = false;
+            const leave = () => {
+                if (left) return;
+                left = true;
                 exit();
-            });
+            };
+            try {
+                out.write("", leave);
+            } catch {
+                leave();
+            }
         })();
     };
 }

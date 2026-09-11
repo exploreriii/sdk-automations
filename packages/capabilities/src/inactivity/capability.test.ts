@@ -195,8 +195,11 @@ describe("the clocks reset on development activity only", () => {
         // assignee's `/working`, and that same instant is the activity the
         // platform is handed to compare against its own warning.
         const mixed = pullRecord(
-            { assignees: [assignee("alice", 80, ago(20)), assignee("bob", 80, ago(40))] },
-            { draft: false, changesRequested: true, lastCommitAt: ago(30) },
+            {
+                assignees: [assignee("alice", 80, ago(20)), assignee("bob", 80, ago(40))],
+                position: position({ meaning: "needsRevision" }),
+            },
+            { draft: false, changesRequested: false, lastCommitAt: ago(30) },
         );
 
         expect(await decide(mixed)).toMatchObject([
@@ -212,10 +215,13 @@ describe("the clocks reset on development activity only", () => {
         // There is no field for a comment or a review, so a clock that saw
         // nothing but chatter is a clock that has not moved — and the act is
         // asked for, carrying the warning the platform posts first.
-        const record = pullRecord({}, { draft: false, changesRequested: true });
+        const record = pullRecord(
+            { position: position({ meaning: "needsRevision" }) },
+            { draft: false, changesRequested: false },
+        );
 
         expect(await decide(record)).toMatchObject([
-            { operation: "closePullRequest", item: PULL, grace: { days: 46 } },
+            { operation: "closePullRequest", item: PULL, grace: { days: 3 } },
         ]);
     });
 });
@@ -289,7 +295,7 @@ describe("the pull-request ladder judges the contributor's wait", () => {
                     days: 3,
                     topic: "needsRevision",
                     warning: {
-                        body: "⏰ Hi @alice — this pull request has carried the `needsRevision` label without development activity for 2 days. Push a commit or comment `/working` to let us know you are working on it, otherwise the pull request will be closed and the assignment released on **2026-09-12**.",
+                        body: "⏰ Hi @alice — this pull request has carried the `needsRevision` label without development activity for 2 days. Push a commit or comment `/working` to let us know you are working on it, otherwise the pull request will be closed on **2026-09-12**.",
                     },
                     notice: {
                         body: "This pull request was closed after 5 days of inactivity.",
@@ -325,50 +331,8 @@ describe("the pull-request ladder judges the contributor's wait", () => {
         ).toEqual([]);
     });
 
-    it("Unlinked PR stale in draft mode", async () => {
-        // Unassigned as well as unlinked: the record carries no author, so the
-        // warning is addressed to nobody rather than to an invented name.
-        //
-        // Seventy days idle against a sixty-day ladder: the date the warning
-        // names is the grace it announces — forty-six days out — which is
-        // exactly how long the platform will hold the close from the day the
-        // warning lands.
-        expect(await decide(pullRecord({ assignees: [] }))).toEqual([
-            {
-                capability: "inactivity",
-                repository: REPO,
-                item: PULL,
-                operation: "closePullRequest",
-                desired: {
-                    reason: "This pull request was closed after 60 days of inactivity.",
-                },
-                claims: { meaningsPresent: [], meaningsAbsent: [], closed: false },
-                // Dated at the clock's start, not the sweep: redating the
-                // occasion each run would mint a new effect and start the
-                // grace again with it.
-                cause: { cause: "pullRequestWentStale", observedAt: ago(70) },
-                explanation: {
-                    capability: "inactivity",
-                    summary:
-                        "Warned about a pull request stale in draft; the close follows the grace.",
-                    detail: ["idle 70 days", "closes after 60 days"],
-                },
-                idempotencyKey: expect.any(String),
-                grace: {
-                    days: 46,
-                    topic: "draft",
-                    warning: {
-                        body: "⏰ This pull request has been in **draft** without development activity for 14 days. Push a commit or comment `/working` to let us know you are working on it, otherwise the pull request will be closed and the assignment released on **2026-10-25**.",
-                    },
-                    notice: {
-                        body: "This pull request was closed after 60 days of inactivity.",
-                    },
-                    cancelledBy: "a commit or a /working comment",
-                    reversesWith: "re-assign / reopen",
-                    activityAt: null,
-                },
-            },
-        ]);
+    it("does not arm native draft mode without an apply-time claim", async () => {
+        expect(await decide(pullRecord({ assignees: [] }))).toEqual([]);
     });
 
     it("Reaper closes a PR", async () => {
@@ -378,14 +342,18 @@ describe("the pull-request ladder judges the contributor's wait", () => {
         // release. Once the pull request is closed the issue has no open
         // linked pull request, and its own ladder warns then releases her.
         const fresh = { kind: "issue", number: 45 } as const;
-        const closing = pullRecord({
-            links: {
-                issues: [
-                    { item: ISSUE, assignees: [assignee("alice", 40), assignee("bob", 2)] },
-                    { item: fresh, assignees: [assignee("carol", 2)] },
-                ],
+        const closing = pullRecord(
+            {
+                position: position({ meaning: "needsRevision" }),
+                links: {
+                    issues: [
+                        { item: ISSUE, assignees: [assignee("alice", 40), assignee("bob", 2)] },
+                        { item: fresh, assignees: [assignee("carol", 2)] },
+                    ],
+                },
             },
-        });
+            { draft: false },
+        );
 
         const intents = await decide(closing);
 
@@ -394,7 +362,7 @@ describe("the pull-request ladder judges the contributor's wait", () => {
                 item: PULL,
                 operation: "closePullRequest",
                 desired: {
-                    reason: "This pull request was closed after 60 days of inactivity.",
+                    reason: "This pull request was closed after 5 days of inactivity.",
                 },
             }),
         ]);
@@ -542,14 +510,18 @@ describe("never from a bot, and never on an answer it did not get", () => {
 describe("nothing rides along with a close", () => {
     const other = { kind: "issue", number: 44 } as const;
     const closing = () =>
-        pullRecord({
-            links: {
-                issues: [
-                    { item: ISSUE, assignees: [assignee("alice", 40)] },
-                    { item: other, assignees: [assignee("alice", 40)] },
-                ],
+        pullRecord(
+            {
+                position: position({ meaning: "needsRevision" }),
+                links: {
+                    issues: [
+                        { item: ISSUE, assignees: [assignee("alice", 40)] },
+                        { item: other, assignees: [assignee("alice", 40)] },
+                    ],
+                },
             },
-        });
+            { draft: false },
+        );
 
     it("closes and says only that, however many stale linked assignments there are", async () => {
         // Two linked issues, one assignee long overdue on each, and the issue
@@ -560,7 +532,7 @@ describe("nothing rides along with a close", () => {
                 item: PULL,
                 operation: "closePullRequest",
                 desired: {
-                    reason: "This pull request was closed after 60 days of inactivity.",
+                    reason: "This pull request was closed after 5 days of inactivity.",
                 },
             }),
         ]);
@@ -576,7 +548,7 @@ describe("nothing rides along with a close", () => {
             expect.objectContaining({
                 operation: "closePullRequest",
                 desired: {
-                    reason: "This pull request was closed after 60 days of inactivity.",
+                    reason: "This pull request was closed after 5 days of inactivity.",
                 },
             }),
         ]);
@@ -607,13 +579,14 @@ describe("the platform warns, waits, then acts", () => {
     /** The two facts these rows dial; everything else is the quiet default. */
     interface Dialled {
         readonly killSwitchActive?: boolean;
+        readonly latestHumanChangeAt?: Date | null;
         readonly warningFor?: NonNullable<Externals["warningFor"]>;
     }
 
     const externals = (over: Dialled): Externals => ({
         killSwitchActive: over.killSwitchActive ?? false,
         installationGrants: ["issues:write"],
-        latestHumanChangeAt: () => null,
+        latestHumanChangeAt: () => over.latestHumanChangeAt ?? null,
         resolve: (async () => ({ ok: true, value: false })) as NonNullable<Externals["resolve"]>,
         // Spread rather than set: absent IS the "nobody was warned" answer, and
         // an explicit `undefined` is a different thing to say (grace.md §2).
@@ -664,6 +637,7 @@ describe("the platform warns, waits, then acts", () => {
                 records: act.idempotencyKey,
             },
         ]);
+        expect(decision.approved[0]?.intent.evaluatedAt).toEqual(AT);
         expect(decision.report.findings.map((finding) => finding.code)).toEqual([
             "capabilityExplained",
             "applied",
@@ -695,6 +669,18 @@ describe("the platform warns, waits, then acts", () => {
                 records: null,
             },
         ]);
+    });
+
+    it("does not mistake the stable assignment clock for the safety cutoff", async () => {
+        const act = await actIntent();
+        const decision = await decided({
+            latestHumanChangeAt: ago(1),
+            warningFor: () => warnedAt(act, ago(8)),
+        });
+
+        expect(decision.approved).toHaveLength(1);
+        expect(decision.approved[0]?.intent.operation).toBe("releaseAssignment");
+        expect(decision.approved[0]?.intent.evaluatedAt).toEqual(AT);
     });
 
     it("says the grace is running, and says it as news rather than a fault", async () => {

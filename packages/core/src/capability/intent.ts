@@ -5,7 +5,7 @@
  * GitHub calls is deliberately outside `core/` and is not implemented yet.
  */
 
-import type { MappableMeaning } from "../config/index.js";
+import { MAPPABLE_MEANINGS, type MappableMeaning } from "../config/index.js";
 import { MIN_GRACE_DAYS, type ClaimedFacts } from "../safety/index.js";
 import {
     canTransitionIssue,
@@ -16,14 +16,15 @@ import {
     isPrMeaning,
     type Projection,
 } from "../workflow/index.js";
-import type {
-    DatedCause,
-    IdempotencyClass,
-    IntentCatalogue,
-    IntentOperation,
-    ItemRef,
-    RepositoryRef,
-    StructuredExplanation,
+import {
+    MANAGED_COMMENT_KINDS,
+    type DatedCause,
+    type IdempotencyClass,
+    type IntentCatalogue,
+    type IntentOperation,
+    type ItemRef,
+    type RepositoryRef,
+    type StructuredExplanation,
 } from "./catalogue.js";
 import { INTENT_OPERATIONS } from "./operations/index.js";
 import type { TypedDeclaration } from "./declaration.js";
@@ -87,6 +88,7 @@ export interface Intent<K extends IntentOperation = IntentOperation> {
     readonly claims: ClaimedFacts;
     readonly desired: IntentCatalogue[K];
     readonly cause: DatedCause;
+    readonly evaluatedAt?: Date;
     readonly explanation: StructuredExplanation;
     readonly idempotencyKey: string;
     /**
@@ -135,6 +137,7 @@ export function deriveIdempotencyKey(intent: {
 
 /** Every way an intent can be refused before the safety engine sees it. */
 export const INTENT_SCREEN_REFUSAL_CODES = [
+    "malformedIntent",
     "foreignCapability",
     "undeclaredIntent",
     "invalidCause",
@@ -159,6 +162,165 @@ export type IntentScreen =
           readonly code: IntentScreenRefusalCode;
           readonly reason: string;
       };
+
+function own(value: unknown, key: string): unknown {
+    if (typeof value !== "object" || value === null) return undefined;
+    return Object.hasOwn(value, key) ? (value as Record<string, unknown>)[key] : undefined;
+}
+
+function stringList(value: unknown): readonly string[] | null {
+    if (!Array.isArray(value)) return null;
+    const copy = [...value];
+    return copy.every((entry) => typeof entry === "string") ? copy : null;
+}
+
+function desiredOf(
+    operation: IntentOperation,
+    value: unknown,
+): IntentCatalogue[IntentOperation] | null {
+    if (operation === "postManagedComment") {
+        const kind = own(value, "kind");
+        const topic = own(value, "topic");
+        const mention = own(value, "mention");
+        const body = own(value, "body");
+        if (
+            !MANAGED_COMMENT_KINDS.includes(kind as never) ||
+            (topic !== undefined && typeof topic !== "string") ||
+            (mention !== undefined && typeof mention !== "string") ||
+            typeof body !== "string"
+        ) {
+            return null;
+        }
+        return {
+            kind: kind as (typeof MANAGED_COMMENT_KINDS)[number],
+            ...(topic === undefined ? {} : { topic }),
+            ...(mention === undefined ? {} : { mention }),
+            body,
+        };
+    }
+    if (operation === "applyMappedLabel") {
+        const meaning = own(value, "meaning");
+        const cause = own(value, "cause");
+        return typeof meaning === "string" && typeof cause === "string"
+            ? { meaning: meaning as MappableMeaning, cause: cause as never }
+            : null;
+    }
+    const key =
+        operation === "assign" || operation === "unassign" || operation === "releaseAssignment"
+            ? "login"
+            : "reason";
+    const text = own(value, key);
+    return typeof text === "string" && text.length > 0 ? ({ [key]: text } as never) : null;
+}
+
+function graceOf(value: unknown): DestructiveGrace | null | undefined {
+    if (value === null || value === undefined) return null;
+    const days = own(value, "days");
+    const topic = own(value, "topic");
+    const warning = own(value, "warning");
+    const notice = own(value, "notice");
+    const cancelledBy = own(value, "cancelledBy");
+    const reversesWith = own(value, "reversesWith");
+    const activityAt = own(value, "activityAt");
+    const warningBody = own(warning, "body");
+    const noticeBody = own(notice, "body");
+    if (
+        typeof days !== "number" ||
+        !Number.isFinite(days) ||
+        (topic !== undefined && typeof topic !== "string") ||
+        typeof warningBody !== "string" ||
+        typeof noticeBody !== "string" ||
+        typeof cancelledBy !== "string" ||
+        cancelledBy.length === 0 ||
+        typeof reversesWith !== "string" ||
+        reversesWith.length === 0 ||
+        (activityAt !== null &&
+            (!(activityAt instanceof Date) || !Number.isFinite(activityAt.getTime())))
+    ) {
+        return undefined;
+    }
+    return {
+        days,
+        ...(topic === undefined ? {} : { topic }),
+        warning: { body: warningBody },
+        notice: { body: noticeBody },
+        cancelledBy,
+        reversesWith,
+        activityAt: activityAt === null ? null : new Date(activityAt.getTime()),
+    };
+}
+
+export function readIntent(value: unknown): AnyIntent | null {
+    try {
+        const capability = own(value, "capability");
+        const repository = own(value, "repository");
+        const owner = own(repository, "owner");
+        const repo = own(repository, "repo");
+        const item = own(value, "item");
+        const kind = own(item, "kind");
+        const number = own(item, "number");
+        const operation = own(value, "operation");
+        const claims = own(value, "claims");
+        const present = stringList(own(claims, "meaningsPresent"));
+        const absent = stringList(own(claims, "meaningsAbsent"));
+        const closed = own(claims, "closed");
+        const cause = own(value, "cause");
+        const causeName = own(cause, "cause");
+        const observedAt = own(cause, "observedAt");
+        const explanation = own(value, "explanation");
+        const explanationCapability = own(explanation, "capability");
+        const summary = own(explanation, "summary");
+        const detail = stringList(own(explanation, "detail"));
+        const idempotencyKey = own(value, "idempotencyKey");
+        if (
+            typeof capability !== "string" ||
+            typeof owner !== "string" ||
+            owner.length === 0 ||
+            typeof repo !== "string" ||
+            repo.length === 0 ||
+            (kind !== "issue" && kind !== "pullRequest") ||
+            typeof number !== "number" ||
+            !Number.isSafeInteger(number) ||
+            number < 1 ||
+            typeof operation !== "string" ||
+            !Object.hasOwn(INTENT_OPERATIONS, operation) ||
+            present === null ||
+            absent === null ||
+            !present.every((entry) => MAPPABLE_MEANINGS.includes(entry as never)) ||
+            !absent.every((entry) => MAPPABLE_MEANINGS.includes(entry as never)) ||
+            (closed !== null && typeof closed !== "boolean") ||
+            typeof causeName !== "string" ||
+            !(observedAt instanceof Date) ||
+            typeof explanationCapability !== "string" ||
+            typeof summary !== "string" ||
+            detail === null ||
+            typeof idempotencyKey !== "string"
+        ) {
+            return null;
+        }
+        const desired = desiredOf(operation as IntentOperation, own(value, "desired"));
+        const grace = graceOf(own(value, "grace"));
+        if (desired === null || grace === undefined) return null;
+        return {
+            capability,
+            repository: { owner, repo },
+            item: { kind, number },
+            operation,
+            claims: {
+                meaningsPresent: present as readonly MappableMeaning[],
+                meaningsAbsent: absent as readonly MappableMeaning[],
+                closed,
+            },
+            desired,
+            cause: { cause: causeName, observedAt: new Date(observedAt.getTime()) },
+            explanation: { capability: explanationCapability, summary, detail },
+            idempotencyKey,
+            grace,
+        } as AnyIntent;
+    } catch {
+        return null;
+    }
+}
 
 /**
  * Is the move this intent would make from the authoritative projected
@@ -280,10 +442,18 @@ function screenGrace(intent: AnyIntent): IntentScreen {
  * having been compiled honestly.
  */
 export function screenIntent(
-    intent: AnyIntent,
+    value: unknown,
     declaration: TypedDeclaration,
     projection: Projection<MappableMeaning> | null,
 ): IntentScreen {
+    const intent = readIntent(value);
+    if (intent === null) {
+        return {
+            ok: false,
+            code: "malformedIntent",
+            reason: "the capability returned a malformed intent",
+        };
+    }
     if (intent.capability !== declaration.name) {
         return {
             ok: false,

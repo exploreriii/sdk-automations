@@ -29,7 +29,7 @@ decides whether a database file may be opened at all.
 inspect repositories, verify signatures, normalize events, log bodies, or
 scrub payloads. The payload is an opaque byte array at this boundary. It also
 owns no policy: callers must supply retention windows, lease durations and
-requeue thresholds. The runnable application does not drive effect recovery.
+requeue thresholds.
 
 ## The path a delivery takes
 
@@ -73,8 +73,8 @@ together under a single write lock (D110).
 | Table | Role | Evidence status |
 |---|---|---|
 | `seen_delivery` | atomic webhook acceptance and work queue: opaque GUID, event name, exact payload bytes, SHA-256 digest, receipt/terminal times, claim state, and the failed-attempt count with its retry deadline | GUID dedup was decided in 6.5; durable intake semantics are exercised by this package's restart and two-thread contention tests |
-| `effect_journal` | intent/done write-ahead rows with revision, durable attempt counter, and completion timestamp; reserved for a future effect-specific recovery path | unused by the runnable application; store transition tests cover the D42 mechanics |
-| `effect_claim` | one-winner LEASE per effect: atomic stale takeover, released on completion | unused by the runnable application; store contention tests cover the D41 mechanics |
+| `effect_journal` | intent/done write-ahead rows with revision, durable attempt counter, and completion timestamp | the runnable applier recovers open calls through GitHub read-back and refuses stale configuration revisions |
+| `effect_claim` | one-winner LEASE per effect: atomic stale takeover, released on completion | the runnable applier claims every effect and its recovery pass; store contention tests cover the D41 mechanics |
 | `schedule` | clock-triggered work; `pending → running → done`, with claim age and a per-firing completion token | decided in 6.5; restart/requeue mechanics are pre-covered here; `claimed_at` and claim tokens prevent stale completion under D43 |
 | `delivery_report` | the canonical serialized shell record and the claim token that committed it, one row per delivery | report persistence plus delivery completion is crash-atomic; worker-thread fault injection covers both uncommitted steps and the committed boundary (D110) |
 | `destructive_warning` | one row per ACT effect: when the App warned, the grace it announced, the date it named, and the immutable snapshot of the request that warning authorises | written only after a warning comment is proved landed, so a warning that never posted authorises nothing; the round trip, the upsert and retention are covered by `test/store/warnings.test.ts` |
@@ -84,14 +84,14 @@ synchronous SQLite writes, and delivery acceptance commits before it
 returns; tables have no foreign keys, while delivery finalization deliberately
 updates `delivery_report` and `seen_delivery` in one transaction;
 `sentUnknown` is deliberately unresolvable from the journal
-alone — a future effect-specific caller must resolve against GitHub state before retrying.
+alone. The applier resolves it against GitHub state before retrying.
 
 Three store findings, argued in full in their register rows:
 
 - `FINDING(store-claim-lease)` → **D41** — claims are leases: atomic
-  stale takeover, `release` frees only the holder's own row; a stolen
-  lease is survivable because the journal plus GitHub re-read is the
-  correctness layer.
+  stale takeover, `release` frees only the holder's own row. These mechanics
+  do not fence a GitHub request already in flight, so live takeover remains
+  open.
 - `FINDING(store-journal-attempts)` → **D42** — `done` rows are
   immutable to `intent`; retries increment a durable `attempt` counter,
   so retry bounds survive restart. Completion refreshes the retention
@@ -107,7 +107,7 @@ Three store findings, argued in full in their register rows:
 ## Version contract and migration
 
 `PRAGMA user_version` is the explicit SQLite-native schema marker; the current
-version is `5`. A declared version above `5` is refused before the store changes
+version is `6`. A declared version above `6` is refused before the store changes
 the database. Version-zero files are accepted only when every owned SQLite
 object matches one of the three unversioned schemas this repository created. The fingerprint
 includes exact table and index definitions, so column types, nullability,

@@ -65,4 +65,5 @@ export interface OpenIntent {
     readonly intent: string;
     readonly attempt: number;
     readonly at: string;
+    readonly revision: string;
 }

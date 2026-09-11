@@ -79,6 +79,9 @@ importers:
 
   packages/dev/checks:
     devDependencies:
+      '@hiero-hackers/automation-capabilities':
+        specifier: workspace:*
+        version: link:../../capabilities
       '@hiero-hackers/automation-core':
         specifier: workspace:*
         version: link:../../core

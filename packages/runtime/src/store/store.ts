@@ -553,6 +553,23 @@ export class Store {
         }));
     }
 
+    redriveDelivery(deliveryId: DeliveryGuid): boolean {
+        assertDeliveryGuid(deliveryId);
+        return (
+            this.db
+                .prepare(
+                    `
+                    UPDATE seen_delivery
+                    SET state = 'pending', claim_worker = NULL, claim_token = NULL,
+                        claimed_at = NULL, completed_at = NULL, attempts = 0,
+                        retry_not_before = NULL
+                    WHERE delivery_id = ? AND state = 'failed'
+                `,
+                )
+                .run(deliveryId).changes === 1
+        );
+    }
+
     /** Requeue stale processing rows without exposing their payloads. */
     requeueStuckDeliveries(claimedBefore: string): DeliveryGuid[] {
         assertUtcInstant(claimedBefore, "claimedBefore");
@@ -702,7 +719,7 @@ export class Store {
         const rows = this.db
             .prepare(
                 `
-                SELECT effect_id, call_seq, intent, attempt, at FROM effect_journal
+                SELECT effect_id, call_seq, intent, attempt, at, revision FROM effect_journal
                 WHERE status = 'sent' AND at <= ?
                 ORDER BY at
             `,
@@ -713,6 +730,7 @@ export class Store {
             intent: string;
             attempt: number;
             at: string;
+            revision: string;
         }[];
         return rows.map((r) => ({
             effectId: r.effect_id,
@@ -720,6 +738,7 @@ export class Store {
             intent: r.intent,
             attempt: r.attempt,
             at: r.at,
+            revision: r.revision,
         }));
     }
 
@@ -735,8 +754,8 @@ export class Store {
      * throw, so `false` strictly means "a live worker holds it".
      *
      * A lease can be stolen from a live worker that outlives it
-     * (D41). The journal plus a GitHub re-read stays the correctness
-     * layer, and lease duration is an ops decision.
+     * (D41). The journal and GitHub re-read provide recovery evidence but
+     * cannot fence a request already in flight.
      * FINDING(store-claim-lease).
      */
     claim(effectId: string, worker: string, now: string, staleBefore: string): boolean {
@@ -937,7 +956,7 @@ export class Store {
      * Stuckness is claim age, never due time, so a backlog catch-up is
      * not stolen from. Requeued work re-fires through `claimDue`; there
      * is no parallel firing mechanism. A slow-but-alive handler can be
-     * requeued and fire twice, which is harmless on D41's grounds. The
+     * requeued and fire twice, so its effects still need D41's overlap contract. The
      * threshold is the sweep's ops decision.
      * FINDING(store-sweep-api), D43.
      */

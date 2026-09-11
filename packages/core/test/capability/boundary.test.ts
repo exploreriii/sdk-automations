@@ -131,6 +131,67 @@ describe("screenIntent", () => {
         expect(screenIntent(intent(), declaration, position())).toEqual({ ok: true });
     });
 
+    it.each([null, {}, { operation: "applyMappedLabel" }])(
+        "refuses malformed runtime value %#",
+        (value) => {
+            expect(screenIntent(value, declaration, position())).toMatchObject({
+                ok: false,
+                code: "malformedIntent",
+            });
+        },
+    );
+
+    it.each([
+        { ...intent(), operation: "unknown" },
+        { ...intent(), desired: { meaning: "ready" } },
+        {
+            ...intent(),
+            claims: { meaningsPresent: new Array(1), meaningsAbsent: [], closed: false },
+        },
+        {
+            ...intent(),
+            grace: {
+                days: Number.POSITIVE_INFINITY,
+                warning: { body: "warn" },
+                notice: { body: "done" },
+                cancelledBy: "activity",
+                reversesWith: "retry",
+                activityAt: null,
+            },
+        },
+        {
+            ...intent(),
+            grace: {
+                days: 7,
+                warning: { body: "warn" },
+                notice: { body: "done" },
+                cancelledBy: "activity",
+                reversesWith: "retry",
+                activityAt: new Date("invalid"),
+            },
+        },
+    ])("refuses malformed nested value %#", (value) => {
+        expect(screenIntent(value, declaration, position())).toMatchObject({
+            ok: false,
+            code: "malformedIntent",
+        });
+    });
+
+    it("contains hostile property access", () => {
+        const value = new Proxy(
+            {},
+            {
+                getOwnPropertyDescriptor: () => {
+                    throw new Error("no");
+                },
+            },
+        );
+        expect(screenIntent(value, declaration, position())).toMatchObject({
+            ok: false,
+            code: "malformedIntent",
+        });
+    });
+
     it("refuses foreign, undeclared, and malformed intents with distinct reasons", () => {
         const candidates = [
             screenIntent(intent({ capability: "other" }), declaration, position()),

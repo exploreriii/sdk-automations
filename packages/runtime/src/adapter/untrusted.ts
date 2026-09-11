@@ -16,10 +16,14 @@
  * sent, arriving as if it had. The caller checks the type it wants next,
  * but "absent" is the honest answer, and it is the one a caller can refuse.
  */
-export const field = (value: unknown, name: string): unknown =>
-    typeof value === "object" && value !== null && Object.hasOwn(value, name)
-        ? (value as Record<string, unknown>)[name]
-        : undefined;
+export function field(value: unknown, name: string): unknown {
+    if (typeof value !== "object" || value === null) return undefined;
+    try {
+        return Object.hasOwn(value, name) ? (value as Record<string, unknown>)[name] : undefined;
+    } catch {
+        return undefined;
+    }
+}
 
 /** The body as a JSON object, or `null` when it is anything else. */
 export function jsonRecordOf(body: string): Record<string, unknown> | null {

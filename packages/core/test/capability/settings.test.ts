@@ -87,7 +87,10 @@ const declarationFor = (
     });
 
 const fixture = (name: string): string =>
-    readFileSync(fileURLToPath(new URL(`fixtures/settings/${name}.yml`, import.meta.url)), "utf8");
+    readFileSync(
+        fileURLToPath(new URL(`fixtures/settings/${name}.yml`, import.meta.url)),
+        "utf8",
+    ).replaceAll("\r\n", "\n");
 
 /**
  * The open families, whose entry shape two designs pre-date: the one a

@@ -17,9 +17,6 @@ and the shell, which neither directory may import the other across, so it sits a
 reaches each through its barrel — the way the composition root does. Run it from the repository
 root: `node --import tsx packages/runtime/src/shell/main.ts`.
 
-**The mutation break threshold is 90**, the gate the adapter and the shell each carried as packages
-of their own, and the number every other package in the workspace breaks at. The store alone had
-ratcheted to 96, and it still scores above that; but Stryker gates a package, not a directory, and
-the first run of the merged package scored 93.77 — under a 96 inherited from the smallest of the
-three, above the 90 the other two were held to. The per-directory rows of the report are where the
-store's ratchet is still read.
+**The package mutation break threshold is 90**, the gate the adapter and shell carried before the
+merge. CI also enforces the store's existing 96 threshold from the same mutation report, so merging
+the packages does not lower its ratchet.

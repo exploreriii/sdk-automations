@@ -181,7 +181,7 @@ describe("with no warning recorded", () => {
         // authority, keyed by the ACT.
         expect(approved?.records).toEqual({
             effectId: intent.idempotencyKey,
-            request: writeRequestFor(intent),
+            request: writeRequestFor({ ...intent, evaluatedAt: AT }),
             gracePeriodDays: 7,
             cancelledBy: GRACE.cancelledBy,
             reversesWith: GRACE.reversesWith,
@@ -359,7 +359,7 @@ describe("the screen keeps the two classes apart", () => {
     });
 
     it("refuses a grace below the platform's floor before any door is reached", async () => {
-        for (const days of [0, -1, Number.NaN]) {
+        for (const days of [0, -1]) {
             const decision = await decided(act({ ...GRACE, days }));
 
             expect(decision.approved).toEqual([]);
@@ -367,5 +367,14 @@ describe("the screen keeps the two classes apart", () => {
                 expect.objectContaining({ code: "graceBelowFloor", severity: "problem" }),
             ]);
         }
+    });
+
+    it("refuses a non-finite grace before posting its warning", async () => {
+        const decision = await decided(act({ ...GRACE, days: Number.NaN }));
+
+        expect(decision.approved).toEqual([]);
+        expect(decision.report.findings).toEqual([
+            expect.objectContaining({ code: "malformedIntent", severity: "problem" }),
+        ]);
     });
 });

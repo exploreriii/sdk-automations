@@ -83,6 +83,7 @@ thing that could work.
 
 ## What it does not prove
 
-- Nothing about GitHub writes. Active mode is not implemented.
+- Nothing about live GitHub correctness. Active mode is implemented, but only `APP_SLUG` arms the
+  write path and the sandbox protocols remain the evidence for it.
 - Nothing about demand. These are not candidate capabilities.
 - Nothing about effect recovery or live lease takeover.

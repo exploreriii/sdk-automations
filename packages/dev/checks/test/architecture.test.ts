@@ -59,7 +59,7 @@ const ALLOWED: Readonly<Record<string, ReadonlySet<string>>> = {
     core: new Set(),
     runtime: new Set(["core", "capabilities"]),
     capabilities: new Set(["core"]),
-    checks: new Set(["core"]),
+    checks: new Set(["core", "capabilities"]),
     lab: new Set(["core"]),
     // A leaf on purpose: a builder here would need core, and core's tests need
     // the testkit — the cycle this empty set refuses in advance.

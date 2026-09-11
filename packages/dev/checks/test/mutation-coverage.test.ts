@@ -17,6 +17,8 @@ import { normalizeRepoPath, repoRoot, repositoryFiles, workspacePackages } from 
 
 interface StrykerConfig {
     readonly mutate: readonly string[];
+    readonly reporters?: readonly string[];
+    readonly jsonReporter?: { readonly fileName?: string };
     readonly thresholds: { readonly break: unknown };
 }
 
@@ -32,7 +34,7 @@ interface Job {
     readonly strategy?: {
         readonly matrix?: Readonly<Record<string, readonly string[] | undefined>>;
     };
-    readonly steps?: readonly { readonly run?: string }[];
+    readonly steps?: readonly { readonly if?: string; readonly run?: string }[];
 }
 
 interface Workflow {
@@ -179,6 +181,16 @@ describe("mutation policy stays complete across packages and CI", () => {
                 matrixPackages(mutation),
             ),
         ).toEqual({ missing: [], extra: [] });
+    });
+
+    it("keeps the store score at 96 in the runtime matrix row", () => {
+        const runtime = configuredPackages.find(({ name }) => name === "runtime");
+        expect(runtime?.config.reporters).toContain("json");
+        expect(runtime?.config.jsonReporter?.fileName).toBe("reports/stryker-incremental.json");
+        expect(mutation.steps).toContainEqual({
+            if: "matrix.package == 'runtime'",
+            run: "node --experimental-strip-types packages/dev/checks/test/store-mutation-threshold.ts packages/runtime/reports/stryker-incremental.json src/store/ 96",
+        });
     });
 
     it("proves misspelled scopes fail in both directions, and reformatting does not", () => {

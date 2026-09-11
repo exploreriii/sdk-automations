@@ -25,7 +25,7 @@ capabilities:
     settings:
       exemptBlocked: true # the blocked mapping skips every warning and action
       remindAfterDays: 14 # defaults — any ladder or reason may override
-      reapAfterDays: 21 # reap = release the assignment (issues) · close + release (PRs)
+      reapAfterDays: 21 # reap = release the assignment (issues) or close the PR
       issues: # warns, then releases assigned issues with no open PR
         enabled: true
       pullRequests: # any PR, linked or not — warns, then closes and releases any stale assignees

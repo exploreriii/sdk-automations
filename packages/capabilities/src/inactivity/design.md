@@ -36,11 +36,11 @@ Pull request reminder, naming its reason (one per reapable state):
 
 > ⏰ Hi @alice — this pull request has had **changes requested** without development activity for
 > 14 days. Push a commit or comment `/working` to let us know you are working on it, otherwise
-> the pull request will be closed and the assignment released on **2026-11-07**.
+> the pull request will be closed on **2026-11-07**.
 
 > ⏰ Hi @alice — this pull request has carried the **status: changes requested** label without
 > development activity for 14 days. Push a commit or comment `/working` to let us know you are
-> working on it, otherwise the pull request will be closed and the assignment released on
+> working on it, otherwise the pull request will be closed on
 > **2026-11-07**.
 
 Pull request close:
@@ -117,6 +117,9 @@ starts a fresh warn-then-act cycle, and an old reminder never authorizes a new a
 dated at the clock's start, so a reset mints a different effect and the old warning is asked
 nothing. Every action recomputes at apply time against live state: a commit, a `/working`, or a
 state change between sweep and write refuses the act.
+
+Only `needsRevision` is armed today. Draft and changes-requested produce no intent until the
+apply-time gate can re-read those native states.
 
 ## Phases
 

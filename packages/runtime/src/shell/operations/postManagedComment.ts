@@ -9,7 +9,6 @@
 import { MANAGED_COMMENT_KINDS, type ManagedCommentKind } from "@hiero-hackers/automation-core";
 import { renderManagedBody } from "../effects.js";
 import {
-    held,
     type CommentSeen,
     type OperationHandler,
     type ReadAnswer,
@@ -104,15 +103,10 @@ export const postManagedComment: OperationHandler<"postManagedComment"> = {
         return await pass.writer.updateComment(found.value.id, call.body);
     },
 
-    /**
-     * Asks about IDENTITY and not about the body — a comment bearing this
-     * call's marker is this call, landed, whatever a human has since done to
-     * its text.
-     */
+    /** Confirms the exact body so a lost update response cannot accept the old comment. */
     async confirm(call, pass) {
-        return held(
-            await pass.reader.commentPresence(pass.item, pass.isMine(call.body)),
-            "present",
-        );
+        const found = await matchedComment(pass, call.body);
+        if (!found.ok) return "unknown";
+        return found.value?.body === call.body ? "held" : "notHeld";
     },
 };

@@ -53,6 +53,7 @@ export type EffectOutcomeName = (typeof EFFECT_OUTCOMES)[number];
 export const EFFECT_CODES = [
     "leaseHeld",
     "rowUnreadable",
+    "configurationChanged",
     "identityMissing",
     "labelUnmapped",
     "itemUnreadable",

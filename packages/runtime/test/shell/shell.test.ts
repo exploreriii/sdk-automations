@@ -8,12 +8,14 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import {
     asDeliveryGuid,
+    ABSENT_CONFIG_REVISION,
     problems,
     signBody,
+    revisionOf,
     toEngine,
     SIGNATURE_HEADER,
     type EngineCapability,
@@ -146,6 +148,14 @@ function records(): StoredRecord[] {
 }
 
 describe("the first slice, end to end", () => {
+    it("gives independent shells distinct worker identities", async () => {
+        const claims = vi.spyOn(store, "claimNextDelivery");
+        await buildShell().drain();
+        await buildShell().drain();
+
+        expect(new Set(claims.mock.calls.map(([worker]) => worker)).size).toBe(2);
+    });
+
     it("rejects duplicate direct capability names before returning a server", () => {
         const intakeCapability = toEngine(intake);
         const prQualityCapability = toEngine(prQuality);
@@ -654,6 +664,9 @@ mappings:
 
     /** The row a crashed worker left, older than one lease window. */
     function orphanRow(): void {
+        const revision = existsSync(configFile)
+            ? revisionOf(readFileSync(configFile, "utf8"))
+            : ABSENT_CONFIG_REVISION;
         store.intent(
             EFFECT_ID,
             1,
@@ -663,7 +676,7 @@ mappings:
                 call: { verb: "addLabel", label: LABEL },
             }),
             new Date(BASE.getTime() - 60 * 60_000).toISOString(),
-            "rev-1",
+            revision,
         );
     }
 
@@ -764,6 +777,19 @@ mappings:
     it("reports a recovery pass it could not run, and keeps serving", async () => {
         writeFileSync(configFile, ACTIVE_CONFIG);
         orphanRow();
+        const revision = revisionOf(readFileSync(configFile, "utf8"));
+        store.intent(
+            "second-orphan",
+            1,
+            serializeCall({
+                capability: "intake",
+                item: { kind: "issue", number: 165 },
+                call: { verb: "addLabel", label: LABEL },
+            }),
+            new Date(BASE.getTime() - 60 * 60_000).toISOString(),
+            revision,
+        );
+        const recovered: string[] = [];
         running.push(
             createShell({
                 secret: SECRET,
@@ -777,20 +803,26 @@ mappings:
                 log,
                 applier: {
                     applyAll: () => Promise.resolve([]),
-                    recover: () => Promise.reject(new Error("the store is closed")),
+                    recover: (row) => {
+                        recovered.push(row.effectId);
+                        return row.effectId === EFFECT_ID
+                            ? Promise.reject(new Error("the store is closed"))
+                            : Promise.resolve();
+                    },
                 },
             }),
         );
 
-        await vi.waitFor(() =>
+        await vi.waitFor(() => {
+            expect(recovered).toContain("second-orphan");
             expect(logged).toContainEqual(
                 expect.objectContaining({
                     event: "sweepFailed",
                     detail: expect.stringContaining("the store is closed") as string,
                 }),
-            ),
-        );
-        expect(openRows()).toBe(1);
+            );
+        });
+        expect(openRows()).toBe(2);
     });
 
     it("does not even look for open rows when no write path was wired", async () => {

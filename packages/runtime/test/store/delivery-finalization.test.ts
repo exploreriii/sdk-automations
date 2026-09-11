@@ -534,6 +534,28 @@ describe("dead-lettering", () => {
         ]);
         store.close();
     });
+
+    it("atomically redrives only a dead letter with a fresh attempt budget", () => {
+        const store = new Store(databasePath);
+        const first = acceptAndClaim(store);
+        expect(fail(store, first, COMPLETED_AT)).toMatchObject({ outcome: "retryScheduled" });
+        const second = store.claimNextDelivery("worker-a", COMPLETED_AT, RECEIVED_AT)!;
+        expect(fail(store, second, COMPLETED_AT)).toEqual({
+            outcome: "deadLettered",
+            attempts: 2,
+        });
+
+        expect(store.redriveDelivery(SECOND_DELIVERY_ID)).toBe(false);
+        expect(store.redriveDelivery(DELIVERY_ID)).toBe(true);
+        expect(store.redriveDelivery(DELIVERY_ID)).toBe(false);
+        expect(store.deadLetteredDeliveries()).toEqual([]);
+
+        const redriven = store.claimNextDelivery("worker-b", COMPLETED_AT, RECEIVED_AT)!;
+        expect(redriven.deliveryId).toBe(DELIVERY_ID);
+        expect(redriven.attempts).toBe(0);
+        expect(Buffer.from(redriven.payload)).toEqual(Buffer.from("work"));
+        store.close();
+    });
 });
 
 describe("crash boundaries", () => {

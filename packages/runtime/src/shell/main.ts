@@ -18,6 +18,7 @@
  *   WEBHOOK_SECRET=… REPO_OWNER=… REPO_NAME=… pnpm --filter @hiero-hackers/automation-runtime start
  */
 
+import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Store } from "../store/index.js";
@@ -61,7 +62,7 @@ const DEFAULT_PORT = 8790;
  * an effect's lease. One name because one process holds both, and an operator
  * reading a stuck row should not have to learn two.
  */
-const WORKER = "shell-1";
+const WORKER = `shell-${randomUUID()}`;
 
 /**
  * The applier's seams, held against the adapter objects that fill them.

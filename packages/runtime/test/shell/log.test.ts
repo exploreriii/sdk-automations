@@ -286,6 +286,19 @@ describe("what a caught unknown says", () => {
         expect(detailOf(stackless)).toBe("RangeError: out of range");
     });
 
+    it("contains thrown values whose inspection throws", () => {
+        const value = new Proxy(
+            {},
+            {
+                getPrototypeOf: () => {
+                    throw new Error("trap");
+                },
+            },
+        );
+
+        expect(detailOf(value)).toBe("[unreadable thrown value]");
+    });
+
     it.each([
         ["a thrown string", "just a string", "just a string"],
         ["an object", { why: "no" }, "[object Object]"],

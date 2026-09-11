@@ -49,6 +49,7 @@ export function writeRequestFor(intent: AnyIntent): WriteRequest {
         requiredPermissions: [facts.permission],
         cause: intent.cause.cause,
         causeObservedAt: intent.cause.observedAt,
+        ...(intent.evaluatedAt === undefined ? {} : { evaluatedAt: intent.evaluatedAt }),
         target: {
             item: `${intent.repository.owner}/${intent.repository.repo}#${String(intent.item.number)}`,
             change: describeChange(intent),

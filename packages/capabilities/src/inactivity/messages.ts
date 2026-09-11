@@ -47,7 +47,7 @@ export function pullRequestReminder(
         logins.length === 0
             ? "⏰ This pull request has"
             : `⏰ Hi ${mentions(logins)} — this pull request has`;
-    return `${opening} ${REASON_PHRASE[reason]} without development activity for ${String(remindAfterDays)} days. Push a commit or comment \`/working\` to let us know you are working on it, otherwise the pull request will be closed and the assignment released on ${on(deadline)}.`;
+    return `${opening} ${REASON_PHRASE[reason]} without development activity for ${String(remindAfterDays)} days. Push a commit or comment \`/working\` to let us know you are working on it, otherwise the pull request will be closed on ${on(deadline)}.`;
 }
 
 /**

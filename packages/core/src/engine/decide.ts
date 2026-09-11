@@ -17,6 +17,7 @@ import {
     factGroupUnread,
     managedCommentOf,
     projectCapabilityView,
+    readIntent,
     screenIntent,
     type AnyIntent,
     type CapabilityView,
@@ -174,7 +175,12 @@ const NOT_THIS_RECORD: SafetyVerdict = {
 
 /** Whether an intent is about the item the record carries. */
 function namesTheRecord(intent: AnyIntent, facts: Facts): boolean {
-    return intent.item.kind === facts.item.kind && intent.item.number === facts.item.number;
+    return (
+        intent.repository.owner === facts.repository.owner &&
+        intent.repository.repo === facts.repository.repo &&
+        intent.item.kind === facts.item.kind &&
+        intent.item.number === facts.item.number
+    );
 }
 
 /**
@@ -279,6 +285,7 @@ function warningEffectFor(act: AnyIntent, grace: DestructiveGrace): Intent<"post
         claims: { meaningsPresent: [], meaningsAbsent: [], closed: false },
         desired: { kind: "warning", topic: grace.topic ?? "", body: grace.warning.body },
         cause: act.cause,
+        ...(act.evaluatedAt === undefined ? {} : { evaluatedAt: act.evaluatedAt }),
         explanation: act.explanation,
         idempotencyKey: `${act.idempotencyKey}:warning`,
         grace: null,
@@ -366,12 +373,32 @@ function outcomeOf(
  * first sight there is nothing to have warned in.
  */
 async function gateIntent(
-    intent: AnyIntent,
+    value: unknown,
     declaration: TypedDeclaration,
     facts: Facts,
     config: RepositoryConfig,
     externals: Externals,
 ): Promise<{ readonly findings: readonly Finding[]; readonly approved: Effect | null }> {
+    const parsed = readIntent(value);
+    if (parsed === null) {
+        return {
+            findings: [
+                screenFinding(
+                    {
+                        ok: false,
+                        code: "malformedIntent",
+                        reason: "the capability returned a malformed intent",
+                    },
+                    { kind: "capability", capability: declaration.name },
+                ),
+            ],
+            approved: null,
+        };
+    }
+    const intent = addressed(
+        { ...parsed, evaluatedAt: new Date(facts.observedAt.getTime()) },
+        config,
+    );
     const subject = {
         kind: "item",
         capability: declaration.name,
@@ -490,12 +517,18 @@ async function intentsFrom(
     facts: Facts,
     view: CapabilityView<TypedDeclaration>,
     handle: EngineHandle,
-): Promise<{ readonly intents: readonly AnyIntent[]; readonly defect: string | null }> {
+): Promise<{ readonly intents: readonly unknown[]; readonly defect: string | null }> {
     try {
         // The `never`s are `toEngine`'s erasure showing through; its
         // docstring owns the soundness argument, once, for all three.
-        const intents = await capability.evaluate(facts as never, view as never, handle as never);
-        return { intents, defect: null };
+        const intents: unknown = await capability.evaluate(
+            facts as never,
+            view as never,
+            handle as never,
+        );
+        return Array.isArray(intents)
+            ? { intents: [...intents], defect: null }
+            : { intents: [], defect: "the capability returned a non-array intent collection" };
     } catch (thrown) {
         return { intents: [], defect: thrownDetail(thrown) };
     }
@@ -604,7 +637,7 @@ export async function decide(
                     finding(
                         "problem",
                         "resolverFailed",
-                        `the resolver source threw answering "${declaration.name}" — ${failure}`,
+                        `the resolver failed answering "${declaration.name}" — ${failure}`,
                         { kind: "capability", capability: declaration.name },
                     ),
                 );
@@ -614,7 +647,7 @@ export async function decide(
                     finding(
                         "problem",
                         "capabilityFailed",
-                        `"${declaration.name}" threw during evaluation: ${evaluated.defect}`,
+                        `"${declaration.name}" failed during evaluation: ${evaluated.defect}`,
                         { kind: "capability", capability: declaration.name },
                     ),
                 );
@@ -624,13 +657,7 @@ export async function decide(
                 // The record IS one item, so its own projection is the world
                 // every intent of this decision is judged against — and an
                 // intent naming another item has none (facts.md §4).
-                const gated = await gateIntent(
-                    addressed(intent, config),
-                    declaration,
-                    facts,
-                    config,
-                    externals,
-                );
+                const gated = await gateIntent(intent, declaration, facts, config, externals);
                 findings.push(...gated.findings);
                 if (gated.approved !== null) approved.push(gated.approved);
             }

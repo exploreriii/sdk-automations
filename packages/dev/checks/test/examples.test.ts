@@ -17,7 +17,7 @@ import {
     type AdmittedCapability,
 } from "@hiero-hackers/automation-core";
 import { declaredCapabilityNames, shippedCapabilities } from "./capabilities.js";
-import { docsDir, exampleFiles } from "./repository.js";
+import { docsDir, exampleFiles, normalizeNewlines } from "./repository.js";
 
 const examplesDir = join(docsDir, "examples");
 
@@ -191,7 +191,7 @@ describe("the shipped examples", () => {
      * `configRejected` record.
      */
     it("every configuration block in the quickstart parses", () => {
-        const quickstart = readFileSync(join(docsDir, "quickstart.md"), "utf8");
+        const quickstart = normalizeNewlines(readFileSync(join(docsDir, "quickstart.md"), "utf8"));
         const blocks = [...quickstart.matchAll(/```yaml\n([\s\S]*?)```/g)].map((m) => m[1]!);
         expect(blocks.length).toBeGreaterThan(1);
         for (const [i, block] of blocks.entries()) {

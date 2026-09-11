@@ -264,6 +264,7 @@ describe("openIntents — the sweep's journal worklist", () => {
                 intent: "create-comment",
                 attempt: 1,
                 at: "2026-07-23T10:05:00.000Z",
+                revision: "rev-1",
             },
         ]);
         s.close();

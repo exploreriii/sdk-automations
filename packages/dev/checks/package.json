@@ -13,6 +13,7 @@
         "generate": "tsc --noEmit && tsx test/generate.ts"
     },
     "devDependencies": {
+        "@hiero-hackers/automation-capabilities": "workspace:*",
         "@hiero-hackers/automation-core": "workspace:*",
         "@hiero-hackers/automation-testkit": "workspace:*",
         "@types/node": "^24.0.0",

@@ -102,13 +102,9 @@ export type {
 /**
  * How long an effect lease is honoured before a later worker may take it over.
  *
- * The number is the write client's bounded worst case times its attempt
- * budget, with margin: a lease stolen while a request is still in flight is
- * the one window `claim` cannot fence, because SQLite ownership cannot cancel
- * a call GitHub is already serving (D41, reopened). Ten minutes puts the
- * takeover far outside any request that could still be alive, which is the
- * first-slice posture the storage decision's risk review records — one effect
- * worker, and a margin that makes the unfenceable window unable to open.
+ * Ten minutes exceeds the write client's local request budget and reduces
+ * ordinary recovery overlap. It is not a proof that GitHub stopped processing
+ * a timed-out request, so live takeover remains open under D41.
  */
 export const EFFECT_LEASE_STALE_MINUTES = 10;
 
@@ -561,7 +557,12 @@ export function createApplier(options: ApplierOptions): Applier {
      * makes the row final rather than pending. An unknown read leaves the row
      * exactly as it was, for a later pass with a luckier read.
      */
-    const resolveOpen = async (pass: Pass, seq: number, call: Call): Promise<CallResult> => {
+    const resolveOpen = async (
+        pass: Pass,
+        seq: number,
+        call: Call,
+        revision: string,
+    ): Promise<CallResult> => {
         const proof = await confirm(pass, call);
         if (proof === "held") {
             store.done(pass.effectId, seq, now());
@@ -573,6 +574,14 @@ export function createApplier(options: ApplierOptions): Applier {
                 "unknown",
                 "writeUnknown",
                 "the read-back could not establish whether this call landed",
+            );
+        }
+        if (revision !== pass.config.revision) {
+            store.done(pass.effectId, seq, now());
+            return stop(
+                "refused",
+                "configurationChanged",
+                "the configuration changed after this call was journalled; nothing was resent",
             );
         }
         const gate = await resumeGate(pass, operationOf(call));
@@ -606,6 +615,7 @@ export function createApplier(options: ApplierOptions): Applier {
         pass: Pass,
         seq: number,
         row: string,
+        revision: string,
         calls: readonly Call[],
     ): Promise<PassResult> => {
         const journaled = parseJournaledCall(row);
@@ -619,10 +629,17 @@ export function createApplier(options: ApplierOptions): Applier {
                 detail: "the journal row for this call could not be read; it is closed and nothing was resent",
             };
         }
-        const resolved = await resolveOpen(pass, seq, journaled.call);
+        const resolved = await resolveOpen(pass, seq, journaled.call, revision);
         if (resolved.kind === "stop") return resolved.result;
         if (seq >= calls.length) {
             return { outcome: "applied", code: null, detail: null };
+        }
+        if (revision !== pass.config.revision) {
+            return {
+                outcome: "refused",
+                code: "configurationChanged",
+                detail: "the configuration changed after this effect started; nothing else was sent",
+            };
         }
         const gate = await resumeGate(pass, operationOf(journaled.call));
         if (!gate.ok) return gate.result;
@@ -644,9 +661,16 @@ export function createApplier(options: ApplierOptions): Applier {
             };
         }
         if (state.state === "sentUnknown") {
-            return await continueOpen(pass, state.seq, state.intent, calls);
+            return await continueOpen(pass, state.seq, state.intent, state.revision, calls);
         }
         if (state.state === "midSequence") {
+            if (state.revision !== pass.config.revision) {
+                return {
+                    outcome: "refused",
+                    code: "configurationChanged",
+                    detail: "the configuration changed after this effect started; nothing was resumed",
+                };
+            }
             const gate = await resumeGate(pass, intent.operation);
             return gate.ok ? await runFrom(pass, calls, state.lastDoneSeq + 1, true) : gate.result;
         }
@@ -739,7 +763,7 @@ export function createApplier(options: ApplierOptions): Applier {
             };
             if (!claim(open.effectId)) return;
             try {
-                const resolved = await resolveOpen(pass, open.seq, journaled.call);
+                const resolved = await resolveOpen(pass, open.seq, journaled.call, open.revision);
                 if (resolved.kind === "done") {
                     log({ event: "effectApplied", effectId: open.effectId, seq: open.seq });
                 } else if (resolved.result.outcome === "refused") {

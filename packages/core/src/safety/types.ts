@@ -49,6 +49,7 @@ export interface StandingRequest {
 export interface WriteRequest extends StandingRequest {
     /** Dated cause — when the triggering observation was made. */
     readonly causeObservedAt: Date;
+    readonly evaluatedAt?: Date;
     readonly cause: string;
     /** The exact item and value the adapter may change (`design/contracts/safety.md`). */
     readonly target: { readonly item: string; readonly change: string };

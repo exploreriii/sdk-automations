@@ -47,6 +47,25 @@ describe("field", () => {
         expect(field({ a: 0 }, "a")).toBe(0);
         expect(field({ a: undefined }, "a")).toBeUndefined();
     });
+
+    it("answers undefined when an own-property check or getter throws", () => {
+        const proxy = new Proxy(
+            {},
+            {
+                getOwnPropertyDescriptor: () => {
+                    throw new Error("trap");
+                },
+            },
+        );
+        const getter = Object.defineProperty({}, "a", {
+            get: () => {
+                throw new Error("getter");
+            },
+        });
+
+        expect(field(proxy, "a")).toBeUndefined();
+        expect(field(getter, "a")).toBeUndefined();
+    });
 });
 
 describe("jsonRecordOf", () => {

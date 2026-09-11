@@ -86,6 +86,7 @@ export async function onPullRequest(
     // In a reapable mode the repository opted into, or nothing to say.
     const reapable = reapableFor(facts, pullRequests);
     if (reapable === null) return [];
+    if (reapable.reason !== "needsRevision") return [];
 
     return await onLadder(facts, reapable, context);
 }
@@ -105,10 +106,7 @@ async function onLadder(
      * closure, and draft and changes-requested are neither — so the apply-time
      * re-gate cannot refuse on those two changing.
      */
-    const claims =
-        reapable.reason === "needsRevision"
-            ? { closed: false, meaningsPresent: ["needsRevision" as const] }
-            : { closed: false };
+    const claims = { closed: false, meaningsPresent: ["needsRevision" as const] };
     const logins = (await people(context.platform, facts.assignees)).map(
         (assignee) => assignee.login,
     );

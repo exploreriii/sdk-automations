@@ -166,6 +166,20 @@ describe("an effect nothing has started", () => {
         });
     });
 
+    it("does not resend an open call after the configuration changes", async () => {
+        const github = fakeGitHub();
+        github.faults.scripted = [{ outcome: "retryLater", detail: "rate limited" }];
+        const effect = labelEffect({ meaning: "ready" });
+        const applier = applierOver(github);
+
+        await applier.applyAll([effect], configFor("active", "rev-a"));
+        const outcome = one(await applier.applyAll([effect], configFor("active", "rev-b")));
+
+        expect(outcome).toMatchObject({ outcome: "refused", code: "configurationChanged" });
+        expect(callsOf(github, "addLabel")).toHaveLength(1);
+        expect(store.openIntents(FUTURE)).toEqual([]);
+    });
+
     it("applies each approved effect in turn, in the order it was approved", async () => {
         const github = fakeGitHub();
 
@@ -433,6 +447,44 @@ describe("recovering an effect nobody closed", () => {
         expect(callsOf(github, "addLabel")).toEqual([`addLabel ${READY_LABEL}`]);
         expect(github.world.labels).toEqual([READY_LABEL]);
         expect(store.openIntents(FUTURE)).toEqual([]);
+    });
+
+    it("does not recover a call under a different configuration revision", async () => {
+        const github = fakeGitHub();
+        const effectId = orphan({ verb: "addLabel", label: READY_LABEL });
+
+        await applierOver(github).recover(openRow(), configFor("active", "rev-2"));
+
+        expect(github.calls).toEqual([]);
+        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(logged).toContainEqual(
+            expect.objectContaining({
+                event: "effectRefused",
+                effectId,
+                code: "configurationChanged",
+            }),
+        );
+    });
+
+    it("closes a landed call even when the configuration changed", async () => {
+        const github = fakeGitHub({ labels: [READY_LABEL] });
+        orphan({ verb: "addLabel", label: READY_LABEL });
+
+        await applierOver(github).recover(openRow(), configFor("active", "rev-2"));
+
+        expect(github.calls).toEqual([]);
+        expect(store.openIntents(FUTURE)).toEqual([]);
+    });
+
+    it("keeps an unknown call open when the configuration changed", async () => {
+        const github = fakeGitHub();
+        github.faults.presence = "unknown";
+        orphan({ verb: "addLabel", label: READY_LABEL });
+
+        await applierOver(github).recover(openRow(), configFor("active", "rev-2"));
+
+        expect(github.calls).toEqual([]);
+        expect(store.openIntents(FUTURE)).toHaveLength(1);
     });
 
     it("leaves an unresolvable row exactly where it was, and says nothing", async () => {
@@ -821,6 +873,19 @@ describe("a label move that displaces the position the item held", () => {
         expect(store.effectState(keyOf(swap), 2)).toMatchObject({ state: "complete" });
     });
 
+    it("does not resume a partial plan under another configuration", async () => {
+        const github = fakeGitHub({ labels: [TRIAGE_LABEL, READY_LABEL] });
+        store.intent(keyOf(swap), 1, "{}", BASE.toISOString(), "rev-1");
+        store.done(keyOf(swap), 1, BASE.toISOString());
+
+        const outcome = one(
+            await applierOver(github).applyAll([swap], configFor("active", "rev-2")),
+        );
+
+        expect(outcome).toMatchObject({ outcome: "refused", code: "configurationChanged" });
+        expect(github.calls).toEqual([]);
+    });
+
     it("stops a resume the operator has since braked, and sends nothing", async () => {
         const github = fakeGitHub({ labels: [TRIAGE_LABEL, READY_LABEL] });
         store.intent(keyOf(swap), 1, "{}", BASE.toISOString(), "rev-1");
@@ -849,6 +914,21 @@ describe("a label move that displaces the position the item held", () => {
         expect(outcome).toMatchObject({ outcome: "applied" });
         expect(callsOf(github, "addLabel")).toHaveLength(1);
         expect(github.world.labels).toEqual([READY_LABEL]);
+    });
+
+    it("does not combine a landed old call with a new configuration plan", async () => {
+        const github = fakeGitHub({ labels: [TRIAGE_LABEL] });
+        github.faults.crashOn = { verb: "addLabel", when: "afterSend" };
+        await expect(applierOver(github).applyAll([swap], configFor())).rejects.toThrow();
+
+        github.faults.crashOn = null;
+        const outcome = one(
+            await applierOver(github).applyAll([swap], configFor("active", "rev-2")),
+        );
+
+        expect(outcome).toMatchObject({ outcome: "refused", code: "configurationChanged" });
+        expect(github.calls).toEqual([`addLabel ${READY_LABEL}`]);
+        expect(github.world.labels).toEqual([TRIAGE_LABEL, READY_LABEL]);
     });
 
     it("stops before the second call when the operator braked between the two", async () => {
@@ -1020,12 +1100,7 @@ describe("a managed comment this effect may already own", () => {
         expect(github.calls).toEqual([]);
     });
 
-    /**
-     * A human edit does NOT provoke a resend. Recovery matches on identity
-     * alone, so an edited comment is a landed comment; the text is restored
-     * only when a new decision fires an update, never by background repair.
-     */
-    it("leaves a human's edit alone when recovery reads the effect back", async () => {
+    it("finishes an unresolved comment update when the old body remains", async () => {
         const effect = commentEffect({ body: "the App's words" });
         const github = fakeGitHub({
             comments: [appComment(7, `${markerOf(effect)}\n\na human rewrote this`)],
@@ -1048,8 +1123,8 @@ describe("a managed comment this effect may already own", () => {
 
         await applierOver(github).recover(store.openIntents(FUTURE)[0]!, configFor());
 
-        expect(github.calls).toEqual([]);
-        expect(github.world.comments[0]!.body).toBe(`${markerOf(effect)}\n\na human rewrote this`);
+        expect(github.calls).toEqual(["updateComment #7"]);
+        expect(github.world.comments[0]!.body).toBe(`${markerOf(effect)}\n\nthe App's words`);
         expect(logged).toEqual([expect.objectContaining({ event: "effectApplied" })]);
     });
 

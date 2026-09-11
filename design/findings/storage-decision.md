@@ -98,10 +98,10 @@ A blind retry that skips the resolver duplicated the managed comment on the firs
 - **So D41 reopens.** The serialized crash grid is restart evidence, not evidence that live lease
   takeover preserves a non-idempotent exactly-once outcome.
 - **First-slice posture (2026-09-02):** one effect worker, and effect-lease takeover only after a
-  staleness margin exceeding the HTTP client's bounded worst case (the 30 s per-request wait cap
-  times the attempt budget), so a stolen lease cannot race a request still in flight. Live takeover
-  under multiple workers remains unevidenced and stays blocked on D41's reopened question; the
-  margin turns the unfenceable window into one that cannot open.
+  staleness margin exceeding the HTTP client's local request budget. This reduces overlap during
+  ordinary recovery, but a local timeout cannot prove that GitHub stopped processing an earlier
+  request. Live takeover remains unevidenced, and an ambiguous absence must not authorize a resend
+  until D41 has an explicit overlap contract and deterministic oracle.
 
 ## Durable report and schema amendment (2026-08-09)
 

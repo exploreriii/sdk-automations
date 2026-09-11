@@ -12,6 +12,7 @@
  * their own in a quiet repository.
  */
 
+import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import {
     validateCapabilityDeclarations,
@@ -113,7 +114,7 @@ export function createShell(options: ShellOptions): Shell {
         configSource: options.configSource,
         externals: options.externals,
         repository: options.repository,
-        worker: options.worker ?? "shell-1",
+        worker: options.worker ?? `shell-${randomUUID()}`,
         clock,
         log,
         ...(options.applier === undefined ? {} : { applier: options.applier }),
@@ -174,7 +175,16 @@ export function createShell(options: ShellOptions): Shell {
         if (open.length === 0) return;
         const config = await processor.configuration();
         if (config === null) return;
-        for (const row of open) await applier.recover(row, config);
+        for (const row of open) {
+            try {
+                await applier.recover(row, config);
+            } catch (error) {
+                log({
+                    event: "sweepFailed",
+                    detail: `effect "${row.effectId}" recovery failed: ${detailOf(error)}`,
+                });
+            }
+        }
     };
 
     /**

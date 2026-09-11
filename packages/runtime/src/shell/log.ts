@@ -204,9 +204,13 @@ const PROBLEM_EVENTS: ReadonlySet<ShellEvent["event"]> = new Set([
  * which is code the thrower could have written.
  */
 export function detailOf(error: unknown): string {
-    if (error instanceof Error) return error.stack ?? `${error.name}: ${error.message}`;
     if (typeof error === "string") return error;
-    return Object.prototype.toString.call(error);
+    try {
+        if (error instanceof Error) return error.stack ?? `${error.name}: ${error.message}`;
+        return Object.prototype.toString.call(error);
+    } catch {
+        return "[unreadable thrown value]";
+    }
 }
 
 /**

@@ -2,7 +2,7 @@
 
 Tests about the **repository**, not about any package: docs and examples stay true to core's
 vocabularies, design diagrams match the edge tables, artifacts hold their invariants. It depends on
-core only through core's public barrel.
+core and the capability registry through their public barrels.
 
 **There is no `src/`, and that is the point.** Nothing in this package can kill a mutant, so nobody
 can mistake a repository check for a package test — and the mutation gate on `core/` cannot be
@@ -22,12 +22,11 @@ Stryker's sandbox is the package directory and root-level files are not in it.
 **Naming (D89).** One file per watched **target** (`docs`, `examples`, `lab`) or per **invariant**; a
 target earns a subdirectory only when it needs a second file. The rule exists because the original
 single artifacts file had absorbed seven unrelated `describe`s and the next reader would have added
-an eighth. No file here is named by kind, which `test/placement.test.ts` holds the whole workspace
-to.
+an eighth. The architecture check rejects test files with generic names.
 
 The standing risk is drift toward a junk drawer — this package accepting behaviour tests because it
-is convenient. The no-`src/` shape is the guard, and the trigger to revisit is the first test here
-that imports more than core's barrel.
+is convenient. The no-`src/` shape is the guard. Its capability dependency reads the shipped
+registry so documentation cannot drift from runtime composition.
 
 ## The invariants
 

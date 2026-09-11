@@ -31,7 +31,9 @@ interface Watched {
  * a sequence that failed to await it would show up as steps out of order
  * rather than as a passing test.
  */
-function watched(options: { readonly storeCloseFails?: boolean } = {}): Watched {
+function watched(
+    options: { readonly storeCloseFails?: boolean; readonly settledFails?: boolean } = {},
+): Watched {
     const steps: string[] = [];
     const logged: ShellEvent[] = [];
     const written: string[] = [];
@@ -51,6 +53,7 @@ function watched(options: { readonly storeCloseFails?: boolean } = {}): Watched 
             settled: async () => {
                 await Promise.resolve();
                 steps.push("settled");
+                if (options.settledFails === true) throw new Error("the pass failed");
             },
             store: {
                 close: () => {
@@ -141,6 +144,15 @@ describe("stopping in the order that loses nothing", () => {
         },
         TEST_TIMEOUT_MS,
     );
+
+    it("closes the store and leaves when the in-flight pass rejects", async () => {
+        const world = watched({ settledFails: true });
+
+        await stop(createShutdown(world.parts));
+
+        expect(world.steps).toContain("store.close");
+        expect(world.steps.at(-1)).toBe("exit");
+    });
 
     /**
      * The flush is empty on purpose — it is a place in the queue, not

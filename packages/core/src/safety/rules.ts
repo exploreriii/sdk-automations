@@ -178,6 +178,8 @@ export const GENERAL_RULES: readonly GeneralRule[] = [
     ),
     itemState("invalidTimestamp", (f) =>
         !Number.isFinite(f.request.causeObservedAt.getTime()) ||
+        (f.request.evaluatedAt !== undefined &&
+            !Number.isFinite(f.request.evaluatedAt.getTime())) ||
         (f.context.latestHumanChangeAt !== null &&
             f.context.latestHumanChangeAt !== "unknown" &&
             !Number.isFinite(f.context.latestHumanChangeAt.getTime()))
@@ -192,7 +194,8 @@ export const GENERAL_RULES: readonly GeneralRule[] = [
     itemState("newerHumanChange", (f) =>
         f.context.latestHumanChangeAt !== null &&
         f.context.latestHumanChangeAt !== "unknown" &&
-        f.context.latestHumanChangeAt.getTime() >= f.request.causeObservedAt.getTime()
+        f.context.latestHumanChangeAt.getTime() >=
+            (f.request.evaluatedAt ?? f.request.causeObservedAt).getTime()
             ? refuse(
                   "newerHumanChange",
                   "a human change at or after the cause conflicts; human edits are authoritative (rule 5)",

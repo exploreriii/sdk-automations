@@ -317,6 +317,23 @@ describe("evaluateWrite (contracts/safety.md)", () => {
         expect(verdict.outcome).toBe("refuse");
     });
 
+    it("uses the evaluation instant when the cause marks an older stable occasion", () => {
+        const verdict = evalWrite(
+            request({ evaluatedAt: new Date("2026-07-10T00:00:00Z") }),
+            context({ latestHumanChangeAt: new Date("2026-07-05T00:00:00Z") }),
+        );
+        expect(verdict.outcome).toBe("apply");
+    });
+
+    it("gives a human change tied with evaluation priority", () => {
+        const instant = new Date("2026-07-10T00:00:00Z");
+        const verdict = evalWrite(
+            request({ evaluatedAt: instant }),
+            context({ latestHumanChangeAt: instant }),
+        );
+        expect(verdict).toMatchObject({ outcome: "refuse", code: "newerHumanChange" });
+    });
+
     it.each([
         [
             "an invalid cause timestamp",
@@ -331,6 +348,11 @@ describe("evaluateWrite (contracts/safety.md)", () => {
             context({
                 latestHumanChangeAt: new Date("invalid"),
             }),
+        ],
+        [
+            "an invalid evaluation timestamp",
+            request({ evaluatedAt: new Date("invalid") }),
+            context(),
         ],
     ] as const)("fails closed on %s", (_name, badRequest, badContext) => {
         const verdict = evalWrite(badRequest, badContext);

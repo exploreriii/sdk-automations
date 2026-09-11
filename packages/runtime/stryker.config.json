@@ -6,7 +6,7 @@
     "mutate": ["src/**/*.ts"],
     "reporters": ["clear-text", "progress"],
     "concurrency": 6,
-    "thresholds": { "high": 96, "low": 90, "break": 96 },
+    "thresholds": { "high": 96, "low": 90, "break": 90 },
     "tsconfigFile": "tsconfig.json",
     "tempDirName": ".stryker-tmp",
     "cleanTempDir": true

@@ -3,7 +3,7 @@
 > **The contract a write operation is built to (D133).** A write operation is one module per layer —
 > core, shell, adapter — registered in a mapped-type registry per layer, so that forgetting a layer
 > fails to compile in that layer. This page is the three module contracts, the absolute
-> journal-row-compatibility rule, and the five write rules `decide()` cannot judge.
+> payload-compatibility rule, and the five write rules `decide()` cannot judge.
 
 ## 1. The recipe
 
@@ -68,7 +68,7 @@ the pattern `invoke.ts` established for erased capability types.
 
 ## 3. Shell — `operations/<op>`
 
-**The handler contract.** Keyed by operation, because the journal, the brakes and the report all
+**The handler contract.** Keyed by operation, because the ledger, the brakes and the report all
 speak in operations; a handler owns every call verb its operation sends.
 
 ```ts
@@ -77,7 +77,7 @@ export interface OperationHandler<K extends IntentOperation> {
     readonly verbs: readonly Call["verb"][];
     /** The calls one approved effect takes, in send order, or the reason it takes none. */
     plan(effect: Effect & { intent: Intent<K> }, config: RepositoryConfig): Plan;
-    /** The row fields after the head — `verb` first, then the call's own fields, in row order. */
+    /** The row fields after the head — `verb` first, then the call's own, in row order. */
     serialize(call: CallOf<K>): Record<string, unknown>;
     /** The call a row's bytes hold, or `null`; total over `unknown`. */
     parse(row: unknown): CallOf<K> | null;
@@ -92,8 +92,8 @@ export interface SendContext {
     readonly item: ItemRef;
     readonly writer: EffectWriter;
     readonly reader: EffectReader;
-    /** Is a comment THIS effect's? Authorship and marker, both required (D125). */
-    isMine(kind: ManagedCommentKind): (comment: CommentSeen) => boolean;
+    /** Is a comment the one THIS CALL would be? Authorship and marker, both required (D125). */
+    isMine(body: string): (comment: CommentSeen) => boolean;
 }
 ```
 
@@ -101,15 +101,16 @@ export interface SendContext {
 in the vocabulary file lists them, one line per operation. The vocabulary file keeps `Call`,
 `JournaledCall`, `Plan`, `EffectOutcome` and the codes; its four exported functions —
 `operationOf`, `serializeCall`, `parseJournaledCall`, `planFor` — become generic walks over the
-registry. In the applier, `send` and `confirm` become one-line dispatches; the four-state
-choreography around them (`journalAndSend`, `resolveOpen`, `runFrom`, `continueOpen`, the brakes,
-the fresh gate) is untouched.
+registry. In the applier, `send` and `confirm` become one-line dispatches; the choreography around
+them — `journalAndSend`, `resolveOpen`, `runFrom`, `continueOpen`, the brakes and the fresh gate —
+answers the fold's five states (D161).
 
-**Journal-row compatibility is absolute.** `serializeCall` writes `{capability, item}` then the
-handler's fields, so insertion order — and therefore bytes — is what it was. Every row an armed
-sandbox has already written parses: a handler may ADD a verb, and may never rename a verb, rename
-or reorder a field, or change what `parse` refuses. The proof is a pinning test of the literal row
-strings per verb, taken from the current implementation before the move and never edited after it.
+**Payload compatibility is absolute.** A `sent` fact's payload is the serialized call:
+`serializeCall` writes `{capability, item}` then the handler's fields, so insertion order — and
+therefore bytes — is what it was. Every payload an armed sandbox has already written parses: a
+handler may ADD a verb, and may never rename a verb, rename or reorder a field, or change what
+`parse` refuses. The proof is the per-verb pins of the literal payload strings in
+`packages/runtime/test/shell/effects.test.ts`, which are unchanged.
 
 ## 4. Adapter — `operations/<op>`
 
@@ -179,9 +180,8 @@ the registry object, not on a downstream use. Then delete the scratch.
   declined — the union line is one edit per operation and reads as the closed vocabulary it is;
   derivation trades that for a type-level puzzle. Reopen if the unions pass a dozen members.
 - **Splitting the read-back per operation**: deferred to the real unassign (§4).
-- **Storing the operation in the journal row**: declined as before — the operation follows from the
-  verb through the handler's `verbs`, and a fact derivable from the row is a fact that cannot
-  disagree with it.
+- **Storing the operation in the `sent` fact**: declined — the operation follows from the fact's
+  `verb` through the handler's `verbs`, and a stored copy could disagree with it.
 
 ## 7. The five rules the engine cannot judge
 
@@ -201,6 +201,6 @@ them goes missing between pages. `design/contracts/safety.md` §5 points here fo
 Three consequences worth stating once, because no single layer owns them: the adapter removes only
 the values it manages and never every value under a prefix (`design/contracts/safety.md` §3), a
 destructive act reaches a repository only through the warning-and-grace path of
-`design/guides/grace.md`, and the platform recognises its own assignment writes by its journal
+`design/guides/grace.md`, and the platform recognises its own assignment writes by its ledger
 rather than by an event's actor, because GitHub attributes an `unassigned` event to the assignee
 whoever made it (D159).

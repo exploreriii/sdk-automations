@@ -36,7 +36,7 @@ the platform posts the warning, records it when it lands, and judges the act aga
 - **intent** — what a capability asks for: an operation, its desired value, its claims, its cause.
 - **effect** — an approved intent on its way to GitHub, with identity. A managed comment's identity
   is per item and purpose; the effect id is per occasion.
-- **call** — one GitHub step of an effect; its journal row is the call as bytes.
+- **call** — one GitHub step of an effect; its `sent` fact's payload is the call as bytes.
 - **verdict / outcome** — what a door said (`apply`, `refuse` with a code, `recordOnly`), and what
   the applier made of an effect (`applied`, `already`, `refused`, `retryLater`, `unknown`).
 

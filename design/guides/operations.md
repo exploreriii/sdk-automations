@@ -21,10 +21,14 @@ Whoever takes the operator role must be able to:
 - The personal App is only ever used for sandbox work.
 
 The records that role owns: the canonical delivery report (what was decided and why) and the effect
-journal (what reached GitHub). Neither carries a secret or repository content it does not need, and
+ledger (what reached GitHub). Neither carries a secret or repository content it does not need, and
 **repository comments are user-facing output, never the operational audit record.** How long either
 is kept, who may read it, and how it is deleted are open (Q17) — ninety days was proposed under D43
-and never ratified — so the store still grows without a policy.
+and never ratified. The store offers three prunes, each on a caller-supplied cutoff —
+`ledger.prune` by whole settled effect and never by single fact (D161), `ledger.pruneDecisions` on
+the done-deliveries window (D163), and `inbox.pruneCompletedDeliveries` by completed delivery
+together with its report — and nothing in the shell calls any of them, so the store still grows
+without a policy.
 
 ## 2. Intake
 

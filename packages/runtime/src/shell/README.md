@@ -38,7 +38,7 @@ price every crash:
 | before the durable row | nothing — no 202 was sent, so GitHub redelivers |
 | after the 202 | nothing — the row waits; the next drain (or next start) finds it |
 | mid-decision | nothing — the claim stales after 15 minutes and is reclaimed |
-| mid-effect, once a call was sent | nothing lands twice — the journal row stays open, and the sweep reads GitHub back before it ever resends |
+| mid-effect, once a call was sent | nothing lands twice — the send stays open, and the sweep reads GitHub back before it ever resends |
 
 The counterfactual is the reason: handle a delivery in memory and there is a window between the
 202 and the finished work where a crash loses it **permanently** — and experiment 6.2 measured
@@ -154,8 +154,8 @@ points `STORE_PATH` back at it is still writing raw payloads and real repository
 - **Active mode by default** — with no `APP_SLUG` in the environment, `main.ts` wires no applier and
   `mode: active` still ends as `modeUnsupported` before a decision. That record now means what it
   says: *this composition wires no write path*, not *no write path exists*. The write path is built
-  — [`effects.ts`](effects.ts) is the vocabulary, defining what one call is and the journal
-  row a resend reads; [`operations/`](operations/index.ts) is one module per operation,
+  — [`effects.ts`](effects.ts) is the vocabulary, defining what one call is and the payload
+  a resend reads; [`operations/`](operations/index.ts) is one module per operation,
   each planning, spelling, sending and proving its own calls; and [`apply.ts`](apply.ts)
   drives them: lease, journal before send, an apply-time re-gate against a live read, and a
   read-back that proves each call landed — and `APP_SLUG` is what arms it (see below). Running a

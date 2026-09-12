@@ -1,9 +1,9 @@
 # Troubleshooting
 
-Every decision the App makes carries a code, and every code is in the first four tables below. The
-most common question — "why didn't it act here?" — is almost always answered by the first table: the
-App prefers doing nothing over doing something you didn't ask for. The last table is for the records
-it writes when it never got as far as a decision.
+Every decision the App makes carries a code, and so does every write that did not land; every code
+is in the first four tables below. The most common question — "why didn't it act here?" — is almost
+always answered by the first table: the App prefers doing nothing over doing something you didn't
+ask for. The last table is for the records it writes when it never got as far as a decision.
 
 *The test suite locks the code membership and severity grouping on this page against the implementation
 on every commit. The plain-language explanations still require review.*
@@ -33,20 +33,31 @@ Nothing to fix — this is your configuration, or our caution, behaving as speci
 | `permissionMissing` | The installation lacks a permission; the message names the exact grant |
 | `humanOrderingUnknown` | The App could not tell whether a human acted after it, so it chose not to act — usually a delivery gap; if it persists, tell us |
 
-## It could not be sent yet
+## It decided, and the write did not land
 
-Nothing to fix, and nothing lost: the App decided to act, and the write path has no way to carry the
-change out. It keeps asking on every sweep, so the act lands once a release can send it.
+These are the applier's own codes, below any verdict: the act was approved and the call did not
+land. Nothing is lost — the sweep meets the effect again — except where the row says a person or
+your file has to move.
 
 | Code | In plain terms |
 |---|---|
+| `leaseHeld` | A live worker holds this effect's lease, so this pass did nothing; the next one asks again |
+| `rowUnreadable` | The ledger's bytes for this call could not be read, so the call is closed and nothing was resent |
+| `ledgerInconsistent` | The ledger holds a history the App cannot read as one effect; `pnpm shell:explain` prints it, and clearing it is a person's job |
+| `configurationChanged` | Your `automations.yml` changed after this effect started, so nothing more was sent under the file it began under |
+| `identityMissing` | The approved effect carried no managed-comment identity to post under — a defect; please open an issue with the code |
+| `labelUnmapped` | Your file maps no label to the position this capability wants, or to the one being displaced; the App never guesses a label name |
+| `itemUnreadable` | The item could not be read at apply time, so the live re-check could not run; re-tried each sweep |
+| `externalsUnavailable` | The apply-time facts — grants, kill switch, human ordering — could not be built; re-tried each sweep |
+| `writeConflict` | GitHub refused the call as conflicting: nothing landed and nothing will, so the effect is settled |
+| `writeForbidden` | GitHub refused the call outright; the effect is settled, and a `permissionMissing` refusal is the grant you can fix |
+| `writeRetryLater` | GitHub asked for a wait; the call stays open and a later pass resumes it |
+| `writeUnknown` | Whether the call landed could not be established; nothing is resent until a read of GitHub settles it |
 | `writeUnsupported` | The platform has no confirmed endpoint for this write yet; the intent stands and is re-tried each sweep |
+| `postconditionUnconfirmed` | GitHub accepted the call, but the read-back did not confirm the state it should have left behind |
 
 `pnpm shell:explain <effect-id>` prints one effect's whole history and where it stands, and
 `pnpm shell:explain --item issue#40` prints an item's effects and its decisions; both read only.
-
-One code here is not waiting on a release: `ledgerInconsistent` means the ledger holds a history the
-App cannot read as one effect, `pnpm shell:explain` prints it, and clearing it is a person's job.
 
 ## It should never happen
 

@@ -1,4 +1,4 @@
-/** The vocabulary the write path speaks: one call, its journal row, and its outcome words. */
+/** The vocabulary the write path speaks: one call, its recorded bytes, and its outcome words. */
 
 import type {
     IntentOperation,
@@ -70,7 +70,7 @@ export type Call =
     | { readonly verb: "lockIssue"; readonly reason: string }
     | { readonly verb: "unlockIssue"; readonly reason: string };
 
-/** One call as its journal row spells it — the row's `intent` column, parsed. */
+/** One call as its `sent` fact spells it — the fact's `payload`, parsed. */
 export interface JournaledCall {
     readonly capability: string;
     readonly item: ItemRef;

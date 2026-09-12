@@ -1,9 +1,9 @@
 /**
  * The worker half: claim a durable delivery, prepare, reject an unsupported mode or
  * call the one verb, apply what it approved, then commit the outcome with completion.
- * The reading key: a claimed delivery always ends as exactly ONE of four records —
- * `repositoryMismatch`, `configRejected`, `modeUnsupported`, or a decision, with no
- * fifth exit. The try/catch in `attemptNext` is routing, not handling.
+ * The reading key: a claimed delivery always ends as exactly ONE of five records —
+ * `repositoryMismatch`, `installationSuspended`, `configRejected`, `modeUnsupported`,
+ * or a decision, with no sixth exit. The try/catch in `attemptNext` is routing.
  */
 
 import {
@@ -63,6 +63,8 @@ export interface ProcessorOptions {
     readonly log: Log;
     /** The write path, when a composition root has wired one. Absent is the shipped composition, so `mode: active` ends as `modeUnsupported` before `decide()` runs — the shell genuinely has no effect path. */
     readonly applier?: Applier;
+    /** The installation switch (D171): every delivery is accepted and recorded, and none is decided. */
+    readonly suspended?: boolean;
 }
 
 /** What every persisted record says about which delivery it answers. */
@@ -101,6 +103,10 @@ export type ShellRecord =
           /** `owner/repo`, as configured and as the payload named it. */
           readonly expected: string;
           readonly observed: string;
+      })
+    | (RecordIdentity & {
+          /** The installation is suspended: nothing was read and nothing decided (D171). */
+          readonly kind: "installationSuspended";
       });
 
 /** Stamped when a record was reached without consulting the configuration. */
@@ -209,6 +215,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
         clock,
         log,
         applier,
+        suspended = false,
     } = options;
     let draining: Promise<void> | null = null;
 
@@ -347,6 +354,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
     /**
      * Build one delivery's canonical record, stations ③ to ⑤ in reading order.
      * The repository comes FIRST, before the configuration is read: a payload naming another is a permanent property of the bytes, so a config outage cannot turn a refusal into four retries and a dead letter.
+     * The suspension comes next, for the same reason in reverse: a suspended process reads nothing.
      */
     const recordFor = async (claimed: ClaimedDelivery): Promise<ShellRecord> => {
         const payload = parsePayload(claimed.payload);
@@ -357,6 +365,12 @@ export function createProcessor(options: ProcessorOptions): Processor {
                 ...identityFor(claimed, CONFIG_NOT_CONSULTED_REVISION, clock()),
                 expected: served,
                 observed: named,
+            };
+        }
+        if (suspended) {
+            return {
+                kind: "installationSuspended",
+                ...identityFor(claimed, CONFIG_NOT_CONSULTED_REVISION, clock()),
             };
         }
         const config = await loadConfig();

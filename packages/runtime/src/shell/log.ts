@@ -25,6 +25,8 @@ export type ShellEvent =
           readonly writes: "armed" | "absent";
           /** Whether this composition reads the repository on a clock; `absent` is the default. */
           readonly sweep: "armed" | "absent";
+          /** Whether `SUSPENDED=1` holds this installation: nothing is decided or read (D171). */
+          readonly suspended: boolean;
       }
     | { readonly event: "shutdown"; readonly signal: string }
     | {
@@ -59,7 +61,12 @@ export type ShellEvent =
     | {
           readonly event: "deliveryCompleted";
           readonly deliveryId: string;
-          readonly kind: "decision" | "configRejected" | "modeUnsupported" | "repositoryMismatch";
+          readonly kind:
+              | "decision"
+              | "configRejected"
+              | "modeUnsupported"
+              | "repositoryMismatch"
+              | "installationSuspended";
       }
     | {
           readonly event: "deliveryAttemptFailed";
@@ -109,6 +116,11 @@ export type ShellEvent =
           readonly event: "sweepClaimed";
           readonly scheduleId: string;
           readonly dueAt: string;
+      }
+    | {
+          /** The installation is suspended, so this firing read nothing at all (D171). */
+          readonly event: "sweepSuspended";
+          readonly scheduleId: string;
       }
     | {
           /** The open-item list could not be read, so this firing decided nothing. */

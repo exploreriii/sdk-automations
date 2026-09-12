@@ -89,6 +89,7 @@ SWEEP_INTERVAL_SECONDS=60   # optional; requeue stale claims and drain on this c
 SWEEP_CADENCE_HOURS=1       # optional; arms the fact sweep and sets how often a repository is read
 SWEEP_WRITE_CAP=20          # optional; how many writes one sweep firing may send
 KILL_SWITCH=1               # optional; refuse everything, loudly — including armed writes
+SUSPENDED=1                 # optional; accept every delivery, decide and send nothing (D171)
 XDG_STATE_HOME=…            # optional; where the state home lives
 ```
 

@@ -312,6 +312,72 @@ describe("a delivery from another repository", () => {
     });
 });
 
+/**
+ * The installation switch (D171). The delivery is verified, accepted and
+ * FINISHED, so nothing is lost and nothing will redrive it — and the
+ * configuration is never asked, which is what "reads nothing" means here.
+ */
+describe("a delivery under a suspended installation", () => {
+    const ITEM = { kind: "issue", number: 164 } as const;
+
+    /** A source no suspended pass may reach: being called is the failure. */
+    const untouchable: ConfigSource = {
+        load: () => {
+            throw new Error("the configuration was consulted");
+        },
+    };
+
+    const suspendedLane = () =>
+        createProcessor({
+            store,
+            capabilities: [toEngine(intake)],
+            configSource: untouchable,
+            externals: () => stubbedExternals(),
+            repository: REPOSITORY,
+            worker: "test-worker",
+            log,
+            clock: () => new Date(BASE.getTime() + 1000),
+            suspended: true,
+        });
+
+    it("completes as installationSuspended, having consulted no configuration", async () => {
+        expect(await suspendedLane().processOnce()).toBe(true);
+
+        expect(records()).toEqual([
+            expect.objectContaining({
+                kind: "installationSuspended",
+                deliveryId: GUID as string,
+                event: "issues",
+                configRevision: "sha256:unconsulted",
+            }),
+        ]);
+    });
+
+    it("writes no decision row, and names the kind it completed as", async () => {
+        await suspendedLane().drain();
+
+        expect(store.ledger.decisionsOn(ITEM)).toEqual([]);
+        expect(logged).toContainEqual({
+            event: "deliveryCompleted",
+            deliveryId: GUID as string,
+            kind: "installationSuspended",
+        });
+    });
+
+    it("neither retries nor dead-letters: the delivery is done, not deferred", async () => {
+        await suspendedLane().drain();
+
+        expect(store.inbox.deadLetteredDeliveries()).toEqual([]);
+        expect(
+            store.inbox.claimNextDelivery(
+                "assert",
+                "2026-08-07T23:00:00.000Z",
+                "2026-08-07T22:00:00.000Z",
+            ),
+        ).toBeUndefined();
+    });
+});
+
 describe("a crash counts an attempt", () => {
     it("the delivery survives its processor and is retried once its wait is up", async () => {
         const failing = createProcessor({

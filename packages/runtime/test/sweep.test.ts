@@ -789,6 +789,73 @@ describe("what one firing prunes", () => {
     });
 });
 
+// ─── The installation switch ─────────────────────────────────────────
+
+/**
+ * A suspended firing (D171). It keeps its schedule and its retention, and it
+ * makes no GitHub request at all — which is the difference from the kill
+ * switch, and why the seams below are wired to fail if they are touched.
+ */
+describe("a firing under a suspended installation", () => {
+    /** A firing may reach neither of these: a suspension reads nothing. */
+    const untouchable: SweepProcessor = {
+        configuration: () => {
+            throw new Error("the configuration was consulted");
+        },
+        processFacts: () => {
+            throw new Error("an item was decided");
+        },
+    };
+
+    function suspendedSweep(): ReturnType<typeof createSweep> {
+        return createSweep({
+            store,
+            capabilities: CAPABILITIES,
+            processor: untouchable,
+            facts: () => {
+                throw new Error("the repository was read");
+            },
+            clock: () => NOW,
+            cadenceMs: DAY_MS,
+            writeCap: SWEEP_WRITE_CAP,
+            suspended: true,
+            log,
+        });
+    }
+
+    it("reads nothing, says so, and arms the next firing anyway", async () => {
+        armed();
+
+        await suspendedSweep().runDue();
+
+        expect(events("sweepSuspended")).toEqual([
+            { event: "sweepSuspended", scheduleId: SCHEDULE },
+        ]);
+        // Every seam a reading would have used throws, so silence here is proof.
+        expect(events("sweepFailed")).toEqual([]);
+        expect(events("sweepFinished")).toMatchObject([
+            { scheduleId: SCHEDULE, items: 0, decided: 0, writes: 0, heldBack: 0 },
+        ]);
+        expect(store.ledger.claimDue(NOW.toISOString())).toEqual([]);
+        expect(store.ledger.claimDue(new Date(NOW.getTime() + DAY_MS).toISOString())).toMatchObject(
+            [{ scheduleId: SCHEDULE }],
+        );
+    });
+
+    it("still prunes: a prune is not a decision", async () => {
+        armed();
+        completed(OLD_DELIVERY, "2026-07-01T00:00:00.000Z");
+        completed(NEW_DELIVERY, "2026-09-01T00:00:00.000Z");
+
+        await suspendedSweep().runDue();
+
+        expect(store.inbox.deliveryReports().map((report) => report.deliveryId)).toEqual([
+            NEW_DELIVERY,
+        ]);
+        expect(events("sweepPruned")).toMatchObject([{ deliveries: 1 }]);
+    });
+});
+
 // ─── The whole seam ──────────────────────────────────────────────────
 
 /** Recorded GitHub, routed by path; anything unrouted is a failing 404. */

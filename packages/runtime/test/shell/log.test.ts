@@ -83,7 +83,7 @@ describe("one line per event", () => {
  * name the events they happen to use.
  *
  * `ROUTING` is exhaustive by construction: `ShellEvent["event"]` keys it, so
- * a twenty-fourth event fails to compile here until this table admits it.
+ * a twenty-fifth event fails to compile here until this table admits it.
  */
 const ROUTING: Record<
     ShellEvent["event"],
@@ -100,6 +100,7 @@ const ROUTING: Record<
             storePath: "shell.sqlite",
             writes: "absent",
             sweep: "absent",
+            suspended: false,
         },
         problem: false,
     },
@@ -190,6 +191,10 @@ const ROUTING: Record<
             scheduleId: "sweep:owner/repo",
             dueAt: "2026-09-09T10:00:00.000Z",
         },
+        problem: false,
+    },
+    sweepSuspended: {
+        event: { event: "sweepSuspended", scheduleId: "sweep:owner/repo" },
         problem: false,
     },
     sweepUnreadable: {

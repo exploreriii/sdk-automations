@@ -70,6 +70,8 @@ export interface SweepOptions {
     readonly cadenceMs: number;
     /** How many writes one firing may send; the default is `SWEEP_WRITE_CAP`. */
     readonly writeCap: number;
+    /** The installation switch (D171): a firing reads nothing, and still prunes and re-arms. */
+    readonly suspended?: boolean;
     readonly log: Log;
 }
 
@@ -126,7 +128,17 @@ const heldBackIn = (record: ShellRecord): number =>
         : 0;
 
 export function createSweep(options: SweepOptions): Sweep {
-    const { store, capabilities, processor, facts, clock, cadenceMs, writeCap, log } = options;
+    const {
+        store,
+        capabilities,
+        processor,
+        facts,
+        clock,
+        cadenceMs,
+        writeCap,
+        suspended = false,
+        log,
+    } = options;
 
     const nextDue = (): string => new Date(clock().getTime() + cadenceMs).toISOString();
 
@@ -222,23 +234,35 @@ export function createSweep(options: SweepOptions): Sweep {
     };
 
     /**
-     * One firing, from claim to re-arm.
-     * The re-arm happens whatever the reading came to: a row left `running` is one only a stale-claim redrive could free.
+     * What this firing read — nothing, where a suspension or the file says so (D171).
+     * Contained: the reading is the only half of a firing that may fail, and the re-arm below has to happen anyway.
      */
-    const fire = async (row: ClaimedScheduleRow): Promise<void> => {
-        log({ event: "sweepClaimed", scheduleId: row.scheduleId, dueAt: row.dueAt });
-        let swept = SWEPT_NOTHING;
+    const readingOf = async (row: ClaimedScheduleRow): Promise<Swept> => {
+        if (suspended) {
+            log({ event: "sweepSuspended", scheduleId: row.scheduleId });
+            return SWEPT_NOTHING;
+        }
         try {
             const config = await processor.configuration();
             // Neither an unreadable file nor a repository that wants no sweeping is a
             // reason to read twenty items: re-arm and ask again.
 
             if (config !== null && wantsSweeping(config, capabilities)) {
-                swept = await readRecords(row, config);
+                return await readRecords(row, config);
             }
         } catch (error) {
             log({ event: "sweepFailed", detail: detailOf(error) });
         }
+        return SWEPT_NOTHING;
+    };
+
+    /**
+     * One firing, from claim to re-arm.
+     * The re-arm happens whatever the reading came to: a row left `running` is one only a stale-claim redrive could free.
+     */
+    const fire = async (row: ClaimedScheduleRow): Promise<void> => {
+        log({ event: "sweepClaimed", scheduleId: row.scheduleId, dueAt: row.dueAt });
+        const swept = await readingOf(row);
         pruneRetained();
         const nextDueAt = nextDue();
         if (!store.ledger.scheduleAgain(row.scheduleId, row.claimToken, nextDueAt)) {

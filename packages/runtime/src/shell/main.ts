@@ -167,6 +167,8 @@ if (writeCap !== null && (!Number.isInteger(writeCap) || writeCap < 1)) {
 }
 
 const killSwitchActive = env["KILL_SWITCH"] === "1";
+/** The installation switch: accept every delivery, decide none, read nothing (D171). */
+const suspended = env["SUSPENDED"] === "1";
 const repository = { owner, repo };
 /** Everything past the last refusal above says what it did, in JSON. */
 const log = createLogger();
@@ -346,6 +348,7 @@ const shell = createShell({
     worker: WORKER,
     clock,
     sweepIntervalMs: sweepSeconds * 1000,
+    suspended,
     ...(applier === undefined ? {} : { applier }),
     ...(sweep === undefined ? {} : { sweep }),
     log,
@@ -375,6 +378,9 @@ shell.server.listen(port, host, () => {
         // The same fact for the other lane.
 
         sweep: sweep === undefined ? "absent" : "armed",
+        // Whether this process decides anything at all (D171).
+
+        suspended,
     });
 });
 

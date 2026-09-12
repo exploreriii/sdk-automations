@@ -691,7 +691,7 @@ mappings:
     const openRows = (): number =>
         store.ledger.open(new Date(BASE.getTime() + 60 * 60_000).toISOString()).length;
 
-    function shellWithWritePath(github: ReturnType<typeof fakeGitHub>): Shell {
+    function shellWithWritePath(github: ReturnType<typeof fakeGitHub>, suspended = false): Shell {
         let tick = 0;
         const clock = (): Date => new Date(BASE.getTime() + 1000 * tick++);
         const shell = createShell({
@@ -703,6 +703,7 @@ mappings:
             repository: REPOSITORY,
             clock,
             sweepIntervalMs: 5,
+            suspended,
             log,
             applier: createApplier({
                 ledger: store.ledger,
@@ -820,6 +821,28 @@ mappings:
             );
         });
         expect(openRows()).toBe(2);
+    });
+
+    /**
+     * Suspended (D171), the pass does not run at all: the open send waits for
+     * the switch to lift, rather than being resent or closed against a file
+     * this process is not reading.
+     */
+    it("runs no recovery pass while the installation is suspended", async () => {
+        writeFileSync(configFile, ACTIVE_CONFIG);
+        orphanRow();
+        const github = fakeGitHub();
+        const requeues = vi.spyOn(store.inbox, "requeueStuckDeliveries");
+        const worklist = vi.spyOn(store.ledger, "open");
+
+        shellWithWritePath(github, true);
+
+        // Two ticks of the same sweep that would have found the row.
+        await vi.waitFor(() => expect(requeues.mock.calls.length).toBeGreaterThan(1));
+        expect(worklist).not.toHaveBeenCalled();
+        expect(github.calls).toEqual([]);
+        expect(logged.filter((event) => event.event.startsWith("effect"))).toEqual([]);
+        expect(openRows()).toBe(1);
     });
 
     it("does not even look for open rows when no write path was wired", async () => {

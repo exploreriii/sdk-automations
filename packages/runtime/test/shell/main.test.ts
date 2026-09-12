@@ -149,6 +149,7 @@ const SHELL_VARIABLES = [
     "PORT",
     "HOST",
     "KILL_SWITCH",
+    "SUSPENDED",
     "SWEEP_INTERVAL_SECONDS",
     "SWEEP_CADENCE_HOURS",
     "SWEEP_WRITE_CAP",
@@ -1282,6 +1283,8 @@ describe("the sandbox entry point, as a process", () => {
                             // And no cadence, so it reads nothing on a clock
                             // either: this process waits to be told.
                             sweep: "absent",
+                            // And it is awake: this one decides what arrives.
+                            suspended: false,
                         });
 
                         expect(await post(port, GUID, FIXTURE)).toBe(202);
@@ -1345,6 +1348,41 @@ describe("the sandbox entry point, as a process", () => {
                         const decided = await persisted(storeFile, GUID);
                         expect(decided.kind).toBe("decision");
                         expect(codes(decided)).toEqual(["killSwitch", "killSwitch"]);
+                    },
+                );
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /**
+     * The other switch, and the difference between them. Suspension still
+     * verifies and accepts — the 202 is what keeps P9's loss window shut —
+     * and then finishes the delivery without reading or deciding anything.
+     */
+    it(
+        "SUSPENDED=1 accepts the delivery and records it undecided",
+        async () => {
+            await withPaths(async ({ configFile, storeFile }) => {
+                const port = await freePort();
+                await withShell(
+                    {
+                        ...bootEnvironment(),
+                        CONFIG_FILE: configFile,
+                        STORE_PATH: storeFile,
+                        PORT: String(port),
+                        SUSPENDED: "1",
+                    },
+                    async (shell) => {
+                        expect(await listening(shell)).toMatchObject({ suspended: true });
+                        expect(await post(port, GUID, FIXTURE)).toBe(202);
+
+                        const record = await persisted(storeFile, GUID);
+                        expect(record).toMatchObject({
+                            kind: "installationSuspended",
+                            deliveryId: GUID,
+                        });
+                        expect(record.report).toBeUndefined();
                     },
                 );
             });

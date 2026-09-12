@@ -60,16 +60,28 @@ still ahead: the promise outlives the window. Nothing prunes outside a firing, a
 | Switch | Stops | Built |
 |---|---|---|
 | Process/global | every returned intent after capability/resolver evaluation | `KILL_SWITCH=1`; intake still records and reports the refusal |
-| Installation | one organization or installation | no |
+| Installation | one organization or installation | `SUSPENDED=1`; intake still verifies and accepts, and records `installationSuspended` (D171) |
 | Repository mode | one repository's approved effects | all four modes are core vocabulary; a process composed without the App's identity records `modeUnsupported` for `active` |
 | Capability | one capability, leaving others alone | `capabilities.<name>.enabled: false` or omission |
 | Item-level pause | every capability write on an item | mapped `blocked` meaning → `itemBlocked` |
 
-- Four of the five levels have code paths today; installation-wide suspension is missing. The process
-  switch is an intent-level safety refusal, not a transport or evaluation shutdown; an unsupported
-  `active` is intercepted earlier still, before `decide()` runs. The item pause is currently global to
-  all capabilities rather than profile-selective (D117).
-- The operator runbook must say what happens to queued and pending work when each switch activates.
+- All five levels have code paths today. The process switch is an intent-level safety refusal, not a
+  transport or evaluation shutdown; suspension is the one level above evaluation, since it decides
+  nothing and reads nothing; an unsupported `active` is intercepted earlier still, before `decide()`
+  runs. The item pause is currently global to all capabilities rather than profile-selective (D117).
+- What each switch does to queued and pending work, which is what the operator runbook owes:
+  - **Process/global.** Queued deliveries are still claimed and decided, and every intent the
+    decision returns is refused `killSwitch`; a send left open is refused the same way, not resent.
+  - **Installation.** Queued deliveries are verified, accepted and recorded `installationSuspended`,
+    so none is redriven later; nothing is read or sent, and a send left open stays open until the
+    switch lifts.
+  - **Repository mode.** From the next delivery that reads the file, that repository's work is
+    decided and recorded rather than applied; a send left open is closed `modeRecordsOnly`.
+  - **Capability.** From the next delivery that reads the file, that capability returns nothing and
+    every other one is unaffected; a send left open is closed `capabilityDisabled`.
+  - **Item-level pause.** Queued work naming the item is refused `itemBlocked` for every capability;
+    a send already made is resolved on the call it holds, because a resume meets only the
+    item-independent gate.
 
 ## 5. Before the App writes to a repository it does not own
 

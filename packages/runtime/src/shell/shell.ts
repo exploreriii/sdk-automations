@@ -56,6 +56,8 @@ export interface ShellOptions {
         /** How many writes one firing may send; the default is `SWEEP_WRITE_CAP`. */
         readonly writeCap?: number;
     };
+    /** The installation switch (D171): deliveries are accepted and recorded, and nothing is read, decided or sent. */
+    readonly suspended?: boolean;
     /** Optional here and required of every component: the root defaults to the production log. */
     readonly log?: Log;
 }
@@ -78,6 +80,7 @@ export function createShell(options: ShellOptions): Shell {
         throw new Error(`invalid capability declarations: ${errors.join("; ")}`);
     }
     const clock = options.clock ?? (() => new Date());
+    const suspended = options.suspended ?? false;
     const log = contained(options.log ?? createLogger({ clock }));
     const processor = createProcessor({
         store: options.store,
@@ -88,6 +91,7 @@ export function createShell(options: ShellOptions): Shell {
         worker: options.worker ?? `shell-${randomUUID()}`,
         clock,
         log,
+        suspended,
         ...(options.applier === undefined ? {} : { applier: options.applier }),
     });
     /**
@@ -105,6 +109,7 @@ export function createShell(options: ShellOptions): Shell {
                   clock,
                   cadenceMs: options.sweep.cadenceMs ?? DEFAULT_SWEEP_CADENCE_MS,
                   writeCap: options.sweep.writeCap ?? SWEEP_WRITE_CAP,
+                  suspended,
                   log,
               });
     const handler = createReceiver({
@@ -126,10 +131,11 @@ export function createShell(options: ShellOptions): Shell {
     /**
      * The sends a worker made and never closed.
      * Every one is re-driven through the applier's dispatch, which reads GitHub before it resends, so a sweep can never turn a landed write into a second one.
+     * Suspended, none of it runs: an open send stays open until the switch lifts (D171).
      */
     const recoverEffects = async (): Promise<void> => {
         const applier = options.applier;
-        if (applier === undefined) return;
+        if (applier === undefined || suspended) return;
         const before = new Date(clock().getTime() - EFFECT_LEASE_STALE_MINUTES * 60_000);
         const open = options.store.ledger.open(before.toISOString());
         if (open.length === 0) return;

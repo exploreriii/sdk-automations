@@ -1258,7 +1258,7 @@ describe("an operation the write surface does not have", () => {
         ["unassign", "no confirmed write endpoint unassigns"],
         ["assign", "no confirmed write endpoint assigns"],
     ] as const)(
-        "%s is refused where every call is sent, and its row is closed",
+        "%s is refused where every call is sent, and its row stays open",
         async (operation, said) => {
             const github = fakeGitHub();
             const effect = labelEffect();
@@ -1269,10 +1269,10 @@ describe("an operation the write surface does not have", () => {
 
             const outcome = one(await applierOver(github).applyAll([asked], configFor()));
 
-            expect(outcome).toMatchObject({ outcome: "refused", code: "writeForbidden" });
+            expect(outcome).toMatchObject({ outcome: "refused", code: "writeUnsupported" });
             expect(outcome.detail).toContain(said);
             expect(github.calls).toEqual([]);
-            expect(store.openIntents(FUTURE)).toEqual([]);
+            expect(store.openIntents(FUTURE)).toHaveLength(1);
         },
     );
 
@@ -1297,10 +1297,10 @@ describe("an operation the write surface does not have", () => {
 
             const outcome = one(await applierOver(github).applyAll([moderation], configFor()));
 
-            expect(outcome).toMatchObject({ outcome: "refused", code: "writeForbidden" });
+            expect(outcome).toMatchObject({ outcome: "refused", code: "writeUnsupported" });
             expect(outcome.detail).toContain(said);
             expect(github.calls).toEqual([]);
-            expect(store.openIntents(FUTURE)).toEqual([]);
+            expect(store.openIntents(FUTURE)).toHaveLength(1);
         },
     );
 
@@ -1349,6 +1349,81 @@ describe("an operation the write surface does not have", () => {
         expect(github.calls).toEqual([]);
         expect(store.openIntents(FUTURE)).toHaveLength(1);
         expect(logged).toEqual([]);
+    });
+});
+
+// ─── A write the endpoint matrix has not confirmed ───────────────────
+
+/**
+ * A permission GitHub denied is a settled fact about the ITEM; an endpoint the
+ * platform has no confirmed row for is a fact about the PLATFORM, and it
+ * changes when the matrix does. So the row may not close on it: the ledger's
+ * idempotence would read a closed row as settled and skip the act for good.
+ */
+describe("a write no confirmed endpoint carries yet", () => {
+    const SAID = "the endpoint matrix confirms no write at PATCH https://api.github.com/nothing";
+    const refuses = (github: FakeGitHub): void => {
+        github.faults.scripted = [{ outcome: "unsupported", detail: SAID }];
+    };
+
+    it("refuses with `writeUnsupported` and leaves the row open", async () => {
+        const github = fakeGitHub();
+        refuses(github);
+        const effect = labelEffect({ meaning: "ready" });
+
+        const outcome = one(await applierOver(github).applyAll([effect], configFor()));
+
+        expect(outcome).toMatchObject({
+            outcome: "refused",
+            code: "writeUnsupported",
+            detail: SAID,
+        });
+        expect(github.world.labels).toEqual([]);
+        expect(store.openIntents(FUTURE)).toHaveLength(1);
+    });
+
+    /**
+     * The 8.3 rehearsal, in order: the write is refused by construction, the
+     * matrix confirms the endpoint hours later, and the sweep that meets the
+     * row again sends it. Nothing here spends a retry on the first pass.
+     */
+    it("is sent by the sweep that meets it once a composition can carry it", async () => {
+        const github = fakeGitHub();
+        refuses(github);
+        const effect = labelEffect({ meaning: "ready" });
+        await applierOver(github).applyAll([effect], configFor());
+
+        const open = store.openIntents(FUTURE);
+        await applierOver(github).recover(open[0]!, configFor());
+
+        expect(open).toHaveLength(1);
+        // The refused attempt, then the one that landed — the same call twice.
+        expect(callsOf(github, "addLabel")).toEqual([
+            `addLabel ${READY_LABEL}`,
+            `addLabel ${READY_LABEL}`,
+        ]);
+        expect(github.world.labels).toEqual([READY_LABEL]);
+        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(logged).toEqual([{ event: "effectApplied", effectId: keyOf(effect), seq: 1 }]);
+    });
+
+    it("spends no attempt, so the cap never abandons it", async () => {
+        const github = fakeGitHub();
+        github.faults.scripted = Array.from({ length: 8 }, () => ({
+            outcome: "unsupported" as const,
+            detail: SAID,
+        }));
+        const effect = labelEffect({ meaning: "ready" });
+        await applierOver(github).applyAll([effect], configFor());
+        for (let sweep = 0; sweep < EFFECT_ATTEMPT_CAP + 1; sweep += 1) {
+            await applierOver(github).recover(store.openIntents(FUTURE)[0]!, configFor());
+        }
+
+        expect(store.effectState(keyOf(effect), 1)).toMatchObject({
+            state: "sentUnknown",
+            attempt: 1,
+        });
+        expect(logged.map((entry) => entry.event)).not.toContain("effectAbandoned");
     });
 });
 

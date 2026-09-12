@@ -21,7 +21,7 @@ export const lockIssue: OperationHandler<"lockIssue"> = {
 
     /** Refused here rather than earlier, so plan, row and dispatch stay identical. */
     send: async () => ({
-        outcome: "forbidden",
+        outcome: "unsupported",
         detail: "no confirmed write endpoint locks an issue; the adapter has four, and none of them is this",
     }),
 

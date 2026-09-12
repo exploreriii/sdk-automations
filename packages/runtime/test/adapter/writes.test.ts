@@ -113,12 +113,21 @@ describe("the verbs name their endpoints", () => {
         expect(scripted.calls[0]!.init.body).toBe('{"assignees":["alice"]}');
     });
 
-    it("turns a call the gate refuses into forbidden, unsent", async () => {
+    /**
+     * A call the admission gate refuses is a fact about the MATRIX, not about
+     * the item — so it is `unsupported` rather than `forbidden`, and the detail
+     * names the endpoint a reader would have to see confirmed.
+     */
+    it("turns a call the gate refuses into unsupported, unsent", async () => {
         const { verbs, scripted } = harness([success("{}")]);
 
         const result = await verbs.updateComment(-7, "no");
 
-        expect(result.outcome).toBe("forbidden");
+        expect(result.outcome).toBe("unsupported");
+        expect("detail" in result ? result.detail : "").toContain(
+            "the endpoint matrix confirms no",
+        );
+        expect("detail" in result ? result.detail : "").toContain("PATCH");
         expect(scripted.calls).toHaveLength(0);
     });
 });

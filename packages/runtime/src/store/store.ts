@@ -613,6 +613,15 @@ export class Store {
             .run(effectId, seq, intent, at, revision);
     }
 
+    /** Give back the attempt an unsent call spent, so the cap counts sends only. */
+    unspend(effectId: string, seq: number): void {
+        this.db
+            .prepare(
+                "UPDATE effect_journal SET attempt = attempt - 1 WHERE effect_id = ? AND call_seq = ? AND status = 'sent' AND attempt > 1",
+            )
+            .run(effectId, seq);
+    }
+
     /**
      * Mark a call done. `false` means no such intent row exists, which is a caller bug
      * worth noticing rather than a state the store absorbs silently.

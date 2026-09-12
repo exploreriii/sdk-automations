@@ -62,7 +62,8 @@ export type WriteResult =
     | { readonly outcome: "conflict"; readonly detail: string }
     | { readonly outcome: "forbidden"; readonly detail: string }
     | { readonly outcome: "retryLater"; readonly detail: string }
-    | { readonly outcome: "unknown"; readonly detail: string };
+    | { readonly outcome: "unknown"; readonly detail: string }
+    | { readonly outcome: "unsupported"; readonly detail: string };
 
 export interface WriteVerbs {
     /** Idempotent: adding a label already there is a no-op. */

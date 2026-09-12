@@ -428,6 +428,7 @@ export function createApplier(options: ApplierOptions): Applier {
     /**
      * Journal, send, prove — in that order, always.
      * A definite refusal — conflict or forbidden — CLOSES the row: nothing landed and nothing will, so leaving it open would ask the sweep to re-decide a settled question.
+     * A write no endpoint realises leaves the row open instead, spending no backoff: the sweep's effect recovery redrives it until a composition can send it.
      */
     const journalAndSend = async (pass: Pass, seq: number, call: Call): Promise<CallResult> => {
         store.intent(
@@ -462,6 +463,9 @@ export function createApplier(options: ApplierOptions): Applier {
             case "forbidden":
                 store.done(pass.effectId, seq, now());
                 return stop("refused", "writeForbidden", answer.detail);
+            case "unsupported":
+                store.unspend(pass.effectId, seq);
+                return stop("refused", "writeUnsupported", answer.detail);
             case "retryLater":
                 return stop("retryLater", "writeRetryLater", answer.detail);
             case "unknown":

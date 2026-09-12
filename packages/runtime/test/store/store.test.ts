@@ -185,6 +185,16 @@ describe("effect journal — the 6.5 crash grid, restated as instance reopening"
         recovered.close();
     });
 
+    it("unspend gives back the attempt an unsent call took, never below the first", () => {
+        const store = new Store(path);
+        store.intent("e1", 1, "create-comment", "2026-07-23T10:00:00.000Z", "rev-1");
+        store.unspend("e1", 1);
+        store.intent("e1", 1, "create-comment", "2026-07-23T10:01:00.000Z", "rev-1");
+        store.unspend("e1", 1);
+        expect(store.effectState("e1", 1)).toMatchObject({ state: "sentUnknown", attempt: 1 });
+        store.close();
+    });
+
     it("a done row is immutable to intent — acknowledged history never regresses to sent", () => {
         const s = new Store(path);
         s.intent("e1", 1, "add-label", "2026-07-23T10:00:00.000Z", "rev-1");

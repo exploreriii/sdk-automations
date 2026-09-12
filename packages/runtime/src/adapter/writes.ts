@@ -1,7 +1,8 @@
 /**
  * What GitHub's answer to a write MEANS, and the seam every verb sends through.
  * `unknown` means sent and unknowable, and may not be retried; `retryLater` means
- * re-sending is provably harmless.
+ * re-sending is provably harmless; `unsupported` means nothing was sent at all,
+ * because the admission gate has no confirmed endpoint for it.
  */
 
 import type { RepositoryRef } from "@hiero-hackers/automation-core";
@@ -24,6 +25,7 @@ export const LABEL_ABSENT = {
 const conflict = (detail: string): WriteResult => ({ outcome: "conflict", detail });
 const forbidden = (detail: string): WriteResult => ({ outcome: "forbidden", detail });
 const retryLater = (detail: string): WriteResult => ({ outcome: "retryLater", detail });
+const unsupported = (detail: string): WriteResult => ({ outcome: "unsupported", detail });
 
 /** A failure that may or may not have landed, answered by idempotency. */
 function ambiguous(idempotency: WriteIdempotency, detail: string): WriteResult {
@@ -34,17 +36,25 @@ function ambiguous(idempotency: WriteIdempotency, detail: string): WriteResult {
 
 /** One failed write as one word, per class and per endpoint. */
 function resultOfFailure(
+    request: GitHubWriteRequest,
     failure: GitHubHttpFailureClass,
-    idempotency: WriteIdempotency,
     notFound: NotFoundMeaning,
     body: string,
 ): WriteResult {
     switch (failure.kind) {
         case "notSent":
-            return forbidden(`the adapter refused the write: ${describeFailure(failure)}`);
+            return unsupported(
+                failure.reason === "brokenSeam"
+                    ? `nothing was sent: ${describeFailure(failure)}`
+                    : `the endpoint matrix confirms no write at ${request.method} ${request.url}: ` +
+                          describeFailure(failure),
+            );
         case "responseTooLarge":
         case "transient":
-            return ambiguous(idempotency, `GitHub call failed: ${describeFailure(failure)}`);
+            return ambiguous(
+                request.idempotency,
+                `GitHub call failed: ${describeFailure(failure)}`,
+            );
         case "tokenExpired":
             return retryLater("the installation token had expired and has been dropped");
         case "primaryExhausted":
@@ -107,7 +117,7 @@ export function createWriteVerbs({ http, repository }: WriteVerbsOptions): Write
         // A failure carries no body when no response arrived, and an absent body
         // cannot name a label — the empty string reads the same way.
 
-        return resultOfFailure(outcome.failure, request.idempotency, notFound, outcome.body ?? "");
+        return resultOfFailure(request, outcome.failure, notFound, outcome.body ?? "");
     };
 
     return writeVerbsOf({ repository, apply });

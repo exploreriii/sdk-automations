@@ -9,14 +9,15 @@ import type {
 } from "@hiero-hackers/automation-core";
 import { renderManagedBody, type Call, type Plan } from "../effects.js";
 
-/** What one write turned out to be — the endpoint matrix's six words. */
+/** What one write turned out to be, in the endpoint matrix's words. */
 export type WriteResult =
     | { readonly outcome: "applied" }
     | { readonly outcome: "already" }
     | { readonly outcome: "conflict"; readonly detail: string }
     | { readonly outcome: "forbidden"; readonly detail: string }
     | { readonly outcome: "retryLater"; readonly detail: string }
-    | { readonly outcome: "unknown"; readonly detail: string };
+    | { readonly outcome: "unknown"; readonly detail: string }
+    | { readonly outcome: "unsupported"; readonly detail: string };
 
 /** The six confirmed write endpoints, and nothing else (D4). */
 export interface EffectWriter {

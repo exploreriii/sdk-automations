@@ -20,7 +20,7 @@ export const unassign: OperationHandler<"unassign"> = {
 
     /** Refused here rather than earlier, so plan, row and dispatch stay identical. */
     send: async () => ({
-        outcome: "forbidden",
+        outcome: "unsupported",
         detail: "no confirmed write endpoint unassigns; the adapter has four, and none of them is this",
     }),
 

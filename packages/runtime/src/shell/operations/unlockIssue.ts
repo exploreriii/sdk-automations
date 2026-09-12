@@ -19,7 +19,7 @@ export const unlockIssue: OperationHandler<"unlockIssue"> = {
     },
 
     send: async () => ({
-        outcome: "forbidden",
+        outcome: "unsupported",
         detail: "no confirmed write endpoint unlocks an issue; the adapter has four, and none of them is this",
     }),
 

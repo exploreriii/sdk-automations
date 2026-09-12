@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Every decision the App makes carries a code, and every code is in the first three tables below. The
+Every decision the App makes carries a code, and every code is in the first four tables below. The
 most common question — "why didn't it act here?" — is almost always answered by the first table: the
 App prefers doing nothing over doing something you didn't ask for. The last table is for the records
 it writes when it never got as far as a decision.
@@ -32,6 +32,15 @@ Nothing to fix — this is your configuration, or our caution, behaving as speci
 |---|---|
 | `permissionMissing` | The installation lacks a permission; the message names the exact grant |
 | `humanOrderingUnknown` | The App could not tell whether a human acted after it, so it chose not to act — usually a delivery gap; if it persists, tell us |
+
+## It could not be sent yet
+
+Nothing to fix, and nothing lost: the App decided to act, and the write path has no way to carry the
+change out. It keeps asking on every sweep, so the act lands once a release can send it.
+
+| Code | In plain terms |
+|---|---|
+| `writeUnsupported` | The platform has no confirmed endpoint for this write yet; the intent stands and is re-tried each sweep |
 
 ## It should never happen
 

@@ -12,7 +12,7 @@ import type {
 
 /**
  * What one apply pass made of one effect.
- * `refused` is FINAL and closes the row; `retryLater` and `unknown` leave it open.
+ * `refused` closes the row, `writeUnsupported` excepted; `retryLater` and `unknown` leave it open.
  */
 export const EFFECT_OUTCOMES = ["applied", "already", "refused", "retryLater", "unknown"] as const;
 
@@ -31,6 +31,7 @@ export const EFFECT_CODES = [
     "writeForbidden",
     "writeRetryLater",
     "writeUnknown",
+    "writeUnsupported",
     "postconditionUnconfirmed",
 ] as const;
 

@@ -19,6 +19,7 @@ export default defineConfig({
                 "src/store/index.ts",
                 "src/shell/main.ts",
                 "src/shell/explain-cli.ts",
+                "src/shell/status-cli.ts",
             ],
             // The strictest of the three floors the former packages carried,
             // and still just below the measured 99.31/99.68/98.82/99.31 —

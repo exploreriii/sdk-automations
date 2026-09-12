@@ -60,6 +60,12 @@ export interface OpenSend {
     readonly revision: string;
 }
 
+/** How many sends nothing has closed, and when the oldest of them was sent (D168). */
+export interface OpenSendTally {
+    readonly count: number;
+    readonly oldest: string | null;
+}
+
 /** One completed call the platform made on an item — what GitHub's actor cannot say (D159). */
 export interface LandedWrite {
     readonly verb: string | null;
@@ -86,6 +92,12 @@ export interface StoredWarning {
     readonly change: string;
 }
 
+/** How many warnings promise an action still ahead, and when the earliest is due (D168). */
+export interface StandingWarnings {
+    readonly count: number;
+    readonly nextDue: string | null;
+}
+
 /** One pass's verdict on one item for one capability (D163). */
 export interface Decision {
     readonly passId: string;
@@ -99,4 +111,10 @@ export interface Decision {
     readonly detail: string | null;
     /** The effect the verdict minted, where it minted one. */
     readonly effectId: string | null;
+}
+
+/** How many decisions one verdict took over a window (D168). */
+export interface VerdictTally {
+    readonly verdict: string;
+    readonly count: number;
 }

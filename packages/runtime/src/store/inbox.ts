@@ -16,7 +16,9 @@ import type {
     CompleteDeliveryWithReportInput,
     CompleteDeliveryWithReportResult,
     DeadLetteredDelivery,
+    DeliveryCounts,
     DeliveryState,
+    NewestDelivery,
     ReleaseDeliveryAfterFailureInput,
     ReleaseDeliveryAfterFailureResult,
     ReleaseDeliveryResult,
@@ -112,6 +114,19 @@ interface CanonicalDeliveryReportRow {
     readonly delivery_id: string;
     readonly report_json: string;
     readonly completed_at: string;
+}
+
+interface DeliveryCountsRow {
+    readonly pending: number;
+    readonly processing: number;
+    readonly done: number;
+    readonly failed: number;
+    readonly oldest_done: string | null;
+}
+
+interface NewestDeliveryRow {
+    readonly received_at: string;
+    readonly completed_at: string | null;
 }
 
 /** One delivery's durable life, from verified bytes to retention (D164). */
@@ -505,6 +520,45 @@ export class Inbox {
             reportJson: row.report_json,
             completedAt: row.completed_at,
         }));
+    }
+
+    /** How many deliveries sit in each state, and the oldest done one still kept (D168). */
+    counts(): DeliveryCounts {
+        const row = this.db
+            .prepare(
+                `
+                SELECT COUNT(CASE WHEN state = 'pending' THEN 1 END) AS pending,
+                       COUNT(CASE WHEN state = 'processing' THEN 1 END) AS processing,
+                       COUNT(CASE WHEN state = 'done' THEN 1 END) AS done,
+                       COUNT(CASE WHEN state = 'failed' THEN 1 END) AS failed,
+                       MIN(CASE WHEN state = 'done' THEN completed_at END) AS oldest_done
+                FROM seen_delivery
+            `,
+            )
+            .get() as unknown as DeliveryCountsRow;
+        return {
+            pending: row.pending,
+            processing: row.processing,
+            done: row.done,
+            failed: row.failed,
+            oldestDone: row.oldest_done,
+        };
+    }
+
+    /** The newest delivery received, and when its report was committed (D168). */
+    newestDelivery(): NewestDelivery | null {
+        const row = this.db
+            .prepare(
+                `
+                SELECT received_at, completed_at FROM seen_delivery
+                ORDER BY received_at DESC, delivery_id DESC
+                LIMIT 1
+            `,
+            )
+            .get() as NewestDeliveryRow | undefined;
+        return row === undefined
+            ? null
+            : { receivedAt: row.received_at, completedAt: row.completed_at };
     }
 
     /**

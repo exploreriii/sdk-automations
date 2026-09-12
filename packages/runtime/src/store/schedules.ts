@@ -10,3 +10,10 @@ export interface ClaimedScheduleRow extends ScheduleRow {
     /** Unique to this firing; required to complete it. */
     readonly claimToken: string;
 }
+
+/** One row as an operator reads it: where it stands, and the claim on it (D168). */
+export interface ScheduleStanding extends ScheduleRow {
+    readonly status: "pending" | "running" | "done";
+    /** Held while a firing runs; cleared when the row is completed or re-armed. */
+    readonly claimedAt: string | null;
+}

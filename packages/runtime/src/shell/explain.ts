@@ -4,10 +4,9 @@
  */
 
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import type { ItemRef } from "@hiero-hackers/automation-core";
 import { fold, Store, type Decision, type Fact, type LedgerState } from "../store/index.js";
-import { defaultDataDir } from "./paths.js";
+import { storeFile } from "./paths.js";
 
 /** What one question came to: the lines to print, and whether the store held an answer. */
 export interface Explanation {
@@ -22,11 +21,6 @@ const column = (value: string | number | null): string =>
     value === null ? NOTHING : String(value);
 
 const spelled = (item: ItemRef): string => `${item.kind}#${String(item.number)}`;
-
-/** The store `main.ts` would open, by the same rule. */
-function storePath(env: Readonly<Partial<Record<string, string>>>): string {
-    return env["STORE_PATH"] ?? join(defaultDataDir(env), "shell.sqlite");
-}
 
 /** `issue#40` or `pullRequest#40`, and nothing else. */
 function itemOf(spec: string): ItemRef | null {
@@ -132,7 +126,7 @@ export function explain(
     if (first === undefined || first === "" || (first === "--item" && item === null)) {
         return { found: false, lines: [USAGE] };
     }
-    const path = storePath(env);
+    const path = storeFile(env);
     if (!existsSync(path)) return { found: false, lines: [`no store at ${path}`] };
     const store = new Store(path);
     try {

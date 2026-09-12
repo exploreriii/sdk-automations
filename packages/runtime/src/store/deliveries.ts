@@ -114,3 +114,18 @@ export interface CanonicalDeliveryReport {
     readonly reportJson: string;
     readonly completedAt: string;
 }
+
+/** How many deliveries sit in each state, and the oldest completion still kept (D168). */
+export interface DeliveryCounts {
+    readonly pending: number;
+    readonly processing: number;
+    readonly done: number;
+    readonly failed: number;
+    readonly oldestDone: string | null;
+}
+
+/** The newest delivery by receipt, with the instant its report was committed (D168). */
+export interface NewestDelivery {
+    readonly receivedAt: string;
+    readonly completedAt: string | null;
+}

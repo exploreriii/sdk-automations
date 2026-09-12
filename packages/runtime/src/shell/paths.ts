@@ -26,6 +26,11 @@ export function defaultDataDir(
     return join(base, DIRECTORY_NAME);
 }
 
+/** The store file `main.ts` opens, by the same rule, for a command that only reads it. */
+export function storeFile(env: Readonly<Partial<Record<string, string>>> = process.env): string {
+    return env["STORE_PATH"] ?? join(defaultDataDir(env), "shell.sqlite");
+}
+
 /**
  * The store at the superseded default that this run will not open, or `null`.
  * Said once at startup and never acted on: moving a claimed store is the operator's call.

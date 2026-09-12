@@ -6,10 +6,20 @@
 
 import type { DatabaseSync } from "node:sqlite";
 import type { ItemRef } from "@hiero-hackers/automation-core";
-import type { Decision, Fact, LandedWrite, LedgerState, OpenSend, StoredWarning } from "./facts.js";
+import type {
+    Decision,
+    Fact,
+    LandedWrite,
+    LedgerState,
+    OpenSend,
+    OpenSendTally,
+    StandingWarnings,
+    StoredWarning,
+    VerdictTally,
+} from "./facts.js";
 import { fold } from "./fold.js";
 import { assertNonEmpty, assertUtcInstant } from "./guards.js";
-import type { ClaimedScheduleRow, ScheduleRow } from "./schedules.js";
+import type { ClaimedScheduleRow, ScheduleRow, ScheduleStanding } from "./schedules.js";
 
 /** The kinds that close an open send; `unsent` closes one without spending an attempt. */
 const CLOSING = "('landed','refused','abandoned','unsent')";
@@ -37,14 +47,22 @@ const ATTEMPTS_AT = `
      WHERE spent.effect_id = sent.effect_id AND spent.seq = sent.seq)`;
 
 /**
- * An effect whose warning promises an action still ahead of `$before` (D166).
- * The `CASE` is the guard: `json_extract` raises on bytes that are not JSON, and either side of an `AND` may be evaluated first.
+ * The instant a `warned` payload promises, null on bytes that are not JSON (D166).
+ * The `CASE` is the guard: `json_extract` raises on those, and either side of an `AND` may be evaluated first.
  */
+const PROMISED_AT = `
+    CASE WHEN json_valid(warned.payload)
+         THEN json_extract(warned.payload, '$.earliestActionAt') END`;
+
+/** An effect whose warning promises an action still ahead of `$before` (D166). */
 const PROMISE_AHEAD = `
     SELECT warned.effect_id FROM effect_fact warned
-    WHERE warned.kind = 'warned'
-      AND CASE WHEN json_valid(warned.payload)
-               THEN json_extract(warned.payload, '$.earliestActionAt') END > $before`;
+    WHERE warned.kind = 'warned' AND ${PROMISED_AT} > $before`;
+
+/** An effect a landed call has already moved; a promise it kept is no longer standing (D168). */
+const ALREADY_LANDED = `
+    SELECT landed.effect_id FROM effect_fact landed
+    WHERE landed.kind = 'landed' AND landed.seq >= 1`;
 
 /** One `effect_fact` row, as SQLite hands it back. */
 interface FactRow {
@@ -200,6 +218,20 @@ export class Ledger {
         }));
     }
 
+    /** How many sends nothing has closed, and when the oldest of them was sent (D168). */
+    stillOpen(): OpenSendTally {
+        const row = this.db
+            .prepare(
+                `
+                SELECT COUNT(*) AS open_sends, MIN(sent.at) AS oldest
+                FROM effect_fact sent
+                WHERE sent.kind = 'sent' AND ${STILL_OPEN} AND ${LATEST_SEND}
+            `,
+            )
+            .get() as unknown as { open_sends: number; oldest: string | null };
+        return { count: row.open_sends, oldest: row.oldest };
+    }
+
     /** Every effect with a fact on one item, oldest first — where an explanation starts (D163). */
     effectsOn(item: ItemRef): string[] {
         const rows = this.db
@@ -241,6 +273,22 @@ export class Ledger {
             )
             .get(effectId) as { payload: string | null } | undefined;
         return row === undefined ? null : warningOf(effectId, row.payload);
+    }
+
+    /** The warnings promising an action still ahead of `now`, and the earliest due (D168). */
+    standingWarnings(now: string): StandingWarnings {
+        assertUtcInstant(now, "now");
+        const row = this.db
+            .prepare(
+                `
+                SELECT COUNT(*) AS standing, MIN(${PROMISED_AT}) AS next_due
+                FROM effect_fact warned
+                WHERE warned.kind = 'warned' AND ${PROMISED_AT} > $now
+                  AND warned.effect_id NOT IN (${ALREADY_LANDED})
+            `,
+            )
+            .get({ $now: now }) as unknown as { standing: number; next_due: string | null };
+        return { count: row.standing, nextDue: row.next_due };
     }
 
     /** Append one pass's verdict on one item (D163). */
@@ -293,6 +341,21 @@ export class Ledger {
             detail: row.detail,
             effectId: row.effect_id,
         }));
+    }
+
+    /** How many decisions each verdict took after `since`, in verdict order (D168). */
+    verdictsSince(since: string): VerdictTally[] {
+        assertUtcInstant(since, "since");
+        const rows = this.db
+            .prepare(
+                `
+                SELECT verdict, COUNT(*) AS taken FROM decision
+                WHERE at > ?
+                GROUP BY verdict ORDER BY verdict
+            `,
+            )
+            .all(since) as unknown as { verdict: string; taken: number }[];
+        return rows.map((row) => ({ verdict: row.verdict, count: row.taken }));
     }
 
     // ── Claims (lock) ───────────────────────────────────────────────
@@ -424,6 +487,31 @@ export class Ledger {
             scheduleId: r.schedule_id,
             dueAt: r.due_at,
             effect: r.effect,
+        }));
+    }
+
+    /** Every schedule row: where it stands, when it is due, and the claim on it (D168). */
+    schedules(): ScheduleStanding[] {
+        const rows = this.db
+            .prepare(
+                `
+                SELECT schedule_id, due_at, effect, status, claimed_at
+                FROM schedule ORDER BY schedule_id
+            `,
+            )
+            .all() as unknown as {
+            schedule_id: string;
+            due_at: string;
+            effect: string;
+            status: ScheduleStanding["status"];
+            claimed_at: string | null;
+        }[];
+        return rows.map((r) => ({
+            scheduleId: r.schedule_id,
+            dueAt: r.due_at,
+            effect: r.effect,
+            status: r.status,
+            claimedAt: r.claimed_at,
         }));
     }
 

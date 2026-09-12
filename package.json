@@ -15,6 +15,7 @@
         "test:coverage": "pnpm -r test:coverage",
         "contracts": "pnpm --filter @hiero-hackers/automation-checks generate",
         "shell:explain": "pnpm --filter @hiero-hackers/automation-runtime explain --",
+        "shell:status": "pnpm --filter @hiero-hackers/automation-runtime status",
         "lint": "eslint .",
         "audit": "pnpm audit --audit-level moderate",
         "format": "prettier --write \"packages/**/*.ts\"",

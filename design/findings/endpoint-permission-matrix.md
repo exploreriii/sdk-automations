@@ -34,7 +34,7 @@ row chooses it.
 | Mint installation token | `POST /app/installations/{id}/access_tokens` | App (JWT) | n/a | — | confirmed (201, 1h TTL) | `2026-07-23T18-34-51-975Z#1` |
 
 Each confirmed read's checkable shape is `packages/dev/lab/src/probes/reads.ts`; `pnpm lab:probe`
-compares it monthly.
+compares it monthly (D158).
 
 ## The ceiling
 

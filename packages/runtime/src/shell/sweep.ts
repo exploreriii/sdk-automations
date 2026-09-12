@@ -13,6 +13,7 @@ import type {
     Unread,
 } from "@hiero-hackers/automation-core";
 import type { ClaimedScheduleRow, Store } from "../store/index.js";
+import type { WriteBudget } from "./apply.js";
 import { detailOf, type Log } from "./log.js";
 import type { FactRecordInput, ShellRecord } from "./processor.js";
 import { SWEEP_EFFECT, sweptItemId, wantsSweeping } from "./schedule.js";
@@ -67,6 +68,8 @@ export interface SweepOptions {
     readonly clock: () => Date;
     /** How long until the next firing. sweep.md §2 step 4; the default is hourly. */
     readonly cadenceMs: number;
+    /** How many writes one firing may send; the default is `SWEEP_WRITE_CAP`. */
+    readonly writeCap: number;
     readonly log: Log;
 }
 
@@ -75,6 +78,9 @@ export interface SweepOptions {
  * A clock the sweep cannot see is a promise the App cannot keep: the smallest reap a `duration` may state is two hours.
  */
 export const DEFAULT_SWEEP_CADENCE_MS = 60 * 60_000;
+
+/** How many writes one firing may send before it carries the rest to the next (D167). */
+export const SWEEP_WRITE_CAP = 20;
 
 const DAY_MS = 24 * 60 * 60_000;
 
@@ -100,18 +106,27 @@ export interface Sweep {
 /**
  * What one firing produced, for the line it ends with.
  * `unread` separates "nothing is stale" from "this sweep could not tell".
+ * `writes` is what the cap spent and `heldBack` what it turned away (D167).
  */
 interface Swept {
     readonly items: number;
     readonly decided: number;
     readonly unread: number;
+    readonly writes: number;
+    readonly heldBack: number;
 }
 
 /** A firing that read nothing — an unusable list, or a repository that wants none. */
-const SWEPT_NOTHING: Swept = { items: 0, decided: 0, unread: 0 };
+const SWEPT_NOTHING: Swept = { items: 0, decided: 0, unread: 0, writes: 0, heldBack: 0 };
+
+/** How many of one record's effects the write cap turned away. */
+const heldBackIn = (record: ShellRecord): number =>
+    record.kind === "decision"
+        ? record.effects.filter((effect) => effect.code === "sweepWriteCap").length
+        : 0;
 
 export function createSweep(options: SweepOptions): Sweep {
-    const { store, capabilities, processor, facts, clock, cadenceMs, log } = options;
+    const { store, capabilities, processor, facts, clock, cadenceMs, writeCap, log } = options;
 
     const nextDue = (): string => new Date(clock().getTime() + cadenceMs).toISOString();
 
@@ -161,19 +176,31 @@ export function createSweep(options: SweepOptions): Sweep {
             records.push(await reader.issueFacts(listedIssue, links));
         }
 
+        // One budget for the firing: what it holds back is decided again next time.
+
+        const budget: WriteBudget = { remaining: writeCap };
         let decided = 0;
         let unread = 0;
+        let heldBack = 0;
         for (const record of records) {
             if (record.links === "unread") unread += 1;
-            await processor.processFacts({
+            const shellRecord = await processor.processFacts({
                 facts: record,
                 deliveryId: sweptItemId(row.scheduleId, record.item),
                 receivedAt: row.dueAt,
                 config,
+                budget,
             });
+            heldBack += heldBackIn(shellRecord);
             decided += 1;
         }
-        return { items: listed.items.length, decided, unread };
+        return {
+            items: listed.items.length,
+            decided,
+            unread,
+            writes: writeCap - budget.remaining,
+            heldBack,
+        };
     };
 
     /** The three retention windows, run once per firing and contained on their own (D166). */

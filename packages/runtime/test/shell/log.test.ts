@@ -211,6 +211,8 @@ const ROUTING: Record<
             items: 2,
             decided: 2,
             unread: 0,
+            writes: 2,
+            heldBack: 0,
             nextDueAt: "2026-09-10T10:00:00.000Z",
         },
         problem: false,

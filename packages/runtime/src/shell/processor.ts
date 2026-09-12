@@ -22,7 +22,7 @@ import {
     type RepositoryRef,
 } from "@hiero-hackers/automation-core";
 import type { ClaimedDelivery, ReleaseDeliveryAfterFailureResult, Store } from "../store/index.js";
-import type { Applier } from "./apply.js";
+import type { Applier, WriteBudget } from "./apply.js";
 import type { ConfigSource } from "./config.js";
 import { decisionsOf } from "./decisions.js";
 import type { EffectOutcome } from "./effects.js";
@@ -137,6 +137,8 @@ export interface FactRecordInput {
     /** When the firing this record belongs to became due. */
     readonly receivedAt: string;
     readonly config: RepositoryConfig;
+    /** The writes this firing has left; every record of one firing shares it (D167). */
+    readonly budget?: WriteBudget;
 }
 
 /** What the worker exposes: one pass, or pump until the queue is empty. */
@@ -310,6 +312,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
         identity: RecordIdentity,
         config: RepositoryConfig,
         decideIt: () => Promise<Decision>,
+        budget?: WriteBudget,
     ): Promise<ShellRecord> => {
         const active = config.mode === "active";
         if (active && applier === undefined) {
@@ -324,7 +327,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
 
         const effects =
             active && applier !== undefined
-                ? await applier.applyAll(decision.approved, config)
+                ? await applier.applyAll(decision.approved, config, budget)
                 : [];
         const rows = decisionsOf({
             passId: identity.deliveryId,
@@ -440,7 +443,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
 
     return {
         /** One swept item, decided and applied. No claim of its own: the sweep holds the row. */
-        processFacts({ facts, deliveryId, receivedAt, config }): Promise<ShellRecord> {
+        processFacts({ facts, deliveryId, receivedAt, config, budget }): Promise<ShellRecord> {
             return decidedRecord(
                 {
                     deliveryId,
@@ -459,6 +462,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
 
                         await externalsFor({ payload: undefined, deliveryId, config }),
                     ),
+                budget,
             );
         },
 

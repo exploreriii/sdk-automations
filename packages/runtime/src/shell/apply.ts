@@ -85,6 +85,11 @@ export const EFFECT_ATTEMPT_CAP = 5;
  */
 export type EffectExternalsSource = () => ShellExternals | Promise<ShellExternals>;
 
+/** The writes a caller has left to spend, decremented by the applier (D167). */
+export interface WriteBudget {
+    remaining: number;
+}
+
 export interface ApplierOptions {
     /** The whole store the applier touches: the facts, and the lease beside them (D164). */
     readonly ledger: Ledger;
@@ -100,10 +105,14 @@ export interface ApplierOptions {
 
 /** The write path, as the processor and the sweep each use it. */
 export interface Applier {
-    /** Every approved effect of one decision, in order, each under its own lease. */
+    /**
+     * Every approved effect of one decision, in order, each under its own lease.
+     * A pass that sent a call and applied, or left the answer unknown or retriable, spends one of `budget`; `already`, every refusal and every gate that sent nothing spend none. No budget is unlimited, which is what a webhook passes (D167).
+     */
     applyAll(
         effects: readonly Effect[],
         config: RepositoryConfig,
+        budget?: WriteBudget,
     ): Promise<readonly EffectOutcome[]>;
     /** One open send, resolved against GitHub — the sweep's unit of work. */
     recover(open: OpenSend, config: RepositoryConfig): Promise<void>;
@@ -119,6 +128,8 @@ interface Pass {
     readonly config: RepositoryConfig;
     /** The warning this comment records when it lands; `null` for every recovery pass. */
     readonly records: WarningToRecord | null;
+    /** Set where a call goes to GitHub; only such a pass can spend a write. */
+    readonly sent: { any: boolean };
 }
 
 /** What a pass concluded, before it is dressed as an `EffectOutcome`. */
@@ -145,6 +156,20 @@ const stop = (
 const refuse = (code: EffectOutcomeCode, detail: string): GateVerdict => ({
     ok: false,
     result: { outcome: "refused", code, detail },
+});
+
+/** What a sent call is charged a write for; `already` and every refusal are free (D167). */
+const SPENDS: ReadonlySet<EffectOutcomeName> = new Set(["applied", "retryLater", "unknown"]);
+
+/** An effect a spent budget holds back: nothing claimed, nothing recorded, decided again next firing. */
+const heldBack = ({ intent }: Effect): EffectOutcome => ({
+    effectId: intent.idempotencyKey,
+    capability: intent.capability,
+    operation: intent.operation,
+    item: intent.item,
+    outcome: "refused",
+    code: "sweepWriteCap",
+    detail: "this firing's write cap is spent; decided again next sweep",
 });
 
 /** What a fact says beyond the call it is about. */
@@ -508,6 +533,7 @@ export function createApplier(options: ApplierOptions): Applier {
         appendFact(pass, "sent", seq, call, {
             payload: serializeCall({ capability: pass.capability, item: pass.item, call }),
         });
+        pass.sent.any = true;
         const answer = await send(pass, call);
         switch (answer.outcome) {
             case "applied": {
@@ -676,7 +702,11 @@ export function createApplier(options: ApplierOptions): Applier {
     };
 
     /** One approved effect, under its own lease, released on every exit. */
-    const apply = async (effect: Effect, config: RepositoryConfig): Promise<EffectOutcome> => {
+    const apply = async (
+        effect: Effect,
+        config: RepositoryConfig,
+        budget: WriteBudget | undefined,
+    ): Promise<EffectOutcome> => {
         const { intent } = effect;
         const pass: Pass = {
             effectId: intent.idempotencyKey,
@@ -684,6 +714,7 @@ export function createApplier(options: ApplierOptions): Applier {
             item: intent.item,
             config,
             records: effect.records,
+            sent: { any: false },
         };
         const outcomeOf = (result: PassResult): EffectOutcome => ({
             effectId: pass.effectId,
@@ -705,16 +736,26 @@ export function createApplier(options: ApplierOptions): Applier {
             });
         }
         try {
-            return outcomeOf(await drive(pass, intent, plan.calls));
+            const result = await drive(pass, intent, plan.calls);
+            if (budget !== undefined && pass.sent.any && SPENDS.has(result.outcome)) {
+                budget.remaining -= 1;
+            }
+            return outcomeOf(result);
         } finally {
             ledger.release(pass.effectId, worker);
         }
     };
 
     return {
-        async applyAll(effects, config) {
+        async applyAll(effects, config, budget) {
             const outcomes: EffectOutcome[] = [];
-            for (const effect of effects) outcomes.push(await apply(effect, config));
+            for (const effect of effects) {
+                outcomes.push(
+                    budget?.remaining === 0
+                        ? heldBack(effect)
+                        : await apply(effect, config, budget),
+                );
+            }
             return outcomes;
         },
 
@@ -753,6 +794,7 @@ export function createApplier(options: ApplierOptions): Applier {
                 item: journaled.item,
                 config,
                 records: null,
+                sent: { any: false },
             };
             if (open.attempts >= EFFECT_ATTEMPT_CAP) {
                 appendFact(pass, "abandoned", open.seq, journaled.call, {

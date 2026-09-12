@@ -40,12 +40,15 @@ import {
     serializeCall,
     stubbedExternals,
     SWEEP_EFFECT,
+    SWEEP_WRITE_CAP,
     sweepScheduleId,
     type ConfigSource,
+    type EffectOutcome,
     type FactRecordInput,
     type ShellEvent,
     type ShellRecord,
     type SweepFacts,
+    type SweepProcessor,
     type SweptItem,
     type SweptItems,
 } from "../src/shell/index.js";
@@ -198,12 +201,26 @@ function scriptedReader(script: Script = {}): ScriptedReader {
 }
 
 interface ScriptedProcessor {
-    readonly processor: {
-        configuration: () => Promise<RepositoryConfig | null>;
-        processFacts: (input: FactRecordInput) => Promise<ShellRecord>;
-    };
+    readonly processor: SweepProcessor;
     readonly decided: FactRecordInput[];
 }
+
+/** The record one decided swept item produces, carrying what became of its effects. */
+const decidedAs = (input: FactRecordInput, effects: readonly EffectOutcome[]): ShellRecord => ({
+    kind: "decision",
+    deliveryId: input.deliveryId,
+    event: "sweep",
+    receivedAt: input.receivedAt,
+    decidedAt: NOW.toISOString(),
+    configRevision: input.config.revision,
+    report: {
+        revision: input.config.revision,
+        mode: input.config.mode,
+        repository: REPOSITORY,
+        findings: [],
+    },
+    effects,
+});
 
 function scriptedProcessor(
     config: RepositoryConfig | null,
@@ -217,21 +234,7 @@ function scriptedProcessor(
             processFacts: (input) => {
                 decided.push(input);
                 onFacts?.();
-                return Promise.resolve({
-                    kind: "decision",
-                    deliveryId: input.deliveryId,
-                    event: "sweep",
-                    receivedAt: input.receivedAt,
-                    decidedAt: NOW.toISOString(),
-                    configRevision: input.config.revision,
-                    report: {
-                        revision: input.config.revision,
-                        mode: input.config.mode,
-                        repository: REPOSITORY,
-                        findings: [],
-                    },
-                    effects: [],
-                });
+                return Promise.resolve(decidedAs(input, []));
             },
         },
     };
@@ -253,6 +256,7 @@ function driven(script: Script = {}, config = configFrom(CONFIG_TEXT, CAPABILITI
         facts: reader.facts,
         clock: () => NOW,
         cadenceMs: DAY_MS,
+        writeCap: SWEEP_WRITE_CAP,
         log,
     });
     return { reader, decided, run: () => sweep.runDue() };
@@ -361,6 +365,7 @@ describe("a firing that reads nothing", () => {
             facts: reader.facts,
             clock: () => NOW,
             cadenceMs: DAY_MS,
+            writeCap: SWEEP_WRITE_CAP,
             log,
         });
 
@@ -396,6 +401,7 @@ describe("a firing that reads nothing", () => {
             facts: reader.facts,
             clock: () => NOW,
             cadenceMs: DAY_MS,
+            writeCap: SWEEP_WRITE_CAP,
             log,
         });
 
@@ -427,6 +433,7 @@ describe("the claim", () => {
             },
             clock: () => NOW,
             cadenceMs: DAY_MS,
+            writeCap: SWEEP_WRITE_CAP,
             log,
         });
 
@@ -475,6 +482,7 @@ describe("the claim", () => {
             facts: scriptedReader().facts,
             clock: () => NOW,
             cadenceMs: DAY_MS,
+            writeCap: SWEEP_WRITE_CAP,
             log,
         });
 
@@ -486,6 +494,132 @@ describe("the claim", () => {
         await first;
         expect(sweep.settled()).resolves.toBeUndefined();
         expect(events("sweepClaimed")).toHaveLength(1);
+    });
+});
+
+// ─── The write cap ───────────────────────────────────────────────────
+
+/** One approved effect's outcome, as the applier reports it for a swept item. */
+const effectOn = (
+    item: ItemRef,
+    outcome: EffectOutcome["outcome"],
+    code: EffectOutcome["code"] = null,
+): EffectOutcome => ({
+    effectId: `effect:${item.kind}#${String(item.number)}`,
+    capability: "inactivity",
+    operation: "postManagedComment",
+    item,
+    outcome,
+    code,
+    detail: null,
+});
+
+interface Spending {
+    readonly processor: SweepProcessor;
+    /** Every record the firing handed down, to see whether they shared one budget. */
+    readonly handed: FactRecordInput[];
+    /** The item numbers a write landed on, in order. */
+    readonly written: number[];
+}
+
+/**
+ * A processor that spends the firing's budget the way the applier does: one
+ * write per item nothing has written to, nothing for one already written, and a
+ * `sweepWriteCap` refusal once the firing's writes are spent.
+ */
+function spending(config: RepositoryConfig): Spending {
+    const handed: FactRecordInput[] = [];
+    const written: number[] = [];
+    return {
+        handed,
+        written,
+        processor: {
+            configuration: () => Promise.resolve(config),
+            processFacts: (input) => {
+                handed.push(input);
+                const { item } = input.facts;
+                const budget = input.budget ?? { remaining: 0 };
+                if (written.includes(item.number)) {
+                    return Promise.resolve(decidedAs(input, [effectOn(item, "already")]));
+                }
+                if (budget.remaining === 0) {
+                    return Promise.resolve(
+                        decidedAs(input, [effectOn(item, "refused", "sweepWriteCap")]),
+                    );
+                }
+                budget.remaining -= 1;
+                written.push(item.number);
+                return Promise.resolve(decidedAs(input, [effectOn(item, "applied")]));
+            },
+        },
+    };
+}
+
+describe("the writes one firing may send", () => {
+    it("sends up to the cap, carries the rest, and decides them again next firing", async () => {
+        armed();
+        const items = [12, 13, 14].map((number) => listedItem({ kind: "issue", number }));
+        const reader = scriptedReader({ items: { ok: true, items } });
+        const { processor, handed, written } = spending(configFrom(CONFIG_TEXT, CAPABILITIES));
+        let now = NOW;
+        const sweep = createSweep({
+            store,
+            capabilities: CAPABILITIES,
+            processor,
+            facts: reader.facts,
+            clock: () => now,
+            cadenceMs: DAY_MS,
+            writeCap: 2,
+            log,
+        });
+
+        await sweep.runDue();
+
+        expect(written).toEqual([12, 13]);
+        expect(events("sweepFinished")).toMatchObject([
+            { items: 3, decided: 3, writes: 2, heldBack: 1 },
+        ]);
+        // One budget for the firing, not one per record.
+        expect(new Set(handed.map((input) => input.budget)).size).toBe(1);
+
+        now = new Date(NOW.getTime() + DAY_MS);
+        await sweep.runDue();
+
+        // Nothing was journalled for the item held back, so its act stands.
+        expect(written).toEqual([12, 13, 14]);
+        expect(events("sweepFinished")[1]).toMatchObject({ writes: 1, heldBack: 0 });
+    });
+
+    it("counts no write for a record that never reached a write path", async () => {
+        armed();
+        const reader = scriptedReader();
+        const sweep = createSweep({
+            store,
+            capabilities: CAPABILITIES,
+            processor: {
+                configuration: () => Promise.resolve(configFrom(CONFIG_TEXT, CAPABILITIES)),
+                // The shipped composition wires no applier, so active mode ends here.
+                processFacts: (input) =>
+                    Promise.resolve({
+                        kind: "modeUnsupported",
+                        deliveryId: input.deliveryId,
+                        event: SWEEP_EFFECT,
+                        receivedAt: input.receivedAt,
+                        decidedAt: NOW.toISOString(),
+                        configRevision: input.config.revision,
+                        reason: "active mode is unsupported by the runnable shell",
+                    }),
+            },
+            facts: reader.facts,
+            clock: () => NOW,
+            cadenceMs: DAY_MS,
+            writeCap: 2,
+            log,
+        });
+
+        await sweep.runDue();
+
+        expect(events("sweepFinished")).toMatchObject([{ decided: 2, writes: 0, heldBack: 0 }]);
     });
 });
 
@@ -642,6 +776,7 @@ describe("what one firing prunes", () => {
             },
             clock: () => NOW,
             cadenceMs: DAY_MS,
+            writeCap: SWEEP_WRITE_CAP,
             log,
         });
 
@@ -779,6 +914,7 @@ describe("the reader and the driver together", () => {
                 }),
             clock: () => NOW,
             cadenceMs: DAY_MS,
+            writeCap: SWEEP_WRITE_CAP,
             log,
         });
 
@@ -958,6 +1094,7 @@ describe("an item the platform released within the minute", () => {
                 }),
             clock: () => NOW,
             cadenceMs: DAY_MS,
+            writeCap: SWEEP_WRITE_CAP,
             log,
         });
 

@@ -19,7 +19,12 @@ import { EFFECT_LEASE_STALE_MINUTES, type Applier } from "./apply.js";
 import type { ConfigSource } from "./config.js";
 import type { ExternalsForDelivery } from "./externals.js";
 import { contained, createLogger, detailOf, type Log } from "./log.js";
-import { createSweep, DEFAULT_SWEEP_CADENCE_MS, type SweepFactsSource } from "./sweep.js";
+import {
+    createSweep,
+    DEFAULT_SWEEP_CADENCE_MS,
+    SWEEP_WRITE_CAP,
+    type SweepFactsSource,
+} from "./sweep.js";
 
 /** How often the shell requeues stale claims and drains, absent an override. */
 export const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
@@ -48,6 +53,8 @@ export interface ShellOptions {
         readonly facts: SweepFactsSource;
         /** How long until the next firing; the default is hourly. */
         readonly cadenceMs?: number;
+        /** How many writes one firing may send; the default is `SWEEP_WRITE_CAP`. */
+        readonly writeCap?: number;
     };
     /** Optional here and required of every component: the root defaults to the production log. */
     readonly log?: Log;
@@ -97,6 +104,7 @@ export function createShell(options: ShellOptions): Shell {
                   facts: options.sweep.facts,
                   clock,
                   cadenceMs: options.sweep.cadenceMs ?? DEFAULT_SWEEP_CADENCE_MS,
+                  writeCap: options.sweep.writeCap ?? SWEEP_WRITE_CAP,
                   log,
               });
     const handler = createReceiver({

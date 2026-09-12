@@ -1588,6 +1588,101 @@ describe("the effect lease", () => {
     });
 });
 
+// ─── The write budget ────────────────────────────────────────────────
+
+/**
+ * What a firing may still write, and what spends it (D167). The cap belongs to
+ * the sweep, but the counting is the applier's: it is the only thing here that
+ * knows whether a call actually left the process.
+ *
+ * The pass that sends nothing is the one to watch. A gate refusal and a lease
+ * another worker holds cost a firing nothing, so a repository the rules refuse
+ * item by item cannot starve the one item they would have let through.
+ */
+describe("the write budget a caller hands down", () => {
+    const effect = labelEffect({ meaning: "ready" });
+
+    it("spends one write on an effect that applied", async () => {
+        const github = fakeGitHub();
+        const budget = { remaining: 3 };
+
+        const outcome = one(await applierOver(github).applyAll([effect], configFor(), budget));
+
+        expect(outcome).toMatchObject({ outcome: "applied" });
+        expect(budget.remaining).toBe(2);
+    });
+
+    it("spends nothing where GitHub said the postcondition already held", async () => {
+        const github = fakeGitHub({ labels: [READY_LABEL] });
+        github.faults.scripted = [{ outcome: "already" }];
+        const budget = { remaining: 3 };
+
+        const outcome = one(await applierOver(github).applyAll([effect], configFor(), budget));
+
+        expect(outcome).toMatchObject({ outcome: "already" });
+        expect(budget.remaining).toBe(3);
+    });
+
+    it("spends nothing on a refusal, and nothing on a send that never happened", async () => {
+        const github = fakeGitHub();
+        const budget = { remaining: 3 };
+
+        const outcome = one(
+            await applierOver(github).applyAll([effect], configFor("disabled"), budget),
+        );
+
+        expect(outcome).toMatchObject({ outcome: "refused", code: "modeDisabled" });
+        expect(github.calls).toEqual([]);
+        expect(budget.remaining).toBe(3);
+    });
+
+    it("spends one where the call was sent and the answer was lost", async () => {
+        const github = fakeGitHub();
+        github.faults.scripted = [{ outcome: "unknown", detail: "the connection dropped" }];
+        const budget = { remaining: 3 };
+
+        const outcome = one(await applierOver(github).applyAll([effect], configFor(), budget));
+
+        expect(outcome).toMatchObject({ outcome: "unknown", code: "writeUnknown" });
+        expect(budget.remaining).toBe(2);
+    });
+
+    it("refuses an effect at zero, taking no lease and recording nothing", async () => {
+        const github = fakeGitHub();
+        const budget = { remaining: 0 };
+
+        const outcome = one(await applierOver(github).applyAll([effect], configFor(), budget));
+
+        expect(outcome).toEqual({
+            effectId: keyOf(effect),
+            capability: "intake",
+            operation: "applyMappedLabel",
+            item: ITEM,
+            outcome: "refused",
+            code: "sweepWriteCap",
+            detail: "this firing's write cap is spent; decided again next sweep",
+        });
+        expect(github.calls).toEqual([]);
+        expect(store.ledger.factsOf(keyOf(effect))).toEqual([]);
+        expect(leaseIsFree(keyOf(effect))).toBe(true);
+    });
+
+    it("stops at the effect the cap reaches, and decides the rest again", async () => {
+        const github = fakeGitHub();
+        const second = labelEffect({ meaning: "ready", item: PULL });
+        const budget = { remaining: 1 };
+
+        const outcomes = await applierOver(github).applyAll([effect, second], configFor(), budget);
+
+        expect(outcomes.map((outcome) => [outcome.outcome, outcome.code])).toEqual([
+            ["applied", null],
+            ["refused", "sweepWriteCap"],
+        ]);
+        expect(github.calls).toEqual([`addLabel ${READY_LABEL}`]);
+        expect(store.ledger.factsOf(keyOf(second))).toEqual([]);
+    });
+});
+
 /**
  * The moment a promise becomes a record (grace.md §3): the applier writes the
  * warning down only once GitHub says the comment is there, so a warning that

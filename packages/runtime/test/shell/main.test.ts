@@ -151,6 +151,7 @@ const SHELL_VARIABLES = [
     "KILL_SWITCH",
     "SWEEP_INTERVAL_SECONDS",
     "SWEEP_CADENCE_HOURS",
+    "SWEEP_WRITE_CAP",
     "XDG_STATE_HOME",
 ];
 
@@ -679,6 +680,8 @@ async function withLiveGitHub(
         readonly slug?: string;
         /** Arms the fact sweep, and how often it re-reads the repository. */
         readonly cadenceHours?: string;
+        /** How many writes one firing may send, over the sweep's own cap. */
+        readonly writeCap?: string;
         /** How often the reconciliation tick runs — the sweep rides it. */
         readonly intervalSeconds?: string;
     },
@@ -711,6 +714,7 @@ async function withLiveGitHub(
                 ...(github.cadenceHours === undefined
                     ? {}
                     : { SWEEP_CADENCE_HOURS: github.cadenceHours }),
+                ...(github.writeCap === undefined ? {} : { SWEEP_WRITE_CAP: github.writeCap }),
                 ...(github.intervalSeconds === undefined
                     ? {}
                     : { SWEEP_INTERVAL_SECONDS: github.intervalSeconds }),
@@ -816,6 +820,28 @@ describe("the sandbox entry point, as a process", () => {
                     );
                 },
             );
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /**
+     * The cap is a whole number of writes like the cadence is of hours, and it
+     * asks for no credentials: it arms nothing, it only narrows a firing.
+     */
+    it.each(["0", "-1", "1.5", "twenty"])(
+        "fails closed when SWEEP_WRITE_CAP is %j",
+        async (cap) => {
+            await withShell({ ...bootEnvironment(), SWEEP_WRITE_CAP: cap }, async (shell) => {
+                await until(
+                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
+                    "the write cap to be refused",
+                );
+                expect(shell.stdout()).toBe("");
+                expect(await shell.exit).toBe(1);
+                expect(shell.stderr().trim()).toBe(
+                    "SWEEP_WRITE_CAP must be a whole number of writes, 1 or more.",
+                );
+            });
         },
         TEST_TIMEOUT_MS,
     );
@@ -1047,7 +1073,8 @@ describe("the sandbox entry point, as a process", () => {
      * The fake GitHub answers the open-item list with an empty array (its last
      * route is `timeline`, and this case scripts that empty), so the firing
      * decides nothing and the case stays about the WIRING rather than about a
-     * ladder's judgement — which `test/sweep.test.ts` owns.
+     * ladder's judgement — which `test/sweep.test.ts` owns. `SWEEP_WRITE_CAP`
+     * rides the same wiring: accepted at boot, and spent by nothing here.
      */
     it(
         "with SWEEP_CADENCE_HOURS a delivery arms a sweep row, and the tick fires it",
@@ -1057,6 +1084,7 @@ describe("the sandbox entry point, as a process", () => {
                     config: SWEEP_CONFIG,
                     timeline: [],
                     cadenceHours: "24",
+                    writeCap: "5",
                     intervalSeconds: "1",
                 },
                 async ({ port, shell }) => {
@@ -1071,6 +1099,8 @@ describe("the sandbox entry point, as a process", () => {
                         scheduleId: `sweep:${OWNER}/${REPO}`,
                         items: 0,
                         decided: 0,
+                        writes: 0,
+                        heldBack: 0,
                     });
                 },
             );

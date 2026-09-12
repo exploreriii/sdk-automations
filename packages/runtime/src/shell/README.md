@@ -87,6 +87,7 @@ CONFIG_FILE=…               # credential-free fallback; default <state home>/a
 STORE_PATH=…                # optional; default <state home>/shell.sqlite
 SWEEP_INTERVAL_SECONDS=60   # optional; requeue stale claims and drain on this clock
 SWEEP_CADENCE_HOURS=1       # optional; arms the fact sweep and sets how often a repository is read
+SWEEP_WRITE_CAP=20          # optional; how many writes one sweep firing may send
 KILL_SWITCH=1               # optional; refuse everything, loudly — including armed writes
 XDG_STATE_HOME=…            # optional; where the state home lives
 ```
@@ -106,6 +107,12 @@ never woken; present, a due `sweep:` schedule row is claimed on the reconciliati
 one fact record per open item. It needs the credential triad for the reason the slug does — a
 cadence is an instruction to READ GitHub — and the `startup` line carries
 `sweep: "armed" | "absent"` beside `writes`.
+
+**One firing writes at most `SWEEP_WRITE_CAP` times, twenty by default.** A webhook writes for one
+item and a firing writes for every one, so the cap is the sweep's: an approved act it holds back is
+refused `sweepWriteCap`, is journalled nowhere, and is decided again next firing from the same cause.
+The `sweepFinished` line carries `writes` and `heldBack`, so a repository the cap is starving says so
+every firing.
 
 `KILL_SWITCH=1` refuses at the decision gate as it always has, and an armed write path meets it again
 between deciding and applying: the applier re-checks it before every send and before every resend, so

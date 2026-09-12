@@ -155,6 +155,17 @@ if (cadenceHours !== null && credentialCount !== 3) {
     process.exit(1);
 }
 
+/**
+ * How many writes ONE firing may send, overriding the cap `sweep.ts` declares (D167).
+ * It arms nothing, so unlike the cadence it asks for no credentials of its own.
+ */
+const cap = env["SWEEP_WRITE_CAP"];
+const writeCap = cap === undefined ? null : Number(cap);
+if (writeCap !== null && (!Number.isInteger(writeCap) || writeCap < 1)) {
+    console.error("SWEEP_WRITE_CAP must be a whole number of writes, 1 or more.");
+    process.exit(1);
+}
+
 const killSwitchActive = env["KILL_SWITCH"] === "1";
 const repository = { owner, repo };
 /** Everything past the last refusal above says what it did, in JSON. */
@@ -319,7 +330,11 @@ const applier: Applier | undefined =
 const sweep =
     cadenceHours === null || live === null
         ? undefined
-        : { facts: live.facts, cadenceMs: cadenceHours * 60 * 60_000 };
+        : {
+              facts: live.facts,
+              cadenceMs: cadenceHours * 60 * 60_000,
+              ...(writeCap === null ? {} : { writeCap }),
+          };
 
 const shell = createShell({
     secret,

@@ -131,6 +131,10 @@ export type ShellEvent =
           readonly decided: number;
           /** Records whose links went unread; see `sweep.ts` on the inverse. */
           readonly unread: number;
+          /** Writes this firing spent of its cap (D167). */
+          readonly writes: number;
+          /** Approved effects the cap held back; the next firing decides each again. */
+          readonly heldBack: number;
           readonly nextDueAt: string;
       }
     | {

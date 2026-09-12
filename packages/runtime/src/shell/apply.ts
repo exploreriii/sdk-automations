@@ -227,13 +227,14 @@ export function createApplier(options: ApplierOptions): Applier {
     /**
      * Contained the way `decide()` contains it: a lookup that threw established nothing,
      * and D51 rules an unestablished ordering a conflict, which the rules already refuse.
+     * The journal goes with the item, because GitHub attributes the App's own release to the assignee (D159).
      */
     const orderingFor = async (
         facts: ShellExternals,
         item: ItemRef,
     ): Promise<HumanChangeOrdering> => {
         try {
-            return await facts.latestHumanChangeAt(item);
+            return await facts.latestHumanChangeAt(item, store.ownWritesOn(item));
         } catch {
             return "unknown";
         }

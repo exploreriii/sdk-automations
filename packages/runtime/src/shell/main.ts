@@ -210,7 +210,7 @@ function liveGitHub({
 
     /**
      * The applier's externals, built FRESH on every call (`EffectExternalsSource`).
-     * No cause fingerprint is excluded — a known over-refusal, since the seam takes no argument: refusing a write it could have made beats writing over a human's edit.
+     * No cause fingerprint is excluded — a known over-refusal, since the seam carries no cause: refusing a write it could have made beats writing over a human's edit.
      */
     const effectExternals = async (): Promise<ShellExternals> => {
         const grants = await installationGrants(tokenSource);

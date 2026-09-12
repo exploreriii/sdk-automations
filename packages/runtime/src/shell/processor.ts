@@ -15,6 +15,7 @@ import {
     type ConfigError,
     type Decision,
     type EngineCapability,
+    type Externals,
     type Facts,
     type Report,
     type RepositoryConfig,
@@ -269,29 +270,35 @@ export function createProcessor(options: ProcessorOptions): Processor {
         configRevision,
     });
 
+    /**
+     * One record's externals as CORE takes them — both callers' only way in.
+     * Two seams bind to the store HERE, because core's take one argument and this is the lane that owns a store: the recorded warning, which is the store's rather than the delivery's, so every composition owning one can answer it with credentials or without (grace.md §2); and the item's journal, because GitHub names the ASSIGNEE as the actor of a release the App made, so an unbound ordering read hands that release back as a human change and refuses the next act over it (D159).
+     */
+    const externalsFor = async (
+        delivery: Parameters<ExternalsForDelivery>[0],
+    ): Promise<Externals> => {
+        const facts = await externals(delivery);
+        return {
+            ...facts,
+            latestHumanChangeAt: (item) => facts.latestHumanChangeAt(item, store.ownWritesOn(item)),
+            warningFor: recordedWarningsIn(store),
+        };
+    };
+
     /** Stations 5–10 live behind one call: normalize, evaluate, screen, derive, gate. */
     const decideOn = async (
         claimed: ClaimedDelivery,
         payload: unknown,
         config: RepositoryConfig,
-    ): Promise<Decision> => {
-        // Built per delivery: the live path binds its ordering-evidence memo to this one.
-
-        const facts = await externals({
-            payload,
-            deliveryId: String(claimed.deliveryId),
-            config,
-        });
-        return decide(
+    ): Promise<Decision> =>
+        decide(
             { kind: "delivery", repository, event: claimed.eventName, payload },
             config,
             capabilities,
-            // The recorded warning is the store's, not the delivery's, so every composition
-            // that owns a store can answer it, credentials or not (grace.md §2).
+            // Built per delivery: the live path binds its ordering-evidence memo to this one.
 
-            { ...facts, warningFor: recordedWarningsIn(store) },
+            await externalsFor({ payload, deliveryId: String(claimed.deliveryId), config }),
         );
-    };
 
     /**
      * Stations ④ to ⑥ over a configuration that has already parsed.
@@ -432,12 +439,14 @@ export function createProcessor(options: ProcessorOptions): Processor {
                 },
                 config,
                 async () =>
-                    decide({ kind: "facts", facts }, config, capabilities, {
+                    decide(
+                        { kind: "facts", facts },
+                        config,
+                        capabilities,
                         // No payload: a sweep has no causing human action to exclude.
 
-                        ...(await externals({ payload: undefined, deliveryId, config })),
-                        warningFor: recordedWarningsIn(store),
-                    }),
+                        await externalsFor({ payload: undefined, deliveryId, config }),
+                    ),
             );
         },
 

@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
 import { Store } from "../../src/store/store.js";
-import { asDeliveryGuid } from "@hiero-hackers/automation-core";
+import { asDeliveryGuid, type ItemRef } from "@hiero-hackers/automation-core";
 
 const temp = useTempDir("store-test-");
 let path: string;
@@ -267,6 +267,80 @@ describe("openIntents — the sweep's journal worklist", () => {
                 revision: "rev-1",
             },
         ]);
+        s.close();
+    });
+});
+
+/**
+ * The rows are written here by hand rather than through the shell's serializer:
+ * only the runtime's composition root may span both, and what this read depends
+ * on is the row's BYTES — the item it names, its verb, and a release's login.
+ */
+describe("ownWritesOn — the journal as the record of what the platform did", () => {
+    const ISSUE: ItemRef = { kind: "issue", number: 164 };
+    const row = (item: unknown, fields: Record<string, unknown>): string =>
+        JSON.stringify({ capability: "inactivity", item, ...fields });
+    const released = row(ISSUE, { verb: "releaseAssignment", login: "alice" });
+
+    it("answers a completed release with its login and the instant it closed", () => {
+        const s = new Store(path);
+        s.intent("e1", 1, released, "2026-07-23T10:00:00.000Z", "rev-1");
+        s.done("e1", 1, "2026-07-23T10:00:02.000Z");
+
+        expect(s.ownWritesOn(ISSUE)).toEqual([
+            {
+                operation: "releaseAssignment",
+                login: "alice",
+                doneAt: "2026-07-23T10:00:02.000Z",
+            },
+        ]);
+        s.close();
+    });
+
+    it("answers a call that names no login without one", () => {
+        const s = new Store(path);
+        const labelled = row(ISSUE, { verb: "addLabel", label: "ready" });
+        s.intent("e1", 1, labelled, "2026-07-23T10:00:00.000Z", "rev-1");
+        s.done("e1", 1, "2026-07-23T10:00:01.000Z");
+
+        expect(s.ownWritesOn(ISSUE)).toEqual([
+            { operation: "addLabel", doneAt: "2026-07-23T10:00:01.000Z" },
+        ]);
+        s.close();
+    });
+
+    it("leaves out an open row, because a call nobody proved is no write", () => {
+        const s = new Store(path);
+        s.intent("e1", 1, released, "2026-07-23T10:00:00.000Z", "rev-1");
+
+        expect(s.ownWritesOn(ISSUE)).toEqual([]);
+        s.close();
+    });
+
+    it.each([
+        ["another number", row({ kind: "issue", number: 165 }, { verb: "releaseAssignment" })],
+        ["another kind", row({ kind: "pullRequest", number: 164 }, { verb: "releaseAssignment" })],
+        ["no verb", row(ISSUE, { login: "alice" })],
+        ["no item", row(undefined, { verb: "releaseAssignment" })],
+        ["bytes that are not JSON", "add-label"],
+    ])("leaves out a row naming %s", (_name, intent) => {
+        const s = new Store(path);
+        s.intent("e1", 1, intent, "2026-07-23T10:00:00.000Z", "rev-1");
+        s.done("e1", 1, "2026-07-23T10:00:01.000Z");
+
+        expect(s.ownWritesOn(ISSUE)).toEqual([]);
+        s.close();
+    });
+
+    it("lists every item's own writes oldest first, across effects", () => {
+        const s = new Store(path);
+        s.intent("e2", 1, released, "2026-07-23T11:00:00.000Z", "rev-1");
+        s.done("e2", 1, "2026-07-23T11:00:01.000Z");
+        const releasedBob = row(ISSUE, { verb: "releaseAssignment", login: "bob" });
+        s.intent("e1", 1, releasedBob, "2026-07-23T10:00:00.000Z", "rev-1");
+        s.done("e1", 1, "2026-07-23T10:00:01.000Z");
+
+        expect(s.ownWritesOn(ISSUE).map((write) => write.login)).toEqual(["bob", "alice"]);
         s.close();
     });
 });

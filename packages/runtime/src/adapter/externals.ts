@@ -60,6 +60,9 @@ const TIMELINE_READ_CAP = 3;
 
 const TIMELINE_PAGE_SIZE = 100;
 
+/** How long before its journalled `done` instant an own write's timeline event may be dated. */
+const OWN_WRITE_WINDOW_MS = 60_000;
+
 /** The delivery's causing human action, so it cannot conflict with itself. */
 export interface CauseFingerprint {
     readonly actorLogin: string;
@@ -67,6 +70,16 @@ export interface CauseFingerprint {
     readonly itemNumber: number;
     readonly action: string;
     readonly target: string | null;
+}
+
+/**
+ * One completed call the platform made on the item being read — the store's `StoredOwnWrite`.
+ * Restated rather than imported, and `main.ts` is where the two shapes are checked against each other.
+ */
+export interface OwnWrite {
+    readonly operation: string;
+    readonly login?: string;
+    readonly doneAt: string;
 }
 
 /** What one delivery's ordering reads need; built fresh per delivery. */
@@ -83,8 +96,31 @@ export interface OrderingEvidenceOptions {
 const sameSecond = (a: Date, b: Date): boolean =>
     Math.floor(a.getTime() / 1000) === Math.floor(b.getTime() / 1000);
 
+/** The label or assignee identifies the touched target; state changes need neither. */
+function changeTarget(entry: unknown, action: string): unknown {
+    if (action === "labeled" || action === "unlabeled") return field(field(entry, "label"), "name");
+    if (action === "assigned" || action === "unassigned")
+        return field(field(entry, "assignee"), "login");
+    return null;
+}
+
+/**
+ * Does the journal hold a release of this login dated within the window before `at`?
+ * A human unassigning the same login in the same minute is indistinguishable, and holds the platform back.
+ */
+function releasedByApp(login: unknown, at: Date, ownWrites: readonly OwnWrite[]): boolean {
+    if (typeof login !== "string") return false;
+    return ownWrites.some((write) => {
+        if (write.operation !== "releaseAssignment" || write.login !== login) return false;
+        const done = new Date(write.doneAt).getTime();
+        if (!Number.isFinite(done)) return false;
+        const gap = done - at.getTime();
+        return gap >= 0 && gap <= OWN_WRITE_WINDOW_MS;
+    });
+}
+
 /** A `Date`; `null` for an entry that does not count; `"unparsable"` for one that cannot be trusted. */
-function humanChangeAt(entry: unknown): Date | null | "unparsable" {
+function humanChangeAt(entry: unknown, ownWrites: readonly OwnWrite[]): Date | null | "unparsable" {
     const kind = field(entry, "event");
     // Stryker disable next-line ConditionalExpression: Set.has answers false for any non-string already; the typeof arm is for readers.
     if (typeof kind !== "string" || !HUMAN_CHANGE_EVENTS.has(kind)) return null;
@@ -96,22 +132,23 @@ function humanChangeAt(entry: unknown): Date | null | "unparsable" {
     if (typeof createdAt !== "string") return "unparsable";
     const at = new Date(createdAt);
     if (!Number.isFinite(at.getTime())) return "unparsable";
+    // GitHub names the ASSIGNEE as the actor of a release the App made (D159).
+
+    if (kind === "unassigned" && releasedByApp(changeTarget(entry, kind), at, ownWrites)) {
+        return null;
+    }
     return at;
 }
 
-/** The label or assignee identifies the touched target; state changes need neither. */
-function changeTarget(entry: unknown, action: string): unknown {
-    if (action === "labeled" || action === "unlabeled") return field(field(entry, "label"), "name");
-    if (action === "assigned" || action === "unassigned")
-        return field(field(entry, "assignee"), "login");
-    return null;
-}
-
 /** Exclude at most one matching cause. Every other change still counts, including ties. */
-function newestIn(events: readonly unknown[], cause?: CauseFingerprint): HumanChangeOrdering {
+function newestIn(
+    events: readonly unknown[],
+    ownWrites: readonly OwnWrite[],
+    cause?: CauseFingerprint,
+): HumanChangeOrdering {
     let newest: Date | null = null;
     for (const entry of events) {
-        const at = humanChangeAt(entry);
+        const at = humanChangeAt(entry, ownWrites);
         if (at === "unparsable") return "unknown";
         if (at === null) continue;
         if (
@@ -162,6 +199,7 @@ function parsePage(outcome: GitHubOutcome): PageOutcome {
 async function readOrdering(
     { http, repository, cause, onUnknownOrdering }: OrderingEvidenceOptions,
     item: ItemRef,
+    ownWrites: readonly OwnWrite[],
 ): Promise<HumanChangeOrdering> {
     const pageUrl = (page: number): string =>
         `${repoPath(repository)}/issues/${String(item.number)}/timeline` +
@@ -181,7 +219,7 @@ async function readOrdering(
     const itemCause = cause?.itemNumber === item.number ? cause : undefined;
     /** The newest human change in these events, saying why when it cannot tell. */
     const newestOf = (events: readonly unknown[]): HumanChangeOrdering => {
-        const answer = newestIn(events, itemCause);
+        const answer = newestIn(events, ownWrites, itemCause);
         return answer === "unknown"
             ? unknown("a timeline entry carried an unreadable actor or timestamp")
             : answer;
@@ -237,16 +275,19 @@ export function causeFingerprintOf(payload: unknown): CauseFingerprint | undefin
     return { actorLogin: login, observedAt, itemNumber, action, target };
 }
 
-/** One delivery's memo: concurrent intents share each item's in-flight read. */
+/**
+ * One delivery's memo: concurrent intents share each item's in-flight read.
+ * The FIRST caller's own writes answer for the item, so every caller sharing a memo must pass the same journal.
+ */
 export function orderingEvidenceSource(
     options: OrderingEvidenceOptions,
-): (item: ItemRef) => Promise<HumanChangeOrdering> {
+): (item: ItemRef, ownWrites?: readonly OwnWrite[]) => Promise<HumanChangeOrdering> {
     const memo = new Map<string, Promise<HumanChangeOrdering>>();
-    return (item) => {
+    return (item, ownWrites = []) => {
         const key = `${item.kind}#${String(item.number)}`;
         let pending = memo.get(key);
         if (pending === undefined) {
-            pending = readOrdering(options, item);
+            pending = readOrdering(options, item, ownWrites);
             memo.set(key, pending);
         }
         return pending;
@@ -256,7 +297,10 @@ export function orderingEvidenceSource(
 /** The two facts the live fill supplies; the shell adds its own. */
 export interface LiveExternalFacts {
     readonly installationGrants: readonly PermissionGrant[];
-    readonly latestHumanChangeAt: (item: ItemRef) => Promise<HumanChangeOrdering>;
+    readonly latestHumanChangeAt: (
+        item: ItemRef,
+        ownWrites?: readonly OwnWrite[],
+    ) => Promise<HumanChangeOrdering>;
     readonly resolve: ResolverSource;
 }
 

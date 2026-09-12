@@ -13,6 +13,7 @@ import {
     liveExternalsForDelivery,
     orderingEvidenceSource,
     type CauseFingerprint,
+    type OwnWrite,
 } from "../../src/adapter/externals.js";
 import {
     failure,
@@ -378,6 +379,59 @@ describe("ordering evidence", () => {
 
         expect(await lookup(ITEM)).toBeNull();
         expect(scripted.calls).toHaveLength(3);
+    });
+});
+
+/**
+ * An `unassigned` event names the ASSIGNEE as its actor, a `User`, even when the
+ * App made the release — so the timeline alone cannot tell the platform's own act
+ * from a human's, and the journal is the only record that can (D159).
+ */
+describe("the platform's own assignment writes", () => {
+    const RELEASED_AT = "2026-08-20T10:00:03Z";
+    const EVENT_AT = "2026-08-20T10:00:00Z";
+    const release = (login: string, doneAt = RELEASED_AT): OwnWrite => ({
+        operation: "releaseAssignment",
+        login,
+        doneAt,
+    });
+    /** The event GitHub writes for a release, App-made or human: the assignee acting on themselves. */
+    const unassigned = (login: string, createdAt: string) =>
+        entry("unassigned", login, createdAt, "User", login);
+
+    it("does not count a release its own journal claims", async () => {
+        const { lookup } = source([page([unassigned("alice", EVENT_AT)])]);
+
+        expect(await lookup(ITEM, [release("alice")])).toBeNull();
+    });
+
+    it("counts a human unassigning a different login in the same second", async () => {
+        const { lookup } = source([page([unassigned("bob", EVENT_AT)])]);
+
+        expect(await lookup(ITEM, [release("alice")])).toEqual(new Date(EVENT_AT));
+    });
+
+    it("counts the same login unassigned five minutes either side of the release", async () => {
+        const after = "2026-08-20T10:05:03Z";
+        const before = "2026-08-20T09:55:03Z";
+        const later = source([page([unassigned("alice", after)])]);
+        const earlier = source([page([unassigned("alice", before)])]);
+
+        expect(await later.lookup(ITEM, [release("alice")])).toEqual(new Date(after));
+        expect(await earlier.lookup(ITEM, [release("alice")])).toEqual(new Date(before));
+    });
+
+    it("leaves a Bot's close excluded as it already was", async () => {
+        const { lookup } = source([page([entry("closed", "app[bot]", EVENT_AT, "Bot", "")])]);
+
+        expect(await lookup(ITEM, [release("alice")])).toBeNull();
+    });
+
+    it("counts an own write of another operation, and one naming another login", async () => {
+        const { lookup } = source([page([unassigned("alice", EVENT_AT)])]);
+        const label: OwnWrite = { operation: "addLabel", doneAt: RELEASED_AT };
+
+        expect(await lookup(ITEM, [label, release("carol")])).toEqual(new Date(EVENT_AT));
     });
 });
 

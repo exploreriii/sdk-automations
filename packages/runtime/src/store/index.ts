@@ -18,6 +18,6 @@ export type {
     ReleaseDeliveryAfterFailureResult,
     ReleaseDeliveryResult,
 } from "./deliveries.js";
-export type { EffectState, OpenIntent, StoredWarning } from "./effects.js";
+export type { EffectState, OpenIntent, StoredOwnWrite, StoredWarning } from "./effects.js";
 export type { ClaimedScheduleRow, ScheduleRow } from "./schedules.js";
 export * from "./store.js";

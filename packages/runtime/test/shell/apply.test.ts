@@ -17,7 +17,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeRequestFor, type Effect } from "@hiero-hackers/automation-core";
-import { Store } from "../../src/store/index.js";
+import { Store, type StoredOwnWrite } from "../../src/store/index.js";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
 import {
     createApplier,
@@ -824,6 +824,55 @@ describe("re-gating at apply time", () => {
         } finally {
             freshStore.close();
         }
+    });
+
+    /**
+     * D159. GitHub names the ASSIGNEE as the actor of an `unassigned` event even
+     * when the App made the release, so the only record that the platform itself
+     * released `alice` is the journal row below. The seam is handed that row and
+     * applies the rule; what this pins is that the applier reads it and passes it,
+     * with the login and the instant the journal closed the call.
+     */
+    it("hands the ordering seam the release this item's own journal records", async () => {
+        const releasedAt = new Date(CAUSE_AT.getTime() + 30 * 60_000);
+        const row = serializeCall({
+            capability: "inactivity",
+            item: ITEM,
+            call: { verb: "releaseAssignment", login: "alice" },
+        });
+        store.intent("released-by-us", 1, row, releasedAt.toISOString(), "rev-1");
+        store.done("released-by-us", 1, releasedAt.toISOString());
+
+        let handed: readonly StoredOwnWrite[] | undefined;
+        const externals: EffectExternalsSource = () =>
+            stubbedExternals({
+                latestHumanChangeAt: (_item, ownWrites) => {
+                    handed = ownWrites;
+                    return ownWrites?.some(
+                        (write) =>
+                            write.operation === "releaseAssignment" && write.login === "alice",
+                    )
+                        ? null
+                        : releasedAt;
+                },
+            });
+
+        const github = fakeGitHub();
+        const outcome = one(
+            await applierOver(github, { externals }).applyAll(
+                [labelEffect({ meaning: "ready" })],
+                configFor(),
+            ),
+        );
+
+        expect(handed).toEqual([
+            {
+                operation: "releaseAssignment",
+                login: "alice",
+                doneAt: releasedAt.toISOString(),
+            },
+        ]);
+        expect(outcome).toMatchObject({ outcome: "applied" });
     });
 });
 

@@ -198,7 +198,9 @@ them goes missing between pages. `design/contracts/safety.md` §5 points here fo
 | Tested reversal | Every operation has a tested disablement, repair and rollback path before it runs against a repository | the sandbox and pilot rings in `CONTRIBUTING.md` |
 | Dry-run first | An operation appears in a new environment's dry-run before any active run performs it | the mode ladder in `design/contracts/config-schema.md`; step 9 of `design/trace.md` |
 
-Two consequences worth stating once, because no single layer owns them: the adapter removes only the
-values it manages and never every value under a prefix (`design/contracts/safety.md` §3), and a
+Three consequences worth stating once, because no single layer owns them: the adapter removes only
+the values it manages and never every value under a prefix (`design/contracts/safety.md` §3), a
 destructive act reaches a repository only through the warning-and-grace path of
-`design/guides/grace.md`.
+`design/guides/grace.md`, and the platform recognises its own assignment writes by its journal
+rather than by an event's actor, because GitHub attributes an `unassigned` event to the assignee
+whoever made it (D159).

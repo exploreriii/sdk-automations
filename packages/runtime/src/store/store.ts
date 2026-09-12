@@ -8,7 +8,7 @@
 
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { asDeliveryGuid, type DeliveryGuid } from "@hiero-hackers/automation-core";
+import { asDeliveryGuid, type DeliveryGuid, type ItemRef } from "@hiero-hackers/automation-core";
 import { assertUtcInstant } from "./instants.js";
 import {
     assertSupportedStorageSchemaVersion,
@@ -29,7 +29,7 @@ import type {
     ReleaseDeliveryAfterFailureResult,
     ReleaseDeliveryResult,
 } from "./deliveries.js";
-import type { EffectState, OpenIntent, StoredWarning } from "./effects.js";
+import type { EffectState, OpenIntent, StoredOwnWrite, StoredWarning } from "./effects.js";
 import type { ClaimedScheduleRow, ScheduleRow } from "./schedules.js";
 
 /** A deliberate interruption point in schema or delivery durability work. */
@@ -86,6 +86,28 @@ function assertReportJson(value: string): void {
 
 function payloadDigest(payload: Uint8Array): string {
     return createHash("sha256").update(payload).digest("hex");
+}
+
+/** One field of a parsed row, own properties only, so no prototype value arrives as a row's. */
+function field(value: unknown, name: string): unknown {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    return Object.hasOwn(value, name) ? (value as Record<string, unknown>)[name] : undefined;
+}
+
+/** A journal row's bytes read as a write on `item`, or `null` when they are not one. */
+function ownWriteOn(item: ItemRef, intent: string, doneAt: string): StoredOwnWrite | null {
+    let row: unknown;
+    try {
+        row = JSON.parse(intent);
+    } catch {
+        return null;
+    }
+    const named = field(row, "item");
+    if (field(named, "kind") !== item.kind || field(named, "number") !== item.number) return null;
+    const operation = field(row, "verb");
+    if (typeof operation !== "string") return null;
+    const login = field(row, "login");
+    return { operation, ...(typeof login === "string" ? { login } : {}), doneAt };
 }
 
 /** One `destructive_warning` row, as SQLite hands it back. */
@@ -676,6 +698,20 @@ export class Store {
             at: r.at,
             revision: r.revision,
         }));
+    }
+
+    /**
+     * Every completed call the platform made on one item — what GitHub's actor cannot say (D159).
+     * A row whose bytes name no item is skipped: bytes nobody can read claim no write.
+     */
+    ownWritesOn(item: ItemRef): StoredOwnWrite[] {
+        const rows = this.db
+            .prepare("SELECT intent, at FROM effect_journal WHERE status = 'done' ORDER BY at")
+            .all() as { intent: string; at: string }[];
+        return rows.flatMap((row) => {
+            const write = ownWriteOn(item, row.intent, row.at);
+            return write === null ? [] : [write];
+        });
     }
 
     // ── Claims (lock) ───────────────────────────────────────────────

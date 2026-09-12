@@ -52,3 +52,14 @@ export interface OpenIntent {
     readonly at: string;
     readonly revision: string;
 }
+
+/**
+ * One `done` journal row, as a write the platform made on an item (D159).
+ * `operation` is the row's call VERB, which only a release shares with its operation's name.
+ */
+export interface StoredOwnWrite {
+    readonly operation: string;
+    /** The login a release names; absent on every call that names none. */
+    readonly login?: string;
+    readonly doneAt: string;
+}

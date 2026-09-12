@@ -31,10 +31,11 @@ import {
 } from "@hiero-hackers/automation-core";
 import { CAPABILITIES, inactivity } from "@hiero-hackers/automation-capabilities";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
-import { createFactsReader } from "../src/adapter/index.js";
+import { createFactsReader, orderingEvidenceSource } from "../src/adapter/index.js";
 import {
     createProcessor,
     createSweep,
+    serializeCall,
     stubbedExternals,
     SWEEP_EFFECT,
     sweepScheduleId,
@@ -652,5 +653,156 @@ describe("the reader and the driver together", () => {
             review: UNREAD,
         });
         expect(events("sweepFinished")).toMatchObject([{ items: 2, decided: 2 }]);
+    });
+});
+
+// ─── The release the platform made itself ────────────────────────────
+
+/**
+ * D159. GitHub attributes an `unassigned` event to the ASSIGNEE even when the App
+ * made the release, so the item's own journal is the only record that the change
+ * was the platform's. `decide()` takes a ONE-argument ordering seam, which leaves
+ * the lane that owns the store to bind the journal to it; unbound, the App's own
+ * release reads back as a human change and refuses the next act over it.
+ *
+ * The reader here is the real one over a recorded timeline and the row is written
+ * as the applier writes it, so what the case pins is the binding and nothing else.
+ */
+describe("an item the platform released within the minute", () => {
+    /**
+     * The release landed as this firing was reading, which is what makes it bite: the
+     * rule compares against the record's own instant, and a tie goes to the human (D33).
+     * The same instant twice, because GitHub dates an event to the second and the journal
+     * declares in milliseconds; the read-back closed the row 30s later, inside the window.
+     */
+    const RELEASED_AT = "2026-09-09T12:00:00Z";
+    const DECLARED_AT = "2026-09-09T12:00:00.000Z";
+    const JOURNAL_CLOSED_AT = "2026-09-09T12:00:30.000Z";
+
+    /**
+     * One stale issue whose OTHER assignee the platform released.
+     * `bob` is gone from the list because the release landed; the event below is it.
+     */
+    const RECORDED = {
+        "/issues?": [
+            {
+                number: ISSUE.number,
+                state: "open",
+                updated_at: "2026-08-01T00:00:00Z",
+                labels: [],
+                user: { login: "ada" },
+                assignees: [{ login: "ada" }],
+            },
+        ],
+        "/issues/12/timeline": [
+            {
+                event: "assigned",
+                actor: { type: "User", login: "ada" },
+                assignee: { login: "ada" },
+                created_at: "2026-07-01T00:00:00Z",
+            },
+            {
+                event: "unassigned",
+                actor: { type: "User", login: "bob" },
+                assignee: { login: "bob" },
+                created_at: RELEASED_AT,
+            },
+        ],
+        "/issues/12/comments": [
+            { user: { login: "ada" }, created_at: "2026-07-02T00:00:00Z", body: "/working" },
+        ],
+    };
+
+    /** The row the applier leaves behind for a release it saw through. */
+    function journalTheRelease(into: Store): void {
+        const row = serializeCall({
+            capability: "inactivity",
+            item: ISSUE,
+            call: { verb: "releaseAssignment", login: "bob" },
+        });
+        into.intent("released-bob", 1, row, DECLARED_AT, "rev-sweep-1");
+        into.done("released-bob", 1, JOURNAL_CLOSED_AT);
+    }
+
+    /** One firing over `into`, and the codes the issue's decision came to. */
+    async function sweptCodes(into: Store): Promise<string[]> {
+        into.schedule(SCHEDULE, DUE_AT, SWEEP_EFFECT);
+        const capabilities: readonly EngineCapability[] = [inactivity];
+        const http = httpHarness([routed(RECORDED)]);
+        const processor = createProcessor({
+            store: into,
+            capabilities,
+            configSource: {
+                load: () =>
+                    Promise.resolve({
+                        ok: true,
+                        document: { revision: "rev-sweep-1", text: CONFIG_TEXT },
+                    }),
+            },
+            // Live-shaped: the seam the composition root hands down takes the journal.
+            externals: () =>
+                stubbedExternals({
+                    latestHumanChangeAt: orderingEvidenceSource({
+                        http: http.client,
+                        repository: REPOSITORY,
+                    }),
+                }),
+            repository: REPOSITORY,
+            worker: "sweep-1",
+            clock: () => NOW,
+            log,
+        });
+        const records: ShellRecord[] = [];
+        const sweep = createSweep({
+            store: into,
+            capabilities,
+            processor: {
+                configuration: () => processor.configuration(),
+                processFacts: async (input) => {
+                    const record = await processor.processFacts(input);
+                    records.push(record);
+                    return record;
+                },
+            },
+            facts: (config) =>
+                createFactsReader({
+                    http: http.client,
+                    repository: REPOSITORY,
+                    config,
+                    knownCapabilities: [],
+                    clock: () => NOW,
+                }),
+            clock: () => NOW,
+            cadenceMs: DAY_MS,
+            log,
+        });
+
+        await sweep.runDue();
+        const [record] = records;
+        expect(record?.kind, "the swept issue was decided").toBe("decision");
+        return record?.kind === "decision"
+            ? record.report.findings.map((finding) => finding.code)
+            : [];
+    }
+
+    it("reads its own release off the journal, and the same event without one as a human's", async () => {
+        const journalled = new Store(temp.file("journalled.sqlite"));
+        const unjournalled = new Store(temp.file("unjournalled.sqlite"));
+        try {
+            journalTheRelease(journalled);
+
+            // Recorded rather than acted because the mode is dry-run; what matters is
+            // that the ladder got PAST the ordering rule.
+            expect(await sweptCodes(journalled)).toEqual([
+                "capabilityExplained",
+                "modeRecordsOnly",
+                "wouldApply",
+            ]);
+            // The same timeline with no row behind it: the App's release is a human's.
+            expect(await sweptCodes(unjournalled)).toEqual(["newerHumanChange"]);
+        } finally {
+            journalled.close();
+            unjournalled.close();
+        }
     });
 });

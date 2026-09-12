@@ -9,13 +9,24 @@ import {
     type ActionClass,
     type DestructiveWarning,
     type Externals,
+    type HumanChangeOrdering,
+    type ItemRef,
     type RepositoryConfig,
     type ResolverAnswer,
     type ResolverSource,
 } from "@hiero-hackers/automation-core";
-import type { Store } from "../store/index.js";
+import type { Store, StoredOwnWrite } from "../store/index.js";
 
-export type ShellExternals = Omit<Externals, "now">;
+/**
+ * Core's externals, with the ordering read also taking the platform's own writes (D159).
+ * The argument is optional, so a source that ignores it is still core's one-argument lookup.
+ */
+export type ShellExternals = Omit<Externals, "now" | "latestHumanChangeAt"> & {
+    readonly latestHumanChangeAt: (
+        item: ItemRef,
+        ownWrites?: readonly StoredOwnWrite[],
+    ) => HumanChangeOrdering | Promise<HumanChangeOrdering>;
+};
 
 /**
  * The recorded-warning seam, over the owned store (grace.md §2).

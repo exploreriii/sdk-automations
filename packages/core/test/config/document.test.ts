@@ -370,6 +370,13 @@ describe("no document, however hostile, escapes as an exception", () => {
      * bounds expansion, it does not ban a YAML feature — the alias resolves,
      * and the only complaint is the anchor's own top-level key.
      */
+    it("a document that aliases itself is unparseable, never a throw", () => {
+        const result = parse("schemaVersion:\n  &x\n  - *x\n");
+        expect(!result.ok && result.errors.map((error) => error.code)).toEqual([
+            "documentUnparseable",
+        ]);
+    });
+
     it("a document using aliases within the budget still resolves them", () => {
         const modest = `x: &x observe\nschemaVersion: 1\nmode: *x\ncapabilities: {}\n`;
         const result = parse(modest);

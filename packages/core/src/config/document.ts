@@ -22,6 +22,17 @@ import type { ParseConfigOptions } from "./schema.js";
 /** Aliases can expand quadratically; no honest configuration uses one. */
 const MAX_ALIAS_COUNT = 10;
 
+/** A value that contains itself through an alias: `toJS` returns it, `JSON.stringify` never will. */
+function refersToItself(value: unknown, ancestors: Set<object>): boolean {
+    if (typeof value !== "object" || value === null) return false;
+    if (ancestors.has(value)) return true;
+    ancestors.add(value);
+    const children = Array.isArray(value) ? value : Object.values(value);
+    const found = children.some((child) => refersToItself(child, ancestors));
+    ancestors.delete(value);
+    return found;
+}
+
 /** Classified. `duplicateKey` is the only syntax error that SUCCEEDS. */
 function documentError(error: YAMLError): ConfigError {
     return error.code === "DUPLICATE_KEY"
@@ -123,6 +134,19 @@ export function parseConfigDocument(text: string, options: ParseConfigOptions): 
                 err(
                     "documentUnparseable",
                     `the document expands to more than ${MAX_ALIAS_COUNT} YAML aliases and was not read; a repository configuration has no legitimate use for anchors at that scale`,
+                    null,
+                ),
+            ],
+        };
+    }
+
+    if (refersToItself(value, new Set())) {
+        return {
+            ok: false,
+            errors: [
+                err(
+                    "documentUnparseable",
+                    "the document refers to itself through a YAML alias and was not read",
                     null,
                 ),
             ],

@@ -97,7 +97,7 @@ let store: Store;
 beforeEach(() => {
     logged = [];
     store = new Store(temp.file("store.sqlite"));
-    store.acceptDelivery({
+    store.inbox.acceptDelivery({
         deliveryId: GUID,
         eventName: "issues",
         payload: FIXTURE,
@@ -123,7 +123,7 @@ function processor(capability: EngineCapability, firstTickMs = 1_000) {
 }
 
 function records(): Record<string, unknown>[] {
-    return store
+    return store.inbox
         .deliveryReports()
         .map((report) => JSON.parse(report.reportJson) as Record<string, unknown>);
 }
@@ -249,9 +249,9 @@ describe("a delivery from another repository", () => {
         await serving.processor.drain();
 
         expect(records()).toHaveLength(1);
-        expect(store.deadLetteredDeliveries()).toEqual([]);
+        expect(store.inbox.deadLetteredDeliveries()).toEqual([]);
         expect(
-            store.claimNextDelivery(
+            store.inbox.claimNextDelivery(
                 "assert",
                 "2026-08-07T23:00:00.000Z",
                 "2026-08-07T22:00:00.000Z",
@@ -292,7 +292,7 @@ describe("a delivery from another repository", () => {
         ],
         ["no name", '{"repository":{"owner":{"login":"scrubbed-1"}}}', "repositoryUnreadable"],
     ])("leaves %s to the report that names it", async (_shape, payload, code) => {
-        store.acceptDelivery({
+        store.inbox.acceptDelivery({
             deliveryId: SECOND_GUID,
             eventName: "issues",
             payload: Buffer.from(payload),
@@ -374,7 +374,7 @@ describe("a crash counts an attempt", () => {
 
     it("does not steal a fresh claim but takes over after the 15-minute lease", async () => {
         expect(
-            store.claimNextDelivery(
+            store.inbox.claimNextDelivery(
                 "stalled-worker",
                 new Date(BASE.getTime() + 60_000).toISOString(),
                 new Date(BASE.getTime() - 60_000).toISOString(),
@@ -395,7 +395,7 @@ describe("a crash counts an attempt", () => {
         await healthy.drain();
         expect(records()).toHaveLength(1);
 
-        store.acceptDelivery({
+        store.inbox.acceptDelivery({
             deliveryId: SECOND_GUID,
             eventName: "issues",
             payload: FIXTURE,
@@ -409,7 +409,9 @@ describe("a crash counts an attempt", () => {
         const lostClaim: EngineCapability = {
             declaration: intakeDeclaration,
             evaluate: async () => {
-                expect(store.requeueStuckDeliveries("2026-08-07T10:00:01.000Z")).toEqual([GUID]);
+                expect(store.inbox.requeueStuckDeliveries("2026-08-07T10:00:01.000Z")).toEqual([
+                    GUID,
+                ]);
                 return [];
             },
         };
@@ -433,7 +435,7 @@ describe("a crash counts an attempt", () => {
             },
         ]);
         expect(
-            store.claimNextDelivery(
+            store.inbox.claimNextDelivery(
                 "next-worker",
                 "2026-08-07T10:01:00.000Z",
                 "2026-08-07T09:00:00.000Z",
@@ -448,7 +450,7 @@ describe("a crash counts an attempt", () => {
         const lostClaim: EngineCapability = {
             declaration: intakeDeclaration,
             evaluate: async () => {
-                store.requeueStuckDeliveries("2026-08-07T10:30:00.000Z");
+                store.inbox.requeueStuckDeliveries("2026-08-07T10:30:00.000Z");
                 return [];
             },
         };
@@ -456,7 +458,7 @@ describe("a crash counts an attempt", () => {
 
         expect(records()).toEqual([]);
         expect(
-            store.claimNextDelivery(
+            store.inbox.claimNextDelivery(
                 "next-worker",
                 "2026-08-07T10:01:00.000Z",
                 "2026-08-07T09:00:00.000Z",
@@ -492,7 +494,7 @@ describe("a poison delivery", () => {
 
     beforeEach(() => {
         consulted = 0;
-        store.acceptDelivery({
+        store.inbox.acceptDelivery({
             deliveryId: SECOND_GUID,
             eventName: "issues",
             payload: HEALTHY,
@@ -543,7 +545,7 @@ describe("a poison delivery", () => {
         await drainAt(460_000);
         expect(consulted).toBe(4);
 
-        expect(store.deadLetteredDeliveries()).toEqual([
+        expect(store.inbox.deadLetteredDeliveries()).toEqual([
             expect.objectContaining({
                 deliveryId: GUID,
                 eventName: "issues",
@@ -770,7 +772,7 @@ capabilities:
     it("declares one due now when a clock-driven capability is enabled", async () => {
         await declaring(true).processOnce();
 
-        expect(store.claimDue(BASE.toISOString())).toMatchObject([
+        expect(store.ledger.claimDue(BASE.toISOString())).toMatchObject([
             {
                 scheduleId: `sweep:${REPOSITORY.owner}/${REPOSITORY.repo}`,
                 dueAt: BASE.toISOString(),
@@ -782,7 +784,7 @@ capabilities:
     it("declares none when the repository enables no capability that runs on a clock", async () => {
         await declaring(false).processOnce();
 
-        expect(store.claimDue(BASE.toISOString())).toEqual([]);
+        expect(store.ledger.claimDue(BASE.toISOString())).toEqual([]);
     });
 });
 
@@ -950,7 +952,7 @@ describe("the decision rows one pass writes", () => {
 
     /** `pruneDecisions` counts what it deleted, which is the only read of the whole table. */
     it("writes nothing for a record whose findings name no item", async () => {
-        store.acceptDelivery({
+        store.inbox.acceptDelivery({
             deliveryId: SECOND_GUID,
             eventName: "issues",
             payload: Buffer.from('{"action":"opened"}'),

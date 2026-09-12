@@ -63,5 +63,5 @@ export function declareSweep({
     now,
 }: SweepDeclaration): void {
     if (!wantsSweeping(config, capabilities)) return;
-    store.schedule(sweepScheduleId(repository), now.toISOString(), SWEEP_EFFECT);
+    store.ledger.schedule(sweepScheduleId(repository), now.toISOString(), SWEEP_EFFECT);
 }

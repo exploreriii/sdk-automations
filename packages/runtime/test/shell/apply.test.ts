@@ -86,7 +86,6 @@ function applierOver(github: FakeGitHub, overrides: ApplierOverrides = {}): Appl
     const owner = overrides.store ?? store;
     return createApplier({
         ledger: owner.ledger,
-        leases: owner,
         writer: github.writer,
         reader: github.reader,
         externals: overrides.externals ?? (() => stubbedExternals()),
@@ -142,7 +141,7 @@ function warn(effectId: string, item: ItemRef, snapshot: Omit<StoredWarning, "ef
 
 /** Whether the effect's lease is free — the probe claim only inserts if it is. */
 const leaseIsFree = (effectId: string): boolean =>
-    store.claim(
+    store.ledger.claim(
         effectId,
         "probe",
         BASE.toISOString(),
@@ -282,7 +281,7 @@ describe("a crash at each window between deciding and acknowledging", () => {
         expect(github.calls).toEqual([]);
         expect(leaseIsFree(keyOf(effect))).toBe(true);
 
-        store.release(keyOf(effect), "probe");
+        store.ledger.release(keyOf(effect), "probe");
         github.faults.itemReadThrows = false;
         const outcome = one(await applierOver(github).applyAll([effect], configFor()));
 
@@ -696,9 +695,9 @@ describe("recovering an effect nobody closed", () => {
     it("leaves a row alone while another worker holds its lease", async () => {
         const github = fakeGitHub();
         const effectId = orphan({ verb: "addLabel", label: READY_LABEL });
-        expect(store.claim(effectId, "other-worker", BASE.toISOString(), BASE.toISOString())).toBe(
-            true,
-        );
+        expect(
+            store.ledger.claim(effectId, "other-worker", BASE.toISOString(), BASE.toISOString()),
+        ).toBe(true);
 
         await applierOver(github).recover(openRow(), configFor());
 
@@ -1504,7 +1503,12 @@ describe("the effect lease", () => {
         const github = fakeGitHub();
         const heldAt = new Date(BASE.getTime() - (EFFECT_LEASE_STALE_MINUTES - 1) * 60_000);
         expect(
-            store.claim(keyOf(effect), "other-worker", heldAt.toISOString(), heldAt.toISOString()),
+            store.ledger.claim(
+                keyOf(effect),
+                "other-worker",
+                heldAt.toISOString(),
+                heldAt.toISOString(),
+            ),
         ).toBe(true);
 
         const outcome = one(await applierOver(github).applyAll([effect], configFor()));
@@ -1521,7 +1525,12 @@ describe("the effect lease", () => {
     it("is taken over once the holder is a full window stale", async () => {
         const github = fakeGitHub();
         const heldAt = new Date(BASE.getTime() - (EFFECT_LEASE_STALE_MINUTES + 1) * 60_000);
-        store.claim(keyOf(effect), "other-worker", heldAt.toISOString(), heldAt.toISOString());
+        store.ledger.claim(
+            keyOf(effect),
+            "other-worker",
+            heldAt.toISOString(),
+            heldAt.toISOString(),
+        );
 
         const outcome = one(await applierOver(github).applyAll([effect], configFor()));
 
@@ -1564,13 +1573,18 @@ describe("the effect lease", () => {
     it("does not release a lease this pass never held", async () => {
         const github = fakeGitHub();
         const heldAt = new Date(BASE.getTime() - (EFFECT_LEASE_STALE_MINUTES - 1) * 60_000);
-        store.claim(keyOf(effect), "other-worker", heldAt.toISOString(), heldAt.toISOString());
+        store.ledger.claim(
+            keyOf(effect),
+            "other-worker",
+            heldAt.toISOString(),
+            heldAt.toISOString(),
+        );
 
         await applierOver(github).applyAll([effect], configFor());
 
         // Still the other worker's: a refused claim must not hand its lease
         // away, which a `release` outside the claim's own branch would do.
-        expect(store.release(keyOf(effect), "other-worker")).toBe(true);
+        expect(store.ledger.release(keyOf(effect), "other-worker")).toBe(true);
     });
 });
 

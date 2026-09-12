@@ -280,7 +280,7 @@ function expectAgreement(db: DatabaseSync, store: Store, model: Model, where: st
             })),
     );
 
-    expect(store.deadLetteredDeliveries(), `${where} — dead letters`).toEqual(
+    expect(store.inbox.deadLetteredDeliveries(), `${where} — dead letters`).toEqual(
         [...model]
             .filter(([, delivery]) => delivery.state === "failed")
             .sort(([leftId, left], [rightId, right]) =>
@@ -327,7 +327,7 @@ describe("deliveries under random interleaving: store ≡ per-delivery lifecycle
                 // has something to win and the run does not open on misses.
                 for (const id of IDS.slice(0, 2)) {
                     const receivedAt = receipts.get(id)!;
-                    a.acceptDelivery({
+                    a.inbox.acceptDelivery({
                         deliveryId: id,
                         eventName: EVENT,
                         payload: canonicalPayload(id),
@@ -367,7 +367,7 @@ describe("deliveries under random interleaving: store ≡ per-delivery lifecycle
                                 ? rewrittenPayload(anyId)
                                 : canonicalPayload(anyId);
                         const receivedAt = receipts.get(anyId)!;
-                        const result = store.acceptDelivery({
+                        const result = store.inbox.acceptDelivery({
                             deliveryId: anyId,
                             eventName,
                             payload,
@@ -388,7 +388,7 @@ describe("deliveries under random interleaving: store ≡ per-delivery lifecycle
                         where += " claim";
                         const staleBefore = iso(nowMs - STALE);
                         const predicted = nextClaim(model, now, staleBefore);
-                        const claimed = store.claimNextDelivery(worker, now, staleBefore);
+                        const claimed = store.inbox.claimNextDelivery(worker, now, staleBefore);
                         expect(claimed?.deliveryId, `${where} — winner`).toBe(predicted);
                         if (claimed !== undefined) {
                             const delivery = model.get(claimed.deliveryId)!;
@@ -432,7 +432,7 @@ describe("deliveries under random interleaving: store ≡ per-delivery lifecycle
                             delivery !== undefined &&
                             delivery.state === "processing" &&
                             delivery.claimToken === token;
-                        expect(store.releaseDelivery(target, token), where).toEqual({
+                        expect(store.inbox.releaseDelivery(target, token), where).toEqual({
                             outcome: owns ? "released" : "notOwned",
                         });
                         if (owns) {
@@ -456,7 +456,7 @@ describe("deliveries under random interleaving: store ≡ per-delivery lifecycle
                             delivery.state === "processing" &&
                             delivery.claimToken === token;
                         const attempts = owns ? delivery.attempts + 1 : 0;
-                        const result = store.releaseDeliveryAfterFailure({
+                        const result = store.inbox.releaseDeliveryAfterFailure({
                             deliveryId: target,
                             claimToken: token,
                             failedAt: now,
@@ -492,7 +492,7 @@ describe("deliveries under random interleaving: store ≡ per-delivery lifecycle
                         const identityMatches = rand() >= 0.15;
                         const reportJson =
                             rand() < 0.3 ? revisedReport(target) : canonicalReport(target);
-                        const result = store.completeDeliveryWithReport({
+                        const result = store.inbox.completeDeliveryWithReport({
                             deliveryId: target,
                             eventName: EVENT,
                             payloadDigest: identityMatches
@@ -529,7 +529,7 @@ describe("deliveries under random interleaving: store ≡ per-delivery lifecycle
                             )
                             .map(([id]) => id)
                             .sort();
-                        expect(store.requeueStuckDeliveries(claimedBefore), where).toEqual(
+                        expect(store.inbox.requeueStuckDeliveries(claimedBefore), where).toEqual(
                             expected,
                         );
                         for (const id of expected) {
@@ -554,7 +554,7 @@ describe("deliveries under random interleaving: store ≡ per-delivery lifecycle
                 const drainStale = iso(nowMs + 5 * STALE);
                 const drained: DeliveryGuid[] = [];
                 for (let attempt = 0; attempt <= model.size; attempt++) {
-                    const claimed = a.claimNextDelivery("drain", iso(drainAt), drainStale);
+                    const claimed = a.inbox.claimNextDelivery("drain", iso(drainAt), drainStale);
                     if (claimed === undefined) break;
                     drained.push(claimed.deliveryId);
                 }
@@ -596,7 +596,7 @@ describe("retry budgets under random interleaving: attempts never exceed the cap
                 // this run is about repeated failure, not about intake.
                 for (const id of IDS.slice(0, 6)) {
                     const receivedAt = iso(START + Math.floor(rand() * 4) * MINUTE);
-                    a.acceptDelivery({
+                    a.inbox.acceptDelivery({
                         deliveryId: id,
                         eventName: EVENT,
                         payload: canonicalPayload(id),
@@ -621,7 +621,7 @@ describe("retry budgets under random interleaving: attempts never exceed the cap
                         where += " claim";
                         const staleBefore = iso(nowMs - STALE);
                         const predicted = nextClaim(model, now, staleBefore);
-                        const claimed = store.claimNextDelivery(worker, now, staleBefore);
+                        const claimed = store.inbox.claimNextDelivery(worker, now, staleBefore);
                         expect(claimed?.deliveryId, `${where} — winner`).toBe(predicted);
                         if (claimed !== undefined) {
                             const delivery = model.get(claimed.deliveryId)!;
@@ -646,7 +646,7 @@ describe("retry budgets under random interleaving: attempts never exceed the cap
                         const retryNotBefore = iso(nowMs + Math.floor(rand() * 3 * MINUTE));
                         const owns = delivery.claimToken === token;
                         const attempts = owns ? delivery.attempts + 1 : 0;
-                        const result = store.releaseDeliveryAfterFailure({
+                        const result = store.inbox.releaseDeliveryAfterFailure({
                             deliveryId: target,
                             claimToken: token,
                             failedAt: now,
@@ -684,7 +684,7 @@ describe("retry budgets under random interleaving: attempts never exceed the cap
                             )
                             .map(([id]) => id)
                             .sort();
-                        expect(store.requeueStuckDeliveries(claimedBefore), where).toEqual(
+                        expect(store.inbox.requeueStuckDeliveries(claimedBefore), where).toEqual(
                             expected,
                         );
                         for (const id of expected) {

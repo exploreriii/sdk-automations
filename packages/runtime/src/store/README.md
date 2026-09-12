@@ -1,11 +1,10 @@
 # store/ — the owned operational store
 
 The single-file SQLite store decided by protocol 6.5 and amended by D110 —
-`design/findings/storage-decision.md` — **ratification pending** under
-the stage-four review. The recovery experiment required four operational
-tables; the delivery completion boundary adds a fifth canonical-report table,
-and the grace contract (`design/guides/grace.md` §4) a sixth for the warning a
-destructive act must stand on.
+`design/findings/storage-decision.md` — **ratification pending** under the
+stage-four review. One file, two modules over one connection: the inbox is a
+queue whose rows move state in place, the ledger is appended and folded
+(D164). `Store` itself owns only the file.
 
 Two properties hold throughout, and most of the design follows from them:
 
@@ -15,9 +14,9 @@ Two properties hold throughout, and most of the design follows from them:
   chronological order, which every `<=` comparison relies on; anything else
   (offsets, mixed precision) throws instead of misordering silently.
 - **It fails closed on anything it does not recognize.** A declared schema
-  version above the current one, an unversioned file whose fingerprint
-  matches no schema this repository created, a delivery whose GUID is reused
-  with different bytes — each is refused rather than interpreted.
+  version above the current one, an unversioned file holding anything at all,
+  a delivery whose GUID is reused with different bytes — each is refused
+  rather than interpreted.
 
 ## What it owns, and what it does not
 
@@ -52,36 +51,40 @@ flowchart TB
     RETRY -->|"attempts reached the caller's cap"| DEAD
 ```
 
-The effect journal, effect claims and schedules run the same way and are
-independent of this path: no foreign keys join them. Delivery finalization is
-the one deliberate exception, updating `delivery_report` and `seen_delivery`
-together under a single write lock (D110).
+That is the whole of `inbox.ts`. The other half has no such path, because it
+has no states: an effect's history is a list of facts, appended one at a time
+and never rewritten, and where the effect stands is FOLDED from them on every
+read rather than stored (D161). `record` appends, `stateOf` folds, `open`
+lists the sends nothing has closed, and retention takes whole settled effects
+rather than single facts. The effect leases and the schedule rows live beside
+the facts because they are the same half's concern: what one worker may start
+now, and when the clock says to start it.
 
-## The files
+## The questions, and where each is answered
 
-| File | The question it answers |
+| The question | Answered in |
 |---|---|
-| [`schema.ts`](schema.ts) | Which owned database format is this, and how does it reach the current version safely? |
-| [`store.ts`](store.ts) | Which operational state transition may commit now? The one class, plus the timestamp contract every call validates. |
-| [`deliveries.ts`](deliveries.ts) | What is a delivery, and what comes back from operating on one? |
-| [`facts.ts`](facts.ts) | What does the ledger record, and what does reading those records answer? |
-| [`fold.ts`](fold.ts) | Where does an effect stand, given its facts, and is that history possible? |
-| [`ledger.ts`](ledger.ts) | Which fact may be appended, and what do the appended facts add up to? |
-| [`schedules.ts`](schedules.ts) | What is a scheduled row, before and after a firing is claimed? |
-| [`index.ts`](index.ts) | The barrel, so consumers name the concern rather than the file. |
+| Which owned database format is this, and how does it reach the current version safely? | [`schema.ts`](schema.ts) |
+| Who owns the file — its pragmas, its version, and the two modules over it? | [`store.ts`](store.ts) |
+| Which durable delivery transition may commit now? | [`inbox.ts`](inbox.ts) |
+| Which fact may be appended, what do the facts add up to, and who holds the lease and the clock? | [`ledger.ts`](ledger.ts) |
+| Where does an effect stand, given its facts, and is that history possible? | [`fold.ts`](fold.ts) |
+| What are a delivery, a fact and a scheduled row? | [`deliveries.ts`](deliveries.ts), [`facts.ts`](facts.ts), [`schedules.ts`](schedules.ts) |
+| What must an argument be before a statement runs? | [`guards.ts`](guards.ts) |
+
+[`index.ts`](index.ts) is the barrel, so consumers name the concern rather than
+the file inside it.
 
 ## The tables
 
 | Table | Role | Evidence status |
 |---|---|---|
 | `seen_delivery` | atomic webhook acceptance and work queue: opaque GUID, event name, exact payload bytes, SHA-256 digest, receipt/terminal times, claim state, and the failed-attempt count with its retry deadline | GUID dedup was decided in 6.5; durable intake semantics are exercised by this package's restart and two-thread contention tests |
+| `delivery_report` | the canonical serialized shell record and the claim token that committed it, one row per delivery | report persistence plus delivery completion is crash-atomic; worker-thread fault injection covers both uncommitted steps and the committed boundary (D110) |
 | `effect_fact` | one appended row per fact of an effect — `sent`, `unsent`, `landed`, `refused`, `abandoned`, `warned`, `reversed` — each carrying item, verb and login | the runnable applier folds them to decide every pass, recovers open sends through GitHub read-back, and refuses stale configuration revisions (D161) |
 | `decision` | one row per item per capability per pass, webhook and sweep alike, with verdict, code, detail and the effect it minted | written by the lane that decides; retention is the done-deliveries window (D163) |
-| `effect_journal` | the superseded write-ahead journal: intent/done rows with revision and attempt counter | retained by schema version 7 and read by nothing; the migration keeps it until the conversion is decided (D164) |
 | `effect_claim` | one-winner LEASE per effect: atomic stale takeover, released on completion | the runnable applier claims every effect and its recovery pass; store contention tests cover the D41 mechanics |
 | `schedule` | clock-triggered work; `pending → running → done`, with claim age and a per-firing completion token | decided in 6.5; restart/requeue mechanics are pre-covered here; `claimed_at` and claim tokens prevent stale completion under D43 |
-| `delivery_report` | the canonical serialized shell record and the claim token that committed it, one row per delivery | report persistence plus delivery completion is crash-atomic; worker-thread fault injection covers both uncommitted steps and the committed boundary (D110) |
-| `destructive_warning` | the superseded warning row: one per ACT effect, with the snapshot the act must stand on | retained by schema version 7 and read by nothing; a `warned` fact carries the promise now, and the first one binds (D162) |
 
 Design rules (from the evidence, not preference): state transitions are
 synchronous SQLite writes, and delivery acceptance commits before it
@@ -100,44 +103,38 @@ Three store findings, argued in full in their register rows:
   never rewritten, and an open send's attempts are its `sent` facts less its
   `unsent` ones, so retry bounds survive restart. Retention takes whole
   settled effects, never single facts.
-- `FINDING(store-sweep-api)` → **D43** — `requeueStuck(claimedBefore)`
+- `FINDING(store-sweep-api)` → **D43** — `ledger.requeueStuck(claimedBefore)`
   returns stuck `running` schedules to `pending` (stuckness = claim
   age); `ledger.open(before)` exposes unresolved sends; requeued
-  work re-enters `claimDue`. `pruneCompletedDeliveries`, `ledger.prune` and
-  `ledger.pruneDecisions` accept caller-supplied retention cutoffs;
+  work re-enters `claimDue`. `inbox.pruneCompletedDeliveries`, `ledger.prune`
+  and `ledger.pruneDecisions` accept caller-supplied retention cutoffs;
   pending/processing deliveries and effects with an open send are never pruned.
 
 ## Version contract and migration
 
 `PRAGMA user_version` is the explicit SQLite-native schema marker; the current
-version is `7`. A declared version above `7` is refused before the store changes
-the database. Version-zero files are accepted only when every owned SQLite
-object matches one of the three unversioned schemas this repository created. The fingerprint
-includes exact table and index definitions, so column types, nullability,
-primary keys, checks, partial-index predicates, and the absence of triggers or
-views are enforced together. Unknown or altered shapes fail closed.
+version is `1`, and there is exactly one migration — the one that creates the
+schema above. Nothing has launched, so no store written against an older shape
+will ever be opened and there is no history here to convert (D165). A declared
+version above `1` is refused before the store changes the database. A
+version-zero file is accepted only when it is empty; anything else in it is
+unrecognized and fails closed, as does a version-1 file whose shape has
+drifted. The fingerprint includes exact table and index definitions, so column
+types, nullability, primary keys, checks, partial-index predicates, and the
+absence of triggers or views are enforced together.
 
-All required migrations run in order inside one `BEGIN IMMEDIATE` transaction,
-including each `user_version` update. An interruption therefore leaves the
-entire pre-migration schema or the complete current schema; reopening repeats
-the same ordered work. Fixtures reproduce all four old definitions, and
-fault injection interrupts every migration step before reopening the file.
-Every upgrade path is held to the fingerprint a fresh database creates.
+The one step runs inside one `BEGIN IMMEDIATE` transaction, including its
+`user_version` update. An interruption therefore leaves an untouched file or
+the complete current schema; reopening repeats the same work. Fault injection
+interrupts the step before reopening the file, and the shape a fresh database
+creates is the fingerprint every open is held to.
 
-Information an old schema never stored cannot be reconstructed. Identity-only
-delivery rows migrate as completed legacy identities with an unknown event and
-digest, so a later redelivery conflicts rather than silently reprocessing.
-Original journal rows receive attempt `1` and revision `legacy:unknown`, which
-cannot pretend to match a current plan. Original `running` schedules had no
-ownership token and return to `pending`. Deliveries already completed before
-version 4 remain valid but have no invented report row. Deliveries migrated to
-version 5 start with zero failed attempts and no retry deadline: an attempt no
-schema counted cannot be reconstructed, and inventing one would spend a
-delivery's retry budget on history nobody recorded. Version 6 adds an empty
-table and backfills nothing: no earlier row has a warning to recover, and
-inventing one would authorise an act nobody was told about. Version 7 adds the
-two append-only tables empty and converts nothing: a journal row read back as a
-fact would be fiction under a live App (D164).
+`packages/dev/checks/test/pre-launch.test.ts` makes the pre-launch rule a fact
+rather than a habit. The first real installation writes a `LAUNCHED.md` marker
+under `design/`, naming its date and the schema version then current. While
+that marker is absent the version is `1` with one migration entry and no
+versioned history constants; once it exists the version it names becomes the
+floor, and migrations are append-only from there.
 
 ## Durable webhook intake boundary
 
@@ -180,16 +177,13 @@ canonical report and changes the delivery to `done` in the same transaction,
 clearing payload bytes while retaining delivery identity. The report row keeps
 the committing token: retrying the same token with the same canonical bytes
 returns `alreadyCompleted`; another token returns `notOwned`, and the same token
-with changed report bytes returns `reportConflict`. Thus every completion
-performed through the version-4 contract has exactly one report. The exception
-is explicit: a delivery already done when an older schema is migrated may have
-no report because none existed to recover.
+with changed report bytes returns `reportConflict`. Every completion therefore
+has exactly one report.
 
 `deliveryReports` reads every canonical report in stable completion-time then
-delivery-ID order. It is the current programmatic access to canonical reports;
-reportless completions migrated from version 3 are omitted because the migration
-does not invent their missing bytes. No automatic filesystem projection or
-polished operator query surface is provided.
+delivery-ID order. It is the current programmatic access to canonical reports.
+No automatic filesystem projection or polished operator query surface is
+provided.
 
 `requeueStuckDeliveries` provides the explicit reconciliation path.
 Retention pruning deletes an eligible delivery and its report in one
@@ -208,9 +202,9 @@ instant pairs, so the lexicographic-equals-chronological claim is checked
 rather than asserted. The two pragmas that make the crash model true —
 `journal_mode = DELETE` and `synchronous = FULL` — are pinned by a
 configuration test, so they cannot change silently. Crash atomicity is proved
-at the real boundary: exact old-schema fixtures, interruption after every
-migration step, worker exits after report insert, delivery update and commit,
-and two separately connected worker threads racing stale and current tokens.
+at the real boundary: interruption of the schema step, worker exits after
+report insert, delivery update and commit, and two separately connected worker
+threads racing stale and current tokens.
 
 Requires Node 23.4+ — `node:sqlite` needs `--experimental-sqlite` on
 22.x and runs unflagged from 23.4. Node 24.11.1 still emits a non-failing

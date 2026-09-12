@@ -132,7 +132,7 @@ they precede the process being alive, and have no delivery to name.
 Point the existing smee channel at it and open an issue on the sandbox. The canonical report and
 delivery completion are committed together in `shell.sqlite`. Startup still starts draining pending
 SQLite deliveries before listening. Automatic filesystem projection is not supported, and a polished
-operator report/query surface has not been built yet. `Store.deliveryReports()` is the current
+operator report/query surface has not been built yet. `store.inbox.deliveryReports()` is the current
 programmatic access to canonical reports.
 
 `data/` is never tracked (see the root `.gitignore`), the same rule as

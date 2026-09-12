@@ -65,8 +65,8 @@ describe("durability configuration — the crash model, pinned", () => {
             ORDER BY name
         `,
                 )
-                .all("delivery_work", "open_intents"),
-        ).toEqual([{ name: "delivery_work" }, { name: "open_intents" }]);
+                .all("delivery_work", "open_sends"),
+        ).toEqual([{ name: "delivery_work" }, { name: "open_sends" }]);
         s.close();
     });
 });
@@ -76,42 +76,48 @@ describe("timestamp boundary — lexicographic order must BE chronological order
         const s = new Store(path);
         // An offset instant sorts wrongly against Z strings — as data
         // it would misfire schedules and freeze leases, so it throws.
-        expect(() => s.schedule("x", "2026-07-24T00:00:00+01:00", "sweep")).toThrow(TypeError);
-        expect(() => s.claimDue("24 Jul 2026 12:00")).toThrow(TypeError);
+        expect(() => s.ledger.schedule("x", "2026-07-24T00:00:00+01:00", "sweep")).toThrow(
+            TypeError,
+        );
+        expect(() => s.ledger.claimDue("24 Jul 2026 12:00")).toThrow(TypeError);
         expect(() => s.ledger.open("2026-07-23")).toThrow(TypeError);
         expect(() =>
-            s.acceptDelivery({
+            s.inbox.acceptDelivery({
                 deliveryId: id("00000000-0000-0000-0000-000000000001"),
                 eventName: "issues",
                 payload: Buffer.from("{}"),
                 receivedAt: "",
             }),
         ).toThrow(TypeError);
-        expect(() => s.claim("e1", "w1", "2026-07-23T12:00:00.000Z", "not-a-time")).toThrow(
+        expect(() => s.ledger.claim("e1", "w1", "2026-07-23T12:00:00.000Z", "not-a-time")).toThrow(
             TypeError,
         );
         // Seconds-only Z is ALSO rejected: mixed precision breaks
         // lexicographic ordering ("…00Z" > "…00.500Z" as strings but
         // earlier in time). Exactly the Date.toISOString() shape.
-        expect(() => s.schedule("y", "2026-07-24T00:00:00Z", "sweep")).toThrow(TypeError);
-        expect(() => s.schedule("prefix", "x2026-07-24T00:00:00.123Z", "sweep")).toThrow(TypeError);
-        expect(() => s.schedule("suffix", "2026-07-24T00:00:00.123Zx", "sweep")).toThrow(TypeError);
-        expect(() => s.schedule("extended", "+010000-01-01T00:00:00.000Z", "sweep")).toThrow(
+        expect(() => s.ledger.schedule("y", "2026-07-24T00:00:00Z", "sweep")).toThrow(TypeError);
+        expect(() => s.ledger.schedule("prefix", "x2026-07-24T00:00:00.123Z", "sweep")).toThrow(
             TypeError,
         );
-        s.schedule("ok", "2026-07-24T00:00:00.123Z", "sweep");
+        expect(() => s.ledger.schedule("suffix", "2026-07-24T00:00:00.123Zx", "sweep")).toThrow(
+            TypeError,
+        );
+        expect(() => s.ledger.schedule("extended", "+010000-01-01T00:00:00.000Z", "sweep")).toThrow(
+            TypeError,
+        );
+        s.ledger.schedule("ok", "2026-07-24T00:00:00.123Z", "sweep");
         s.close();
     });
 
     it("names the invalid time at every durable boundary", () => {
         const s = new Store(path);
         const cases: readonly [() => unknown, RegExp][] = [
-            [() => s.claim("e", "w", "invalid", "2026-01-01T00:00:00.000Z"), /now/],
-            [() => s.claim("e", "w", "2026-01-01T00:00:00.000Z", "invalid"), /staleBefore/],
-            [() => s.schedule("s", "invalid", "effect"), /dueAt/],
-            [() => s.claimDue("invalid"), /now/],
-            [() => s.requeueStuck("invalid"), /claimedBefore/],
-            [() => s.pruneCompletedDeliveries("invalid"), /before/],
+            [() => s.ledger.claim("e", "w", "invalid", "2026-01-01T00:00:00.000Z"), /now/],
+            [() => s.ledger.claim("e", "w", "2026-01-01T00:00:00.000Z", "invalid"), /staleBefore/],
+            [() => s.ledger.schedule("s", "invalid", "effect"), /dueAt/],
+            [() => s.ledger.claimDue("invalid"), /now/],
+            [() => s.ledger.requeueStuck("invalid"), /claimedBefore/],
+            [() => s.inbox.pruneCompletedDeliveries("invalid"), /before/],
         ];
         for (const [operation, parameter] of cases) {
             expect(operation).toThrow(parameter);
@@ -121,10 +127,10 @@ describe("timestamp boundary — lexicographic order must BE chronological order
 
     it("rejects canonical-looking strings that are not real calendar instants", () => {
         const s = new Store(path);
-        expect(() => s.schedule("impossible", "2026-02-31T00:00:00.000Z", "sweep")).toThrow(
+        expect(() => s.ledger.schedule("impossible", "2026-02-31T00:00:00.000Z", "sweep")).toThrow(
             TypeError,
         );
-        expect(() => s.claimDue("2026-99-99T99:99:99.999Z")).toThrow(TypeError);
+        expect(() => s.ledger.claimDue("2026-99-99T99:99:99.999Z")).toThrow(TypeError);
         s.close();
     });
 });
@@ -138,8 +144,8 @@ describe("claims — the two-worker race serialized (6.5 scenario 6), now as a l
         const w1 = new Store(path);
         const w2 = new Store(path);
         const results = [
-            w1.claim("effect-x", "w1", T0, "2026-07-23T11:55:00.000Z"),
-            w2.claim("effect-x", "w2", T0, "2026-07-23T11:55:00.000Z"),
+            w1.ledger.claim("effect-x", "w1", T0, "2026-07-23T11:55:00.000Z"),
+            w2.ledger.claim("effect-x", "w2", T0, "2026-07-23T11:55:00.000Z"),
         ];
         expect(results.filter(Boolean)).toHaveLength(1);
         w1.close();
@@ -147,7 +153,7 @@ describe("claims — the two-worker race serialized (6.5 scenario 6), now as a l
 
         const restarted = new Store(path);
         expect(
-            restarted.claim(
+            restarted.ledger.claim(
                 "effect-x",
                 "w3",
                 "2026-07-23T12:01:00.000Z",
@@ -160,13 +166,13 @@ describe("claims — the two-worker race serialized (6.5 scenario 6), now as a l
     // FINDING(store-claim-lease)
     it("a stale claim is taken over atomically — a crashed holder cannot deadlock the effect", () => {
         const before = new Store(path);
-        expect(before.claim("effect-x", "w1", T0, "2026-07-23T11:55:00.000Z")).toBe(true);
+        expect(before.ledger.claim("effect-x", "w1", T0, "2026-07-23T11:55:00.000Z")).toBe(true);
         before.close(); // crash while holding the claim
 
         const restarted = new Store(path);
         // 12:10, five-minute lease: the 12:00 claim is stale (<= 12:05).
         expect(
-            restarted.claim(
+            restarted.ledger.claim(
                 "effect-x",
                 "w2",
                 "2026-07-23T12:10:00.000Z",
@@ -174,31 +180,41 @@ describe("claims — the two-worker race serialized (6.5 scenario 6), now as a l
             ),
         ).toBe(true);
         // The takeover replaced the row — w1's ghost cannot release it.
-        expect(restarted.release("effect-x", "w1")).toBe(false);
-        expect(restarted.release("effect-x", "w2")).toBe(true);
+        expect(restarted.ledger.release("effect-x", "w1")).toBe(false);
+        expect(restarted.ledger.release("effect-x", "w2")).toBe(true);
         restarted.close();
     });
 
     it("a live holder is NOT stolen from while its lease is fresh", () => {
         const s = new Store(path);
-        expect(s.claim("effect-x", "w1", T0, "2026-07-23T11:55:00.000Z")).toBe(true);
+        expect(s.ledger.claim("effect-x", "w1", T0, "2026-07-23T11:55:00.000Z")).toBe(true);
         // 12:02, five-minute lease: the 12:00 claim is fresh (> 11:57).
         expect(
-            s.claim("effect-x", "w2", "2026-07-23T12:02:00.000Z", "2026-07-23T11:57:00.000Z"),
+            s.ledger.claim(
+                "effect-x",
+                "w2",
+                "2026-07-23T12:02:00.000Z",
+                "2026-07-23T11:57:00.000Z",
+            ),
         ).toBe(false);
         s.close();
     });
 
     it("release frees the effect for the next claimant; releasing what you lost is a safe no-op", () => {
         const s = new Store(path);
-        expect(s.claim("effect-x", "w1", T0, "2026-07-23T11:55:00.000Z")).toBe(true);
-        expect(s.release("effect-x", "w1")).toBe(true);
+        expect(s.ledger.claim("effect-x", "w1", T0, "2026-07-23T11:55:00.000Z")).toBe(true);
+        expect(s.ledger.release("effect-x", "w1")).toBe(true);
         // Fresh claim after release, no staleness needed.
         expect(
-            s.claim("effect-x", "w2", "2026-07-23T12:00:30.000Z", "2026-07-23T11:55:30.000Z"),
+            s.ledger.claim(
+                "effect-x",
+                "w2",
+                "2026-07-23T12:00:30.000Z",
+                "2026-07-23T11:55:30.000Z",
+            ),
         ).toBe(true);
         // w1 releasing again: it holds nothing, nothing happens.
-        expect(s.release("effect-x", "w1")).toBe(false);
+        expect(s.ledger.release("effect-x", "w1")).toBe(false);
         s.close();
     });
 
@@ -208,18 +224,18 @@ describe("claims — the two-worker race serialized (6.5 scenario 6), now as a l
         // effect silently never run.
         const s = new Store(path);
         s.close();
-        expect(() => s.claim("effect-x", "w1", T0, "2026-07-23T11:55:00.000Z")).toThrow();
+        expect(() => s.ledger.claim("effect-x", "w1", T0, "2026-07-23T11:55:00.000Z")).toThrow();
     });
 });
 
 describe("schedules — the stage-five exit-gate behavior, testable today", () => {
     it("a due schedule fires exactly once across two instances and a restart", () => {
         const a = new Store(path);
-        a.schedule("warn-issue-9", "2026-07-23T10:00:00.000Z", "inactivity-warning");
+        a.ledger.schedule("warn-issue-9", "2026-07-23T10:00:00.000Z", "inactivity-warning");
         const b = new Store(path);
 
-        const firedA = a.claimDue("2026-07-23T12:00:00.000Z");
-        const firedB = b.claimDue("2026-07-23T12:00:00.000Z");
+        const firedA = a.ledger.claimDue("2026-07-23T12:00:00.000Z");
+        const firedB = b.ledger.claimDue("2026-07-23T12:00:00.000Z");
         expect([...firedA, ...firedB]).toHaveLength(1);
         a.close();
         b.close();
@@ -227,67 +243,67 @@ describe("schedules — the stage-five exit-gate behavior, testable today", () =
         // A restart mid-processing must NOT re-fire it (redrive belongs
         // to reconciliation, which sees the stuck `running` row).
         const restarted = new Store(path);
-        expect(restarted.claimDue("2026-07-23T12:00:00.000Z")).toHaveLength(0);
+        expect(restarted.ledger.claimDue("2026-07-23T12:00:00.000Z")).toHaveLength(0);
         restarted.close();
     });
 
     // FINDING(store-sweep-api)
     it("a stuck running schedule is requeued by claim age and re-fires through the normal path", () => {
         const before = new Store(path);
-        before.schedule("warn-issue-9", "2026-07-23T10:00:00.000Z", "inactivity-warning");
-        before.claimDue("2026-07-23T12:00:00.000Z"); // claimed, then the process dies
+        before.ledger.schedule("warn-issue-9", "2026-07-23T10:00:00.000Z", "inactivity-warning");
+        before.ledger.claimDue("2026-07-23T12:00:00.000Z"); // claimed, then the process dies
         before.close();
 
         const sweep = new Store(path);
         // Too fresh to be stuck: claimed 12:00, threshold 11:30 → untouched.
-        expect(sweep.requeueStuck("2026-07-23T11:30:00.000Z")).toHaveLength(0);
+        expect(sweep.ledger.requeueStuck("2026-07-23T11:30:00.000Z")).toHaveLength(0);
         // An hour later the sweep declares it stuck and requeues it.
-        const requeued = sweep.requeueStuck("2026-07-23T12:30:00.000Z");
+        const requeued = sweep.ledger.requeueStuck("2026-07-23T12:30:00.000Z");
         expect(requeued.map((r) => r.scheduleId)).toEqual(["warn-issue-9"]);
         // It re-fires through claimDue — no parallel firing mechanism.
-        expect(sweep.claimDue("2026-07-23T13:00:00.000Z")).toHaveLength(1);
+        expect(sweep.ledger.claimDue("2026-07-23T13:00:00.000Z")).toHaveLength(1);
         // And is not stuck again under the same old threshold.
-        expect(sweep.requeueStuck("2026-07-23T12:30:00.000Z")).toHaveLength(0);
+        expect(sweep.ledger.requeueStuck("2026-07-23T12:30:00.000Z")).toHaveLength(0);
         sweep.close();
     });
 
     it("requeue never touches pending or done rows — only stuck running ones", () => {
         const s = new Store(path);
-        s.schedule("done-one", "2026-07-23T10:00:00.000Z", "a");
-        const doneClaim = s.claimDue("2026-07-23T10:30:00.000Z")[0]!;
-        expect(s.scheduleDone("done-one", doneClaim.claimToken)).toBe(true);
-        s.schedule("still-pending", "2026-07-30T00:00:00.000Z", "b");
-        expect(s.requeueStuck("2026-07-24T00:00:00.000Z")).toHaveLength(0);
+        s.ledger.schedule("done-one", "2026-07-23T10:00:00.000Z", "a");
+        const doneClaim = s.ledger.claimDue("2026-07-23T10:30:00.000Z")[0]!;
+        expect(s.ledger.scheduleDone("done-one", doneClaim.claimToken)).toBe(true);
+        s.ledger.schedule("still-pending", "2026-07-30T00:00:00.000Z", "b");
+        expect(s.ledger.requeueStuck("2026-07-24T00:00:00.000Z")).toHaveLength(0);
         s.close();
     });
 
     it("a stale handler cannot complete a later claim of the same schedule", () => {
         const s = new Store(path);
-        s.schedule("job", "2026-07-23T10:00:00.000Z", "work");
-        const first = s.claimDue("2026-07-23T10:00:00.000Z")[0]!;
-        s.requeueStuck("2026-07-23T10:00:00.000Z");
-        const second = s.claimDue("2026-07-23T10:01:00.000Z")[0]!;
+        s.ledger.schedule("job", "2026-07-23T10:00:00.000Z", "work");
+        const first = s.ledger.claimDue("2026-07-23T10:00:00.000Z")[0]!;
+        s.ledger.requeueStuck("2026-07-23T10:00:00.000Z");
+        const second = s.ledger.claimDue("2026-07-23T10:01:00.000Z")[0]!;
         expect(second.scheduleId).toBe(first.scheduleId);
 
-        expect(s.scheduleDone(first.scheduleId, first.claimToken)).toBe(false);
-        expect(s.requeueStuck("2026-07-23T10:01:00.000Z")).toHaveLength(1);
+        expect(s.ledger.scheduleDone(first.scheduleId, first.claimToken)).toBe(false);
+        expect(s.ledger.requeueStuck("2026-07-23T10:01:00.000Z")).toHaveLength(1);
         s.close();
     });
 
     it("re-arming completes the firing and moves the due date, in one statement", () => {
         const s = new Store(path);
-        s.schedule("sweep:o/r", "2026-07-23T10:00:00.000Z", "sweep");
-        const fired = s.claimDue("2026-07-23T10:00:00.000Z")[0]!;
+        s.ledger.schedule("sweep:o/r", "2026-07-23T10:00:00.000Z", "sweep");
+        const fired = s.ledger.claimDue("2026-07-23T10:00:00.000Z")[0]!;
 
-        expect(s.scheduleAgain("sweep:o/r", fired.claimToken, "2026-07-24T10:00:00.000Z")).toBe(
-            true,
-        );
+        expect(
+            s.ledger.scheduleAgain("sweep:o/r", fired.claimToken, "2026-07-24T10:00:00.000Z"),
+        ).toBe(true);
 
         // The claim is gone, the row is pending again, and it fires only once
         // the NEW due date has passed — which re-declaring could never do,
         // because `schedule` ignores a row that already exists.
-        expect(s.claimDue("2026-07-23T23:00:00.000Z")).toEqual([]);
-        expect(s.claimDue("2026-07-24T11:00:00.000Z")).toMatchObject([
+        expect(s.ledger.claimDue("2026-07-23T23:00:00.000Z")).toEqual([]);
+        expect(s.ledger.claimDue("2026-07-24T11:00:00.000Z")).toMatchObject([
             { scheduleId: "sweep:o/r", dueAt: "2026-07-24T10:00:00.000Z" },
         ]);
         s.close();
@@ -295,31 +311,33 @@ describe("schedules — the stage-five exit-gate behavior, testable today", () =
 
     it("re-arming refuses a token that no longer owns the firing", () => {
         const s = new Store(path);
-        s.schedule("sweep:o/r", "2026-07-23T10:00:00.000Z", "sweep");
-        const first = s.claimDue("2026-07-23T10:00:00.000Z")[0]!;
-        s.requeueStuck("2026-07-23T10:00:00.000Z");
-        const second = s.claimDue("2026-07-23T10:01:00.000Z")[0]!;
+        s.ledger.schedule("sweep:o/r", "2026-07-23T10:00:00.000Z", "sweep");
+        const first = s.ledger.claimDue("2026-07-23T10:00:00.000Z")[0]!;
+        s.ledger.requeueStuck("2026-07-23T10:00:00.000Z");
+        const second = s.ledger.claimDue("2026-07-23T10:01:00.000Z")[0]!;
 
-        expect(s.scheduleAgain("sweep:o/r", first.claimToken, "2026-07-24T10:00:00.000Z")).toBe(
-            false,
+        expect(
+            s.ledger.scheduleAgain("sweep:o/r", first.claimToken, "2026-07-24T10:00:00.000Z"),
+        ).toBe(false);
+        expect(
+            s.ledger.scheduleAgain("sweep:o/r", second.claimToken, "2026-07-24T10:00:00.000Z"),
+        ).toBe(true);
+        expect(() => s.ledger.scheduleAgain("sweep:o/r", second.claimToken, "nonsense")).toThrow(
+            /dueAt/,
         );
-        expect(s.scheduleAgain("sweep:o/r", second.claimToken, "2026-07-24T10:00:00.000Z")).toBe(
-            true,
-        );
-        expect(() => s.scheduleAgain("sweep:o/r", second.claimToken, "nonsense")).toThrow(/dueAt/);
         s.close();
     });
 
     it("not due → not fired; re-declaring an existing schedule is a no-op", () => {
         const s = new Store(path);
-        s.schedule("later", "2026-07-24T00:00:00.000Z", "sweep");
-        s.schedule("later", "2020-01-01T00:00:00.000Z", "sweep-hijack-attempt");
-        expect(s.claimDue("2026-07-23T12:00:00.000Z")).toHaveLength(0);
-        const fired = s.claimDue("2026-07-24T01:00:00.000Z");
+        s.ledger.schedule("later", "2026-07-24T00:00:00.000Z", "sweep");
+        s.ledger.schedule("later", "2020-01-01T00:00:00.000Z", "sweep-hijack-attempt");
+        expect(s.ledger.claimDue("2026-07-23T12:00:00.000Z")).toHaveLength(0);
+        const fired = s.ledger.claimDue("2026-07-24T01:00:00.000Z");
         expect(fired).toHaveLength(1);
         expect(fired[0]?.dueAt).toBe("2026-07-24T00:00:00.000Z");
-        expect(s.scheduleDone("later", fired[0]!.claimToken)).toBe(true);
-        expect(s.claimDue("2026-07-25T00:00:00.000Z")).toHaveLength(0);
+        expect(s.ledger.scheduleDone("later", fired[0]!.claimToken)).toBe(true);
+        expect(s.ledger.claimDue("2026-07-25T00:00:00.000Z")).toHaveLength(0);
         s.close();
     });
 });

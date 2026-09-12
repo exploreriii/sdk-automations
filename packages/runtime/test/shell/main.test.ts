@@ -500,7 +500,7 @@ async function persisted(storeFile: string, deliveryId: string): Promise<StoredR
         return await until(
             () =>
                 ifUnlocked(() => {
-                    const row = store
+                    const row = store.inbox
                         .deliveryReports()
                         .find((report) => (report.deliveryId as string) === deliveryId);
                     return row === undefined
@@ -1184,7 +1184,7 @@ describe("the sandbox entry point, as a process", () => {
                         );
                         try {
                             expect(
-                                seeded.acceptDelivery({
+                                seeded.inbox.acceptDelivery({
                                     deliveryId: asDeliveryGuid(SWEPT_GUID)!,
                                     eventName: "issues",
                                     payload: FIXTURE,
@@ -1204,7 +1204,9 @@ describe("the sandbox entry point, as a process", () => {
                         );
                         try {
                             expect(
-                                store.deliveryReports().map((report) => String(report.deliveryId)),
+                                store.inbox
+                                    .deliveryReports()
+                                    .map((report) => String(report.deliveryId)),
                             ).toEqual([GUID]);
                         } finally {
                             store.close();

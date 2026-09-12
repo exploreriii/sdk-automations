@@ -103,7 +103,7 @@ export function createShell(options: ShellOptions): Shell {
         secret: options.secret,
         log,
         accept: ({ deliveryId, eventName, payload }) =>
-            options.store.acceptDelivery({
+            options.store.inbox.acceptDelivery({
                 deliveryId,
                 eventName,
                 payload,
@@ -146,7 +146,7 @@ export function createShell(options: ShellOptions): Shell {
     const reconcile = (): void => {
         try {
             const staleBefore = new Date(clock().getTime() - STALE_CLAIM_MINUTES * 60_000);
-            const requeued = options.store.requeueStuckDeliveries(staleBefore.toISOString());
+            const requeued = options.store.inbox.requeueStuckDeliveries(staleBefore.toISOString());
             // A line every interval forever would bury the sweeps that requeued something.
 
             if (requeued.length > 0) {

@@ -213,7 +213,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
     const claimNext = (): ClaimedDelivery | undefined => {
         const now = clock();
         const staleBefore = new Date(now.getTime() - STALE_CLAIM_MINUTES * 60_000);
-        return store.claimNextDelivery(worker, now.toISOString(), staleBefore.toISOString());
+        return store.inbox.claimNextDelivery(worker, now.toISOString(), staleBefore.toISOString());
     };
 
     /** Station 4: fetch the text, parse it. Every rejection is a value. */
@@ -381,7 +381,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
      */
     const recordFailure = (claimed: ClaimedDelivery): ReleaseDeliveryAfterFailureResult => {
         const failedAt = clock();
-        return store.releaseDeliveryAfterFailure({
+        return store.inbox.releaseDeliveryAfterFailure({
             deliveryId: claimed.deliveryId,
             claimToken: claimed.claimToken,
             failedAt: failedAt.toISOString(),
@@ -408,7 +408,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
         });
         try {
             const record = await recordFor(claimed);
-            const completion = store.completeDeliveryWithReport({
+            const completion = store.inbox.completeDeliveryWithReport({
                 deliveryId: claimed.deliveryId,
                 eventName: claimed.eventName,
                 payloadDigest: claimed.payloadDigest,

@@ -143,12 +143,14 @@ type StoredRecord = RecordIdentity &
     );
 
 function records(): StoredRecord[] {
-    return store.deliveryReports().map((report) => JSON.parse(report.reportJson) as StoredRecord);
+    return store.inbox
+        .deliveryReports()
+        .map((report) => JSON.parse(report.reportJson) as StoredRecord);
 }
 
 describe("the first slice, end to end", () => {
     it("gives independent shells distinct worker identities", async () => {
-        const claims = vi.spyOn(store, "claimNextDelivery");
+        const claims = vi.spyOn(store.inbox, "claimNextDelivery");
         await buildShell().drain();
         await buildShell().drain();
 
@@ -197,7 +199,7 @@ describe("the first slice, end to end", () => {
         expect(problems(entry.report as Report)).toEqual([]);
         expect(entry.report.findings.length).toBeGreaterThan(0);
         expect(entry).not.toHaveProperty("approved");
-        expect(store.deliveryReports()).toEqual([
+        expect(store.inbox.deliveryReports()).toEqual([
             expect.objectContaining({
                 deliveryId: GUID,
                 reportJson: JSON.stringify(entry),
@@ -205,7 +207,7 @@ describe("the first slice, end to end", () => {
         ]);
         // The queue is empty: the delivery completed.
         expect(
-            store.claimNextDelivery(
+            store.inbox.claimNextDelivery(
                 "assert",
                 "2026-08-07T11:00:00.000Z",
                 "2026-08-07T10:59:00.000Z",
@@ -243,13 +245,13 @@ describe("the first slice, end to end", () => {
         ]);
         // Terminal, like the two record kinds beside it: nothing to reclaim.
         expect(
-            store.claimNextDelivery(
+            store.inbox.claimNextDelivery(
                 "assert",
                 "2026-08-07T11:00:00.000Z",
                 "2026-08-07T10:59:00.000Z",
             ),
         ).toBeUndefined();
-        expect(store.deadLetteredDeliveries()).toEqual([]);
+        expect(store.inbox.deadLetteredDeliveries()).toEqual([]);
     });
 
     /**
@@ -285,11 +287,11 @@ describe("the first slice, end to end", () => {
         expect(entry).not.toHaveProperty("report");
         expect(entry).not.toHaveProperty("approved");
         expect(JSON.stringify(entry)).not.toContain("applied");
-        expect(store.deliveryReports()).toEqual([
+        expect(store.inbox.deliveryReports()).toEqual([
             expect.objectContaining({ reportJson: JSON.stringify(entry) }),
         ]);
         expect(
-            store.claimNextDelivery(
+            store.inbox.claimNextDelivery(
                 "assert",
                 "2026-08-07T11:00:00.000Z",
                 "2026-08-07T10:59:00.000Z",
@@ -307,7 +309,7 @@ describe("the first slice, end to end", () => {
      * is invisible for the full fifteen-minute stale window.
      */
     it("settles on the pass in flight without starting one", async () => {
-        store.acceptDelivery({
+        store.inbox.acceptDelivery({
             deliveryId: asDeliveryGuid(SECOND_GUID)!,
             eventName: "issues",
             payload: FIXTURE,
@@ -328,18 +330,18 @@ describe("the first slice, end to end", () => {
         const shell = buildShell();
         expect(await deliver(shell)).toBe(202);
         await shell.drain();
-        const committed = store.deliveryReports();
+        const committed = store.inbox.deliveryReports();
 
         store.close();
         store = new Store(temp.file("store.sqlite"));
 
-        expect(store.deliveryReports()).toEqual(committed);
+        expect(store.inbox.deliveryReports()).toEqual(committed);
         expect(records()).toHaveLength(1);
     });
 
     it("startup draining recovers a pending delivery after restart", async () => {
         expect(
-            store.acceptDelivery({
+            store.inbox.acceptDelivery({
                 deliveryId: asDeliveryGuid(SECOND_GUID)!,
                 eventName: "issues",
                 payload: FIXTURE,
@@ -359,7 +361,7 @@ describe("the first slice, end to end", () => {
             }),
         ]);
         expect(
-            store.claimNextDelivery(
+            store.inbox.claimNextDelivery(
                 "assert",
                 "2026-08-07T11:00:00.000Z",
                 "2026-08-07T10:59:00.000Z",
@@ -375,7 +377,7 @@ describe("the first slice, end to end", () => {
 
     it("sweeps a dead worker's claim back into a drain with no delivery to wake it", async () => {
         expect(
-            store.acceptDelivery({
+            store.inbox.acceptDelivery({
                 deliveryId: asDeliveryGuid(SECOND_GUID)!,
                 eventName: "issues",
                 payload: FIXTURE,
@@ -385,7 +387,7 @@ describe("the first slice, end to end", () => {
         // A worker that died twenty minutes ago still holds the claim, and
         // in a quiet repository nothing else will ever arrive to drain it.
         expect(
-            store.claimNextDelivery(
+            store.inbox.claimNextDelivery(
                 "dead-worker",
                 new Date(BASE.getTime() - 20 * 60_000).toISOString(),
                 new Date(BASE.getTime() - 60 * 60_000).toISOString(),
@@ -409,14 +411,14 @@ describe("the first slice, end to end", () => {
      * delivery to a second worker — the duplicate the claim exists to stop.
      */
     it("leaves a claim that is merely a minute old where it is", async () => {
-        store.acceptDelivery({
+        store.inbox.acceptDelivery({
             deliveryId: asDeliveryGuid(SECOND_GUID)!,
             eventName: "issues",
             payload: FIXTURE,
             receivedAt: BASE.toISOString(),
         });
         expect(
-            store.claimNextDelivery(
+            store.inbox.claimNextDelivery(
                 "busy-worker",
                 new Date(BASE.getTime() - 60_000).toISOString(),
                 new Date(BASE.getTime() - 60 * 60_000).toISOString(),
@@ -424,7 +426,7 @@ describe("the first slice, end to end", () => {
         ).toBeDefined();
         // A second delivery nothing holds, so a sweep that ran is visible:
         // the tick's own drain completes this one whatever it requeued.
-        store.acceptDelivery({
+        store.inbox.acceptDelivery({
             deliveryId: asDeliveryGuid(GUID)!,
             eventName: "issues",
             payload: FIXTURE,
@@ -450,7 +452,7 @@ describe("the first slice, end to end", () => {
         "names the pump a failed drain belonged to: $phase",
         async ({ phase, acknowledge }) => {
             const shell = buildShell(toEngine(intake), 5);
-            vi.spyOn(store, "claimNextDelivery").mockImplementation(() => {
+            vi.spyOn(store.inbox, "claimNextDelivery").mockImplementation(() => {
                 throw new Error("the store cannot be claimed against");
             });
             if (acknowledge) expect(await deliver(shell)).toBe(202);
@@ -497,7 +499,7 @@ describe("the first slice, end to end", () => {
      * every other case in this file.
      */
     it("fires a due sweep row when a reader was composed, and never otherwise", async () => {
-        store.schedule("sweep:owner/repo", BASE.toISOString(), "sweep");
+        store.ledger.schedule("sweep:owner/repo", BASE.toISOString(), "sweep");
         // Ticking against the same due row throughout, and never claiming it.
         buildShell(toEngine(intake), 5);
 
@@ -616,7 +618,7 @@ describe("the first slice, end to end", () => {
         if (entry?.kind !== "configRejected") throw new Error("expected rejection");
         expect(entry.errors.length).toBeGreaterThan(0);
         expect(
-            store.claimNextDelivery(
+            store.inbox.claimNextDelivery(
                 "assert",
                 "2026-08-07T11:00:00.000Z",
                 "2026-08-07T10:59:00.000Z",
@@ -704,7 +706,6 @@ mappings:
             log,
             applier: createApplier({
                 ledger: store.ledger,
-                leases: store,
                 writer: github.writer,
                 reader: github.reader,
                 externals: () => stubbedExternals(),
@@ -824,7 +825,7 @@ mappings:
     it("does not even look for open rows when no write path was wired", async () => {
         writeFileSync(configFile, ACTIVE_CONFIG);
         orphanRow();
-        const requeues = vi.spyOn(store, "requeueStuckDeliveries");
+        const requeues = vi.spyOn(store.inbox, "requeueStuckDeliveries");
         const worklist = vi.spyOn(store.ledger, "open");
 
         buildShell(toEngine(intake), 5);

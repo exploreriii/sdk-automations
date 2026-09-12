@@ -306,7 +306,6 @@ const applier: Applier | undefined =
         ? undefined
         : createApplier({
               ledger: store.ledger,
-              leases: store,
               ...writePath,
               worker: WORKER,
               clock,

@@ -183,7 +183,7 @@ export function createSweep(options: SweepOptions): Sweep {
             log({ event: "sweepFailed", detail: detailOf(error) });
         }
         const nextDueAt = nextDue();
-        if (!store.scheduleAgain(row.scheduleId, row.claimToken, nextDueAt)) {
+        if (!store.ledger.scheduleAgain(row.scheduleId, row.claimToken, nextDueAt)) {
             // A redrive took the claim over while this firing ran; whoever holds it now
             // owns the next due date, and the reading just done was thrown away.
 
@@ -199,7 +199,7 @@ export function createSweep(options: SweepOptions): Sweep {
      */
     const fireDue = async (): Promise<void> => {
         try {
-            const due: readonly ClaimedScheduleRow[] = store.claimDue(clock().toISOString());
+            const due: readonly ClaimedScheduleRow[] = store.ledger.claimDue(clock().toISOString());
             for (const row of due) {
                 if (row.effect === SWEEP_EFFECT) {
                     await fire(row);
@@ -212,7 +212,7 @@ export function createSweep(options: SweepOptions): Sweep {
                     event: "sweepFailed",
                     detail: `schedule "${row.scheduleId}" carries the unknown effect "${row.effect}"`,
                 });
-                store.scheduleAgain(row.scheduleId, row.claimToken, nextDue());
+                store.ledger.scheduleAgain(row.scheduleId, row.claimToken, nextDue());
             }
         } catch (error) {
             log({ event: "sweepFailed", detail: detailOf(error) });

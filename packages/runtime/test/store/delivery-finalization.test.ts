@@ -35,13 +35,13 @@ const REPORT_JSON = JSON.stringify({
 });
 
 function acceptAndClaim(store: Store, deliveryId = DELIVERY_ID): ClaimedDelivery {
-    store.acceptDelivery({
+    store.inbox.acceptDelivery({
         deliveryId,
         eventName: "issues",
         payload: Buffer.from("work"),
         receivedAt: RECEIVED_AT,
     });
-    return store.claimNextDelivery(
+    return store.inbox.claimNextDelivery(
         "worker-a",
         "2026-08-01T10:01:00.000Z",
         "2026-08-01T09:00:00.000Z",
@@ -101,7 +101,7 @@ const { parentPort, workerData } = require("node:worker_threads");
     const gate = new Int32Array(workerData.gate);
     parentPort.postMessage({ type: "ready" });
     Atomics.wait(gate, 0, 0);
-    const value = store.completeDeliveryWithReport(workerData.input);
+    const value = store.inbox.completeDeliveryWithReport(workerData.input);
     store.close();
     parentPort.postMessage({ type: "result", value });
 })().catch((error) => {
@@ -189,16 +189,16 @@ describe("atomic report completion", () => {
         const claim = acceptAndClaim(store);
         const input = completion(claim);
 
-        expect(store.completeDeliveryWithReport(input)).toEqual({
+        expect(store.inbox.completeDeliveryWithReport(input)).toEqual({
             outcome: "completed",
         });
         expect(
-            store.completeDeliveryWithReport({
+            store.inbox.completeDeliveryWithReport({
                 ...input,
                 completedAt: "2026-08-01T10:03:00.000Z",
             }),
         ).toEqual({ outcome: "alreadyCompleted" });
-        expect(store.deliveryReports()).toEqual([
+        expect(store.inbox.deliveryReports()).toEqual([
             {
                 deliveryId: DELIVERY_ID,
                 reportJson: REPORT_JSON,
@@ -228,44 +228,44 @@ describe("atomic report completion", () => {
     it("rejects released claims, mismatched identities, and conflicting retries", () => {
         const store = new Store(databasePath);
         const released = acceptAndClaim(store);
-        expect(store.releaseDelivery(DELIVERY_ID, released.claimToken)).toEqual({
+        expect(store.inbox.releaseDelivery(DELIVERY_ID, released.claimToken)).toEqual({
             outcome: "released",
         });
-        expect(store.completeDeliveryWithReport(completion(released))).toEqual({
+        expect(store.inbox.completeDeliveryWithReport(completion(released))).toEqual({
             outcome: "notOwned",
         });
 
-        const current = store.claimNextDelivery(
+        const current = store.inbox.claimNextDelivery(
             "worker-b",
             "2026-08-01T10:01:30.000Z",
             "2026-08-01T09:00:00.000Z",
         )!;
         expect(
-            store.completeDeliveryWithReport(
+            store.inbox.completeDeliveryWithReport(
                 completion(current, {
                     eventName: "pull_request",
                 }),
             ),
         ).toEqual({ outcome: "identityMismatch" });
         expect(
-            store.completeDeliveryWithReport(
+            store.inbox.completeDeliveryWithReport(
                 completion(current, {
                     payloadDigest: "1".repeat(64),
                 }),
             ),
         ).toEqual({ outcome: "identityMismatch" });
         expect(
-            store.completeDeliveryWithReport(
+            store.inbox.completeDeliveryWithReport(
                 completion(current, {
                     deliveryId: SECOND_DELIVERY_ID,
                 }),
             ),
         ).toEqual({ outcome: "identityMismatch" });
-        expect(store.completeDeliveryWithReport(completion(current))).toEqual({
+        expect(store.inbox.completeDeliveryWithReport(completion(current))).toEqual({
             outcome: "completed",
         });
         expect(
-            store.completeDeliveryWithReport(
+            store.inbox.completeDeliveryWithReport(
                 completion(current, {
                     reportJson: JSON.stringify({ kind: "different" }),
                 }),
@@ -282,51 +282,51 @@ describe("atomic report completion", () => {
         const input = completion(claim);
 
         expect(() =>
-            store.completeDeliveryWithReport({
+            store.inbox.completeDeliveryWithReport({
                 ...input,
                 payloadDigest: "not-a-digest",
             }),
         ).toThrow(/payloadDigest/);
         expect(() =>
-            store.completeDeliveryWithReport({
+            store.inbox.completeDeliveryWithReport({
                 ...input,
                 payloadDigest: `${claim.payloadDigest}0`,
             }),
         ).toThrow("payloadDigest must be a lowercase SHA-256 digest");
         expect(() =>
-            store.completeDeliveryWithReport({
+            store.inbox.completeDeliveryWithReport({
                 ...input,
                 eventName: "",
             }),
         ).toThrow("eventName must be a non-empty string");
         expect(() =>
-            store.completeDeliveryWithReport({
+            store.inbox.completeDeliveryWithReport({
                 ...input,
                 reportJson: "[]",
             }),
         ).toThrow("reportJson must be a JSON object");
         for (const reportJson of ["null", "1", '"text"', "false"]) {
             expect(() =>
-                store.completeDeliveryWithReport({
+                store.inbox.completeDeliveryWithReport({
                     ...input,
                     reportJson,
                 }),
             ).toThrow("reportJson must be a JSON object");
         }
         expect(() =>
-            store.completeDeliveryWithReport({
+            store.inbox.completeDeliveryWithReport({
                 ...input,
                 reportJson: "not-json",
             }),
         ).toThrow("reportJson must be a JSON object");
         expect(() =>
-            store.completeDeliveryWithReport({
+            store.inbox.completeDeliveryWithReport({
                 ...input,
                 deliveryId: "not-a-guid" as typeof input.deliveryId,
             }),
         ).toThrow("deliveryId must be a valid GitHub delivery GUID");
         expect(() =>
-            store.releaseDelivery("not-a-guid" as typeof input.deliveryId, claim.claimToken),
+            store.inbox.releaseDelivery("not-a-guid" as typeof input.deliveryId, claim.claimToken),
         ).toThrow("deliveryId must be a valid GitHub delivery GUID");
         store.close();
     });
@@ -335,16 +335,16 @@ describe("atomic report completion", () => {
         const store = new Store(databasePath);
         const claim = acceptAndClaim(store);
         const input = completion(claim);
-        expect(store.completeDeliveryWithReport(input)).toEqual({
+        expect(store.inbox.completeDeliveryWithReport(input)).toEqual({
             outcome: "completed",
         });
         expect(
-            store.completeDeliveryWithReport({
+            store.inbox.completeDeliveryWithReport({
                 ...input,
                 claimToken: "a-different-claim-token",
             }),
         ).toEqual({ outcome: "notOwned" });
-        expect(store.completeDeliveryWithReport(input)).toEqual({
+        expect(store.inbox.completeDeliveryWithReport(input)).toEqual({
             outcome: "alreadyCompleted",
         });
         store.close();
@@ -361,10 +361,10 @@ describe("atomic report completion", () => {
             )
             .run(DELIVERY_ID, freshClaim.claimToken, REPORT_JSON, COMPLETED_AT);
         corruptor.close();
-        expect(fresh.completeDeliveryWithReport(completion(freshClaim))).toEqual({
+        expect(fresh.inbox.completeDeliveryWithReport(completion(freshClaim))).toEqual({
             outcome: "reportConflict",
         });
-        expect(fresh.completeDeliveryWithReport(completion(freshClaim))).toEqual({
+        expect(fresh.inbox.completeDeliveryWithReport(completion(freshClaim))).toEqual({
             outcome: "reportConflict",
         });
         fresh.close();
@@ -379,7 +379,7 @@ describe("atomic report completion", () => {
             DELIVERY_ID,
         );
 
-        expect(() => store.completeDeliveryWithReport(completion(claim))).toThrow(
+        expect(() => store.inbox.completeDeliveryWithReport(completion(claim))).toThrow(
             "delivery ownership changed under its write transaction",
         );
         expect(db.prepare("SELECT count(*) AS count FROM delivery_report").get()).toEqual({
@@ -397,7 +397,7 @@ describe("atomic report completion", () => {
         ] as const) {
             const claim = acceptAndClaim(store, deliveryId);
             expect(
-                store.completeDeliveryWithReport(
+                store.inbox.completeDeliveryWithReport(
                     completion(claim, {
                         reportJson: JSON.stringify({ deliveryId }),
                         completedAt,
@@ -406,7 +406,7 @@ describe("atomic report completion", () => {
             ).toEqual({ outcome: "completed" });
         }
 
-        expect(store.deliveryReports().map((report) => report.deliveryId)).toEqual([
+        expect(store.inbox.deliveryReports().map((report) => report.deliveryId)).toEqual([
             SECOND_DELIVERY_ID,
             THIRD_DELIVERY_ID,
             DELIVERY_ID,
@@ -417,10 +417,10 @@ describe("atomic report completion", () => {
     it("prunes a completed delivery and its canonical report in one retention operation", () => {
         const store = new Store(databasePath);
         const claim = acceptAndClaim(store);
-        expect(store.completeDeliveryWithReport(completion(claim))).toEqual({
+        expect(store.inbox.completeDeliveryWithReport(completion(claim))).toEqual({
             outcome: "completed",
         });
-        expect(store.pruneCompletedDeliveries(COMPLETED_AT)).toBe(1);
+        expect(store.inbox.pruneCompletedDeliveries(COMPLETED_AT)).toBe(1);
         store.close();
 
         const db = new DatabaseSync(databasePath);
@@ -437,7 +437,7 @@ describe("atomic report completion", () => {
 describe("dead-lettering", () => {
     /** One failed attempt against a claim, spending a two-attempt budget. */
     function fail(store: Store, claim: ClaimedDelivery, failedAt: string) {
-        return store.releaseDeliveryAfterFailure({
+        return store.inbox.releaseDeliveryAfterFailure({
             deliveryId: claim.deliveryId,
             claimToken: claim.claimToken,
             failedAt,
@@ -455,7 +455,7 @@ describe("dead-lettering", () => {
             retryNotBefore: "2026-08-01T10:01:10.000Z",
         });
 
-        const second = store.claimNextDelivery(
+        const second = store.inbox.claimNextDelivery(
             "worker-a",
             "2026-08-01T10:01:20.000Z",
             "2026-08-01T09:00:00.000Z",
@@ -468,13 +468,13 @@ describe("dead-lettering", () => {
 
         // Claimable by no worker, at any later instant, stale window included.
         expect(
-            store.claimNextDelivery(
+            store.inbox.claimNextDelivery(
                 "worker-b",
                 "2026-09-01T00:00:00.000Z",
                 "2026-08-31T00:00:00.000Z",
             ),
         ).toBeUndefined();
-        expect(store.deadLetteredDeliveries()).toEqual([
+        expect(store.inbox.deadLetteredDeliveries()).toEqual([
             {
                 deliveryId: DELIVERY_ID,
                 eventName: "issues",
@@ -486,14 +486,14 @@ describe("dead-lettering", () => {
         ]);
         // Still the same delivery to a redelivery, and never pruned as done.
         expect(
-            store.acceptDelivery({
+            store.inbox.acceptDelivery({
                 deliveryId: DELIVERY_ID,
                 eventName: "issues",
                 payload: Buffer.from("work"),
                 receivedAt: RECEIVED_AT,
             }),
         ).toMatchObject({ outcome: "duplicate", state: "failed" });
-        expect(store.pruneCompletedDeliveries("2026-12-01T00:00:00.000Z")).toBe(0);
+        expect(store.inbox.pruneCompletedDeliveries("2026-12-01T00:00:00.000Z")).toBe(0);
         store.close();
 
         // The bytes a redrive would need outlive the failure, unlike a
@@ -517,7 +517,7 @@ describe("dead-lettering", () => {
         ] as const) {
             const claim = acceptAndClaim(store, deliveryId);
             expect(
-                store.releaseDeliveryAfterFailure({
+                store.inbox.releaseDeliveryAfterFailure({
                     deliveryId,
                     claimToken: claim.claimToken,
                     failedAt,
@@ -527,7 +527,7 @@ describe("dead-lettering", () => {
             ).toEqual({ outcome: "deadLettered", attempts: 1 });
         }
 
-        expect(store.deadLetteredDeliveries().map((entry) => entry.deliveryId)).toEqual([
+        expect(store.inbox.deadLetteredDeliveries().map((entry) => entry.deliveryId)).toEqual([
             SECOND_DELIVERY_ID,
             THIRD_DELIVERY_ID,
             DELIVERY_ID,
@@ -539,18 +539,18 @@ describe("dead-lettering", () => {
         const store = new Store(databasePath);
         const first = acceptAndClaim(store);
         expect(fail(store, first, COMPLETED_AT)).toMatchObject({ outcome: "retryScheduled" });
-        const second = store.claimNextDelivery("worker-a", COMPLETED_AT, RECEIVED_AT)!;
+        const second = store.inbox.claimNextDelivery("worker-a", COMPLETED_AT, RECEIVED_AT)!;
         expect(fail(store, second, COMPLETED_AT)).toEqual({
             outcome: "deadLettered",
             attempts: 2,
         });
 
-        expect(store.redriveDelivery(SECOND_DELIVERY_ID)).toBe(false);
-        expect(store.redriveDelivery(DELIVERY_ID)).toBe(true);
-        expect(store.redriveDelivery(DELIVERY_ID)).toBe(false);
-        expect(store.deadLetteredDeliveries()).toEqual([]);
+        expect(store.inbox.redriveDelivery(SECOND_DELIVERY_ID)).toBe(false);
+        expect(store.inbox.redriveDelivery(DELIVERY_ID)).toBe(true);
+        expect(store.inbox.redriveDelivery(DELIVERY_ID)).toBe(false);
+        expect(store.inbox.deadLetteredDeliveries()).toEqual([]);
 
-        const redriven = store.claimNextDelivery("worker-b", COMPLETED_AT, RECEIVED_AT)!;
+        const redriven = store.inbox.claimNextDelivery("worker-b", COMPLETED_AT, RECEIVED_AT)!;
         expect(redriven.deliveryId).toBe(DELIVERY_ID);
         expect(redriven.attempts).toBe(0);
         expect(Buffer.from(redriven.payload)).toEqual(Buffer.from("work"));
@@ -577,11 +577,11 @@ describe("crash boundaries", () => {
             });
             const claim = acceptAndClaim(store);
 
-            expect(() => store.completeDeliveryWithReport(completion(claim))).toThrow(
+            expect(() => store.inbox.completeDeliveryWithReport(completion(claim))).toThrow(
                 `fault ${faultPoint}`,
             );
             const committed = faultPoint === "finalize:committed";
-            expect(store.completeDeliveryWithReport(completion(claim))).toEqual({
+            expect(store.inbox.completeDeliveryWithReport(completion(claim))).toEqual({
                 outcome: committed ? "alreadyCompleted" : "completed",
             });
             store.close();
@@ -616,7 +616,7 @@ describe("crash boundaries", () => {
             expect(outcome.reports).toHaveLength(expectedReports);
 
             const restarted = new Store(databasePath);
-            expect(restarted.completeDeliveryWithReport(completion(claim))).toEqual({
+            expect(restarted.inbox.completeDeliveryWithReport(completion(claim))).toEqual({
                 outcome: expectedState === "done" ? "alreadyCompleted" : "completed",
             });
             restarted.close();
@@ -631,7 +631,7 @@ describe("claim ownership under contention", () => {
         firstStore.close();
 
         const secondStore = new Store(databasePath);
-        const second = secondStore.claimNextDelivery(
+        const second = secondStore.inbox.claimNextDelivery(
             "worker-b",
             "2026-08-01T10:20:00.000Z",
             "2026-08-01T10:01:00.000Z",

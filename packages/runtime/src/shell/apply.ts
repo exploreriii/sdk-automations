@@ -29,7 +29,7 @@ import {
     type RepositoryConfig,
     type WarningToRecord,
 } from "@hiero-hackers/automation-core";
-import type { Fact, FactKind, Ledger, OpenSend, Store, StoredWarning } from "../store/index.js";
+import type { Fact, FactKind, Ledger, OpenSend, StoredWarning } from "../store/index.js";
 import type { Call, EffectOutcome, EffectOutcomeCode, EffectOutcomeName } from "./effects.js";
 import { recordedWarningsIn, type ShellExternals } from "./externals.js";
 import { detailOf, type Log } from "./log.js";
@@ -85,16 +85,13 @@ export const EFFECT_ATTEMPT_CAP = 5;
  */
 export type EffectExternalsSource = () => ShellExternals | Promise<ShellExternals>;
 
-/** The lease, which is the store's and not the ledger's — all the applier mutates outside facts. */
-export type Leases = Pick<Store, "claim" | "release">;
-
 export interface ApplierOptions {
+    /** The whole store the applier touches: the facts, and the lease beside them (D164). */
     readonly ledger: Ledger;
-    readonly leases: Leases;
     readonly writer: EffectWriter;
     readonly reader: EffectReader;
     readonly externals: EffectExternalsSource;
-    /** Which worker holds a lease; the store releases only this name's own. */
+    /** Which worker holds a lease; the ledger releases only this name's own. */
     readonly worker: string;
     readonly clock: () => Date;
     /** Recovery has no delivery to report into, so its lines leave here. */
@@ -200,7 +197,7 @@ const isMine = (body: string): ((comment: CommentSeen) => boolean) => {
 };
 
 export function createApplier(options: ApplierOptions): Applier {
-    const { ledger, leases, writer, reader, externals, worker, clock, log } = options;
+    const { ledger, writer, reader, externals, worker, clock, log } = options;
 
     const now = (): string => clock().toISOString();
 
@@ -227,7 +224,7 @@ export function createApplier(options: ApplierOptions): Applier {
     /** Take the lease, or learn that a live worker holds it. */
     const claim = (effectId: string): boolean => {
         const at = clock();
-        return leases.claim(
+        return ledger.claim(
             effectId,
             worker,
             at.toISOString(),
@@ -710,7 +707,7 @@ export function createApplier(options: ApplierOptions): Applier {
         try {
             return outcomeOf(await drive(pass, intent, plan.calls));
         } finally {
-            leases.release(pass.effectId, worker);
+            ledger.release(pass.effectId, worker);
         }
     };
 
@@ -785,7 +782,7 @@ export function createApplier(options: ApplierOptions): Applier {
                     });
                 }
             } finally {
-                leases.release(open.effectId, worker);
+                ledger.release(open.effectId, worker);
             }
         },
     };

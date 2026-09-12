@@ -128,17 +128,21 @@ qualifying activity — and the notice follows the act ([`guides/grace.md`](guid
 
 ## 6. Store — six tables, six questions
 
+One file, two modules over one connection: `inbox.ts` is the delivery queue, whose rows move state
+in place; `ledger.ts` is appended and folded, and holds the leases and the schedule beside the facts
+(D164).
+
 | Table | The question it answers |
 |---|---|
 | `seen_delivery` | is this delivery durable, claimed, done, or dead-lettered? |
 | `delivery_report` | what did we decide for this delivery? |
-| `effect_journal` | did this call reach GitHub? |
+| `effect_fact` | what has been sent, landed, refused or promised for this effect? |
+| `decision` | what did each pass decide about this item, and why? |
 | `effect_claim` | who holds this effect's lease right now? |
 | `schedule` | what clock-triggered work is due now? |
-| `destructive_warning` | was this act warned, when, and under what plan? |
 
-*Source: `packages/runtime/src/store/schema.ts` — schema version 6; drift rejected by the D110
-fingerprint.*
+*Source: `packages/runtime/src/store/schema.ts` — schema version 1, one migration, no history before
+launch (D165); drift rejected by the D110 fingerprint.*
 
 ## 7. What is not built
 

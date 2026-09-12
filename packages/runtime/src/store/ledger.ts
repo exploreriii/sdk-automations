@@ -1,5 +1,6 @@
 /**
- * Which fact may be appended, and what the appended facts add up to.
+ * The half of the file that is appended and folded: an effect's facts, its lease,
+ * and the schedule rows a clock claims (D164).
  * The file and its pragmas belong to `Store`; this class is handed the connection.
  */
 
@@ -7,7 +8,8 @@ import type { DatabaseSync } from "node:sqlite";
 import type { ItemRef } from "@hiero-hackers/automation-core";
 import type { Decision, Fact, LandedWrite, LedgerState, OpenSend, StoredWarning } from "./facts.js";
 import { fold } from "./fold.js";
-import { assertUtcInstant } from "./instants.js";
+import { assertNonEmpty, assertUtcInstant } from "./guards.js";
+import type { ClaimedScheduleRow, ScheduleRow } from "./schedules.js";
 
 /** The kinds that close an open send; `unsent` closes one without spending an attempt. */
 const CLOSING = "('landed','refused','abandoned','unsent')";
@@ -33,12 +35,6 @@ const ATTEMPTS_AT = `
           - COUNT(CASE WHEN spent.kind = 'unsent' THEN 1 END)
      FROM effect_fact spent
      WHERE spent.effect_id = sent.effect_id AND spent.seq = sent.seq)`;
-
-function assertNonEmpty(value: string, param: string): void {
-    if (typeof value !== "string" || value.trim().length === 0) {
-        throw new TypeError(`${param} must be a non-empty string`);
-    }
-}
 
 /** One `effect_fact` row, as SQLite hands it back. */
 interface FactRow {
@@ -100,13 +96,15 @@ function warningOf(effectId: string, payload: string | null): StoredWarning | nu
     return { ...(snapshot as Omit<StoredWarning, "effectId">), effectId };
 }
 
-/** An effect's history, appended one fact at a time and read back by folding (D161). */
+/** An effect's history appended one fact at a time, with its lease and its clock (D164). */
 export class Ledger {
     private readonly db: DatabaseSync;
 
     constructor(db: DatabaseSync) {
         this.db = db;
     }
+
+    // ── Facts ───────────────────────────────────────────────────────
 
     /**
      * Append one fact. A second `warned` for the same effect appends nothing (D162).
@@ -286,6 +284,140 @@ export class Ledger {
             effectId: row.effect_id,
         }));
     }
+
+    // ── Claims (lock) ───────────────────────────────────────────────
+
+    /**
+     * One-winner LEASE on an effect, with atomic stale takeover so a crashed holder
+     * cannot deadlock it. Non-contention failures throw, so `false` strictly means a live worker holds it. A lease can still be stolen from a live worker (D41).
+     */
+    claim(effectId: string, worker: string, now: string, staleBefore: string): boolean {
+        assertUtcInstant(now, "now");
+        assertUtcInstant(staleBefore, "staleBefore");
+        const result = this.db
+            .prepare(
+                `
+                INSERT INTO effect_claim VALUES (?, ?, ?)
+                ON CONFLICT(effect_id) DO UPDATE SET worker = excluded.worker, at = excluded.at
+                WHERE effect_claim.at <= ?
+            `,
+            )
+            .run(effectId, worker, now, staleBefore);
+        return result.changes === 1;
+    }
+
+    /**
+     * Release a claim on clean completion — deletes only the caller's OWN row, so
+     * releasing after your lease was stolen is a safe no-op.
+     */
+    release(effectId: string, worker: string): boolean {
+        const result = this.db
+            .prepare("DELETE FROM effect_claim WHERE effect_id = ? AND worker = ?")
+            .run(effectId, worker);
+        return result.changes === 1;
+    }
+
+    // ── Schedules ───────────────────────────────────────────────────
+
+    /** Idempotent: re-declaring an existing schedule id is a no-op. */
+    schedule(scheduleId: string, dueAt: string, effect: string): void {
+        assertUtcInstant(dueAt, "dueAt");
+        this.db
+            .prepare("INSERT OR IGNORE INTO schedule VALUES (?, ?, ?, 'pending', NULL, NULL)")
+            .run(scheduleId, dueAt, effect);
+    }
+
+    /**
+     * Atomically claim every due pending schedule and return the claimed rows.
+     * A restart mid-processing does NOT re-fire a running schedule; redriving stuck `running` rows is `requeueStuck`, deliberately not this method.
+     */
+    claimDue(now: string): ClaimedScheduleRow[] {
+        assertUtcInstant(now, "now");
+        const rows = this.db
+            .prepare(
+                `
+                UPDATE schedule
+                SET status = 'running',
+                    claimed_at = ?,
+                    claim_token = lower(hex(randomblob(16)))
+                WHERE status = 'pending' AND due_at <= ?
+                RETURNING schedule_id, due_at, effect, claim_token
+            `,
+            )
+            .all(now, now) as {
+            schedule_id: string;
+            due_at: string;
+            effect: string;
+            claim_token: string;
+        }[];
+        return rows.map((r) => ({
+            scheduleId: r.schedule_id,
+            dueAt: r.due_at,
+            effect: r.effect,
+            claimToken: r.claim_token,
+        }));
+    }
+
+    /** Complete a firing, and only for the token that claimed it. */
+    scheduleDone(scheduleId: string, claimToken: string): boolean {
+        const result = this.db
+            .prepare(
+                `
+                UPDATE schedule
+                SET status = 'done', claimed_at = NULL, claim_token = NULL
+                WHERE schedule_id = ? AND status = 'running' AND claim_token = ?
+            `,
+            )
+            .run(scheduleId, claimToken);
+        return result.changes === 1;
+    }
+
+    /**
+     * Complete this firing and arm the next one, in one statement: `schedule()` is
+     * `INSERT OR IGNORE`, so a completed sweep could never come round again, and a crash between two statements would lose the schedule or strand the claim.
+     */
+    scheduleAgain(scheduleId: string, claimToken: string, dueAt: string): boolean {
+        assertUtcInstant(dueAt, "dueAt");
+        const result = this.db
+            .prepare(
+                `
+                UPDATE schedule
+                SET status = 'pending', due_at = ?, claimed_at = NULL, claim_token = NULL
+                WHERE schedule_id = ? AND status = 'running' AND claim_token = ?
+            `,
+            )
+            .run(dueAt, scheduleId, claimToken);
+        return result.changes === 1;
+    }
+
+    /**
+     * The sweep's redrive: atomically return stuck `running` schedules to `pending`.
+     * Stuckness is claim age, never due time, so a backlog catch-up is not stolen from. A slow-but-alive handler can fire twice, so effects still need D41's contract (D43).
+     */
+    requeueStuck(claimedBefore: string): ScheduleRow[] {
+        assertUtcInstant(claimedBefore, "claimedBefore");
+        const rows = this.db
+            .prepare(
+                `
+                UPDATE schedule
+                SET status = 'pending', claimed_at = NULL, claim_token = NULL
+                WHERE status = 'running' AND claimed_at <= ?
+                RETURNING schedule_id, due_at, effect
+            `,
+            )
+            .all(claimedBefore) as {
+            schedule_id: string;
+            due_at: string;
+            effect: string;
+        }[];
+        return rows.map((r) => ({
+            scheduleId: r.schedule_id,
+            dueAt: r.due_at,
+            effect: r.effect,
+        }));
+    }
+
+    // ── Retention ───────────────────────────────────────────────────
 
     /**
      * Delete whole effects settled at or before `before` — never single facts (D161).

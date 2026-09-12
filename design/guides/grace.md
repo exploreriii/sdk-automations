@@ -78,11 +78,11 @@ warning comment per item, rewritten in place by whichever act warns next (D145).
 
 ## 4. Store
 
-Schema v6 adds one table, `destructive_warning`: `effect_id` (primary key), `warned_at`,
-`grace_hours`, `earliest_action_at`, `cancelled_by`, `reverses_with`, and the six snapshot columns
-(`action_class`, `capability`, `cause_observed_at`, `cause`, `item`, `change`). Retention prunes rows
-older than the longest grace any capability declares plus the standing retention window. Journal
-rows are unchanged.
+The warning is a `warned` fact on the act's own effect, and no table of its own: its payload is the
+snapshot — `warnedAt`, `gracePeriodHours`, `earliestActionAt`, `cancelledBy`, `reversesWith`, and
+`actionClass`, `capability`, `causeObservedAt`, `cause`, `item`, `change`. The first one binds and a
+second appends nothing (D162), and retention takes the whole settled effect rather than the fact
+(D161).
 
 ## 5. Declined
 

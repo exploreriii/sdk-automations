@@ -106,7 +106,7 @@ const events = (name: ShellEvent["event"]): ShellEvent[] =>
 
 /** The row the processor would have declared, armed at `dueAt`. */
 function armed(dueAt = DUE_AT): void {
-    store.schedule(SCHEDULE, dueAt, SWEEP_EFFECT);
+    store.ledger.schedule(SCHEDULE, dueAt, SWEEP_EFFECT);
 }
 
 // ─── The scripted halves ─────────────────────────────────────────────
@@ -311,8 +311,8 @@ describe("a due sweep row", () => {
 
         await driven().run();
 
-        expect(store.claimDue(NOW.toISOString())).toEqual([]);
-        const next = store.claimDue(new Date(NOW.getTime() + DAY_MS).toISOString());
+        expect(store.ledger.claimDue(NOW.toISOString())).toEqual([]);
+        const next = store.ledger.claimDue(new Date(NOW.getTime() + DAY_MS).toISOString());
         expect(next).toMatchObject([
             { scheduleId: SCHEDULE, dueAt: new Date(NOW.getTime() + DAY_MS).toISOString() },
         ]);
@@ -402,7 +402,9 @@ describe("a firing that reads nothing", () => {
         expect(events("sweepFailed")).toMatchObject([
             { detail: expect.stringContaining("closed") },
         ]);
-        expect(store.claimDue(new Date(NOW.getTime() + DAY_MS).toISOString())).toHaveLength(1);
+        expect(store.ledger.claimDue(new Date(NOW.getTime() + DAY_MS).toISOString())).toHaveLength(
+            1,
+        );
     });
 });
 
@@ -418,7 +420,7 @@ describe("the claim", () => {
             // The redrive happens while the list is being read, which is the
             // only window a takeover can open in.
             facts: (config) => {
-                store.requeueStuck(NOW.toISOString());
+                store.ledger.requeueStuck(NOW.toISOString());
                 return reader.facts(config);
             },
             clock: () => NOW,
@@ -448,7 +450,7 @@ describe("the claim", () => {
     });
 
     it("hands back a due row carrying an effect this shell cannot fire", async () => {
-        store.schedule("retention:nightly", DUE_AT, "prune");
+        store.ledger.schedule("retention:nightly", DUE_AT, "prune");
         const { decided, run } = driven();
 
         await run();
@@ -457,9 +459,9 @@ describe("the claim", () => {
         expect(events("sweepFailed")).toMatchObject([
             { detail: expect.stringContaining('unknown effect "prune"') },
         ]);
-        expect(store.claimDue(new Date(NOW.getTime() + DAY_MS).toISOString())).toMatchObject([
-            { scheduleId: "retention:nightly" },
-        ]);
+        expect(store.ledger.claimDue(new Date(NOW.getTime() + DAY_MS).toISOString())).toMatchObject(
+            [{ scheduleId: "retention:nightly" }],
+        );
     });
 
     it("shares one pass between overlapping ticks, and a shutdown joins it", async () => {
@@ -741,7 +743,7 @@ describe("an item the platform released within the minute", () => {
 
     /** One firing over `into`, and the codes the issue's decision came to. */
     async function sweptCodes(into: Store): Promise<string[]> {
-        into.schedule(SCHEDULE, DUE_AT, SWEEP_EFFECT);
+        into.ledger.schedule(SCHEDULE, DUE_AT, SWEEP_EFFECT);
         const capabilities: readonly EngineCapability[] = [inactivity];
         const http = httpHarness([routed(RECORDED)]);
         const processor = createProcessor({

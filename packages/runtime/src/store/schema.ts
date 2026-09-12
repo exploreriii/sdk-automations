@@ -80,6 +80,7 @@ const EFFECT_FACT = `
         at          TEXT NOT NULL,
         revision    TEXT NOT NULL,
         capability  TEXT NOT NULL,
+        repository  TEXT NOT NULL,
         item_kind   TEXT NOT NULL,
         item_number INTEGER NOT NULL,
         verb        TEXT,
@@ -93,7 +94,7 @@ const FACT_BY_EFFECT = `
     CREATE INDEX fact_by_effect ON effect_fact(effect_id, seq, fact_id)`;
 
 const FACT_BY_ITEM = `
-    CREATE INDEX fact_by_item   ON effect_fact(item_kind, item_number, kind, at)`;
+    CREATE INDEX fact_by_item   ON effect_fact(repository, item_kind, item_number, kind, at)`;
 
 const OPEN_SENDS = `
     CREATE INDEX open_sends     ON effect_fact(at) WHERE kind = 'sent'`;
@@ -105,6 +106,7 @@ const DECISION = `
         source      TEXT NOT NULL CHECK (source IN ('webhook','sweep')),
         source_id   TEXT NOT NULL,
         at          TEXT NOT NULL,
+        repository  TEXT NOT NULL,
         item_kind   TEXT NOT NULL,
         item_number INTEGER NOT NULL,
         capability  TEXT NOT NULL,
@@ -115,7 +117,7 @@ const DECISION = `
     )`;
 
 const DECISION_BY_ITEM = `
-    CREATE INDEX decision_by_item ON decision(item_kind, item_number, at)`;
+    CREATE INDEX decision_by_item ON decision(repository, item_kind, item_number, at)`;
 
 const DECISION_BY_AT = `
     CREATE INDEX decision_by_at   ON decision(at)`;

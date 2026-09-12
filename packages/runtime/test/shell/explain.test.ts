@@ -6,11 +6,14 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
-import type { ItemRef } from "@hiero-hackers/automation-core";
+import type { ItemRef, RepositoryRef } from "@hiero-hackers/automation-core";
 import { Store, type Decision, type Fact } from "../../src/store/index.js";
 import { explain, explainEffect, explainItem } from "../../src/shell/explain.js";
 
 const ITEM: ItemRef = { kind: "issue", number: 40 };
+const REPOSITORY: RepositoryRef = { owner: "o", repo: "r" };
+/** The same item number in a repository this process also serves (D169). */
+const ELSEWHERE: RepositoryRef = { owner: "o", repo: "other" };
 const AT = "2026-09-12T09:00:00.000Z";
 const later = (seconds: number): string => new Date(Date.parse(AT) + seconds * 1000).toISOString();
 
@@ -21,6 +24,7 @@ const fact = (over: Partial<Fact> = {}): Fact => ({
     at: AT,
     revision: "revision-1",
     capability: "intake",
+    repository: REPOSITORY,
     item: ITEM,
     verb: "postComment",
     login: null,
@@ -35,6 +39,7 @@ const decision = (over: Partial<Decision> = {}): Decision => ({
     source: "webhook",
     sourceId: "pass-1",
     at: AT,
+    repository: REPOSITORY,
     item: ITEM,
     capability: "intake",
     verdict: "info",
@@ -124,12 +129,12 @@ describe("one effect explained", () => {
 
 describe("one item explained", () => {
     it("prints each effect with its state, then the decisions newest first", () => {
-        expect(explainItem(store, ITEM)).toEqual({
+        expect(explainItem(store, REPOSITORY, ITEM)).toEqual({
             found: true,
             lines: [
                 "issue#40",
-                "effect effect-a  state: settled landed (seq 1 of ≥1)",
-                "effect effect-b  state: open (seq 1 of ≥1, attempts 2)",
+                "effect effect-a  o/r  state: settled landed (seq 1 of ≥1)",
+                "effect effect-b  o/r  state: open (seq 1 of ≥1, attempts 2)",
                 `decision  ${later(4)}  sweep  sweep:o/r:issue#40  intake  refused  itemClosed  -  effect-b`,
                 `decision  ${AT}  webhook  pass-1  intake  info  wouldApply  dry-run: intake would applyMappedLabel  effect-a`,
             ],
@@ -137,24 +142,35 @@ describe("one item explained", () => {
     });
 
     it("finds nothing for an item no fact and no decision names", () => {
-        expect(explainItem(store, { kind: "pullRequest", number: 41 })).toEqual({
+        expect(explainItem(store, REPOSITORY, { kind: "pullRequest", number: 41 })).toEqual({
             found: false,
             lines: ["pullRequest#41"],
+        });
+    });
+
+    /** D169: two repositories number their items in one sequence each. */
+    it("finds nothing another repository's, at the same item number", () => {
+        expect(explainItem(store, ELSEWHERE, ITEM)).toEqual({
+            found: false,
+            lines: ["issue#40"],
         });
     });
 });
 
 describe("the command around the two reads", () => {
     it("reads the store the environment names", () => {
-        expect(explain(["--item", "issue#40"], { STORE_PATH: path }).lines[0]).toBe("issue#40");
+        const asked = explain(["--item", "issue#40", "--repo", "o/r"], { STORE_PATH: path });
+
+        expect(asked.lines[0]).toBe("issue#40");
+        expect(asked.lines[1]).toContain("  o/r  ");
         expect(explain(["effect-a"], { STORE_PATH: path }).found).toBe(true);
     });
 
     /** `pnpm shell:explain` reaches the script as `explain -- <question>`. */
     it("steps over the separator pnpm forwards", () => {
-        expect(explain(["--", "--item", "issue#40"], { STORE_PATH: path }).lines[0]).toBe(
-            "issue#40",
-        );
+        expect(
+            explain(["--", "--item", "issue#40", "--repo", "o/r"], { STORE_PATH: path }).lines[0],
+        ).toBe("issue#40");
         expect(explain(["--", "effect-a"], { STORE_PATH: path }).found).toBe(true);
     });
 
@@ -171,11 +187,29 @@ describe("the command around the two reads", () => {
         const usage = expect.stringContaining("usage: pnpm shell:explain");
 
         expect(explain([], { STORE_PATH: path })).toEqual({ found: false, lines: [usage] });
-        expect(explain(["--item", "issue-40"], { STORE_PATH: path })).toEqual({
+        expect(explain(["--item", "issue-40", "--repo", "o/r"], { STORE_PATH: path })).toEqual({
             found: false,
             lines: [usage],
         });
         expect(explain(["--item"], { STORE_PATH: path })).toEqual({ found: false, lines: [usage] });
+    });
+
+    /** An item is asked for in a repository, or it is not asked for at all (D169). */
+    it("prints how to ask when the item names no repository, or one it cannot spell", () => {
+        const usage = expect.stringContaining("--repo owner/repo");
+
+        expect(explain(["--item", "issue#40"], { STORE_PATH: path })).toEqual({
+            found: false,
+            lines: [usage],
+        });
+        expect(explain(["--item", "issue#40", "--repo", "o"], { STORE_PATH: path })).toEqual({
+            found: false,
+            lines: [usage],
+        });
+        expect(explain(["--item", "issue#40", "--repo"], { STORE_PATH: path })).toEqual({
+            found: false,
+            lines: [usage],
+        });
     });
 
     it("opens the store main.ts would, when STORE_PATH is unset", () => {

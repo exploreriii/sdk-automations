@@ -58,7 +58,7 @@ your file has to move.
 | `postconditionUnconfirmed` | GitHub accepted the call, but the read-back did not confirm the state it should have left behind |
 
 `pnpm shell:explain <effect-id>` prints one effect's whole history and where it stands, and
-`pnpm shell:explain --item issue#40` prints an item's effects and its decisions; `pnpm shell:status`
+`pnpm shell:explain --item issue#40 --repo owner/repo` prints an item's effects and its decisions; `pnpm shell:status`
 prints the queue, open sends, standing warnings, the sweep row and the last day's decisions. All three read only.
 
 ## It should never happen

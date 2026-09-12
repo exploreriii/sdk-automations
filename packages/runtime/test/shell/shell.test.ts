@@ -675,6 +675,7 @@ mappings:
             at: new Date(BASE.getTime() - 60 * 60_000).toISOString(),
             revision,
             capability: "intake",
+            repository: REPOSITORY,
             item,
             verb: "addLabel",
             login: null,

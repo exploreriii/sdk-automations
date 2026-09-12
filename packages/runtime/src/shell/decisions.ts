@@ -3,7 +3,7 @@
  * A judgement only — appending them is the processor's, and the store's `decide` is one row each.
  */
 
-import type { Finding, Report, Subject } from "@hiero-hackers/automation-core";
+import type { Finding, Report, RepositoryRef, Subject } from "@hiero-hackers/automation-core";
 import type { Decision } from "../store/index.js";
 import type { EffectOutcome } from "./effects.js";
 import { scheduleOfSweptId, SWEEP_EFFECT } from "./schedule.js";
@@ -13,6 +13,8 @@ export interface DecidedPass {
     /** The record's delivery id: a GUID, or a swept item's synthetic name. */
     readonly passId: string;
     readonly event: string;
+    /** The repository the process served this pass for (D169). */
+    readonly repository: RepositoryRef;
     readonly at: string;
     readonly report: Report;
     readonly effects: readonly EffectOutcome[];
@@ -35,6 +37,7 @@ export function decisionsOf(pass: DecidedPass): Decision[] {
         source: swept ? ("sweep" as const) : ("webhook" as const),
         sourceId: swept ? scheduleOfSweptId(pass.passId) : pass.passId,
         at: pass.at,
+        repository: pass.repository,
     };
     return [
         ...pass.report.findings.filter(aboutAnItem).map((finding) => ({

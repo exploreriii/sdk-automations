@@ -3,7 +3,7 @@
  * The reading itself is `fold.ts`; the statements that append are `ledger.ts`.
  */
 
-import type { ItemRef } from "@hiero-hackers/automation-core";
+import type { ItemRef, RepositoryRef } from "@hiero-hackers/automation-core";
 
 /** What one fact says happened. Four close a call; two are the effect's own (D161). */
 export type FactKind =
@@ -18,6 +18,7 @@ export interface Fact {
     readonly at: string;
     readonly revision: string;
     readonly capability: string;
+    readonly repository: RepositoryRef;
     readonly item: ItemRef;
     /** The call's verb; null on an effect-level fact. */
     readonly verb: string | null;
@@ -53,6 +54,8 @@ export type LedgerState =
 /** One `sent` fact nothing has closed — the sweep's unit of work. */
 export interface OpenSend {
     readonly effectId: string;
+    /** The send's own column, so a recovery pass appends under the same repository. */
+    readonly repository: RepositoryRef;
     readonly seq: number;
     readonly payload: string | null;
     readonly attempts: number;
@@ -104,6 +107,7 @@ export interface Decision {
     readonly source: "webhook" | "sweep";
     readonly sourceId: string;
     readonly at: string;
+    readonly repository: RepositoryRef;
     readonly item: ItemRef;
     readonly capability: string;
     readonly verdict: string;

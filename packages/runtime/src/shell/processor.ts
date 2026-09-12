@@ -291,7 +291,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
         return {
             ...facts,
             latestHumanChangeAt: (item) =>
-                facts.latestHumanChangeAt(item, store.ledger.landedOn(item)),
+                facts.latestHumanChangeAt(item, store.ledger.landedOn(repository, item)),
             warningFor: recordedWarningsIn(store.ledger),
         };
     };
@@ -339,6 +339,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
         const rows = decisionsOf({
             passId: identity.deliveryId,
             event: identity.event,
+            repository,
             at: identity.decidedAt,
             report: decision.report,
             effects,

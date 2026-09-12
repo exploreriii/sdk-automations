@@ -5,7 +5,7 @@
  */
 
 import type { DatabaseSync } from "node:sqlite";
-import type { ItemRef } from "@hiero-hackers/automation-core";
+import type { ItemRef, RepositoryRef } from "@hiero-hackers/automation-core";
 import type {
     Decision,
     Fact,
@@ -64,6 +64,14 @@ const ALREADY_LANDED = `
     SELECT landed.effect_id FROM effect_fact landed
     WHERE landed.kind = 'landed' AND landed.seq >= 1`;
 
+/** The column's spelling, and the reference it is read back as: `owner/repo` (D169). */
+const spelled = (repository: RepositoryRef): string => `${repository.owner}/${repository.repo}`;
+
+function refOf(column: string): RepositoryRef {
+    const cut = column.indexOf("/");
+    return { owner: column.slice(0, cut), repo: column.slice(cut + 1) };
+}
+
 /** One `effect_fact` row, as SQLite hands it back. */
 interface FactRow {
     readonly effect_id: string;
@@ -72,6 +80,7 @@ interface FactRow {
     readonly at: string;
     readonly revision: string;
     readonly capability: string;
+    readonly repository: string;
     readonly item_kind: ItemRef["kind"];
     readonly item_number: number;
     readonly verb: string | null;
@@ -86,6 +95,7 @@ interface DecisionRow {
     readonly source: Decision["source"];
     readonly source_id: string;
     readonly at: string;
+    readonly repository: string;
     readonly item_kind: ItemRef["kind"];
     readonly item_number: number;
     readonly capability: string;
@@ -103,6 +113,7 @@ function factOf(row: FactRow): Fact {
         at: row.at,
         revision: row.revision,
         capability: row.capability,
+        repository: refOf(row.repository),
         item: { kind: row.item_kind, number: row.item_number },
         verb: row.verb,
         login: row.login,
@@ -146,10 +157,10 @@ export class Ledger {
                 `
                 INSERT INTO effect_fact (
                     effect_id, seq, kind, at, revision, capability,
-                    item_kind, item_number, verb, login, code, detail, payload
+                    repository, item_kind, item_number, verb, login, code, detail, payload
                 )
                 SELECT $effectId, $seq, $kind, $at, $revision, $capability,
-                       $itemKind, $itemNumber, $verb, $login, $code, $detail, $payload
+                       $repository, $itemKind, $itemNumber, $verb, $login, $code, $detail, $payload
                 WHERE $kind != 'warned'
                    OR NOT EXISTS (
                         SELECT 1 FROM effect_fact
@@ -164,6 +175,7 @@ export class Ledger {
                 $at: fact.at,
                 $revision: fact.revision,
                 $capability: fact.capability,
+                $repository: spelled(fact.repository),
                 $itemKind: fact.item.kind,
                 $itemNumber: fact.item.number,
                 $verb: fact.verb,
@@ -192,8 +204,8 @@ export class Ledger {
         const rows = this.db
             .prepare(
                 `
-                SELECT sent.effect_id, sent.seq, sent.payload, sent.at, sent.revision,
-                       ${ATTEMPTS_AT} AS attempts
+                SELECT sent.effect_id, sent.repository, sent.seq, sent.payload,
+                       sent.at, sent.revision, ${ATTEMPTS_AT} AS attempts
                 FROM effect_fact sent
                 WHERE sent.kind = 'sent' AND sent.at <= ?
                   AND ${STILL_OPEN} AND ${LATEST_SEND}
@@ -202,6 +214,7 @@ export class Ledger {
             )
             .all(before) as unknown as {
             effect_id: string;
+            repository: string;
             seq: number;
             payload: string | null;
             at: string;
@@ -210,6 +223,7 @@ export class Ledger {
         }[];
         return rows.map((row) => ({
             effectId: row.effect_id,
+            repository: refOf(row.repository),
             seq: row.seq,
             payload: row.payload,
             attempts: row.attempts,
@@ -233,31 +247,34 @@ export class Ledger {
     }
 
     /** Every effect with a fact on one item, oldest first — where an explanation starts (D163). */
-    effectsOn(item: ItemRef): string[] {
+    effectsOn(repository: RepositoryRef, item: ItemRef): string[] {
         const rows = this.db
             .prepare(
                 `
                 SELECT effect_id FROM effect_fact
-                WHERE item_kind = ? AND item_number = ?
+                WHERE repository = ? AND item_kind = ? AND item_number = ?
                 GROUP BY effect_id
                 ORDER BY MIN(fact_id)
             `,
             )
-            .all(item.kind, item.number) as unknown as { effect_id: string }[];
+            .all(spelled(repository), item.kind, item.number) as unknown as {
+            effect_id: string;
+        }[];
         return rows.map((row) => row.effect_id);
     }
 
     /** Every completed call the platform made on one item — what GitHub's actor cannot say (D159). */
-    landedOn(item: ItemRef): LandedWrite[] {
+    landedOn(repository: RepositoryRef, item: ItemRef): LandedWrite[] {
         const rows = this.db
             .prepare(
                 `
                 SELECT verb, login, at FROM effect_fact
-                WHERE kind = 'landed' AND item_kind = ? AND item_number = ?
+                WHERE kind = 'landed'
+                  AND repository = ? AND item_kind = ? AND item_number = ?
                 ORDER BY at, fact_id
             `,
             )
-            .all(item.kind, item.number) as unknown as LandedWrite[];
+            .all(spelled(repository), item.kind, item.number) as unknown as LandedWrite[];
         return rows.map((row) => ({ verb: row.verb, login: row.login, at: row.at }));
     }
 
@@ -299,9 +316,9 @@ export class Ledger {
             .prepare(
                 `
                 INSERT INTO decision (
-                    pass_id, source, source_id, at, item_kind, item_number,
+                    pass_id, source, source_id, at, repository, item_kind, item_number,
                     capability, verdict, code, detail, effect_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
             )
             .run(
@@ -309,6 +326,7 @@ export class Ledger {
                 decision.source,
                 decision.sourceId,
                 decision.at,
+                spelled(decision.repository),
                 decision.item.kind,
                 decision.item.number,
                 decision.capability,
@@ -319,21 +337,22 @@ export class Ledger {
             );
     }
 
-    decisionsOn(item: ItemRef): Decision[] {
+    decisionsOn(repository: RepositoryRef, item: ItemRef): Decision[] {
         const rows = this.db
             .prepare(
                 `
                 SELECT * FROM decision
-                WHERE item_kind = ? AND item_number = ?
+                WHERE repository = ? AND item_kind = ? AND item_number = ?
                 ORDER BY at, rowid
             `,
             )
-            .all(item.kind, item.number) as unknown as DecisionRow[];
+            .all(spelled(repository), item.kind, item.number) as unknown as DecisionRow[];
         return rows.map((row) => ({
             passId: row.pass_id,
             source: row.source,
             sourceId: row.source_id,
             at: row.at,
+            repository: refOf(row.repository),
             item: { kind: row.item_kind, number: row.item_number },
             capability: row.capability,
             verdict: row.verdict,

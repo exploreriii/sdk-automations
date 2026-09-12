@@ -4,7 +4,7 @@
  */
 
 import { existsSync } from "node:fs";
-import type { ItemRef } from "@hiero-hackers/automation-core";
+import type { ItemRef, RepositoryRef } from "@hiero-hackers/automation-core";
 import { fold, Store, type Decision, type Fact, type LedgerState } from "../store/index.js";
 import { storeFile } from "./paths.js";
 
@@ -22,10 +22,19 @@ const column = (value: string | number | null): string =>
 
 const spelled = (item: ItemRef): string => `${item.kind}#${String(item.number)}`;
 
+const spelledRepository = (repository: RepositoryRef): string =>
+    `${repository.owner}/${repository.repo}`;
+
 /** `issue#40` or `pullRequest#40`, and nothing else. */
 function itemOf(spec: string): ItemRef | null {
     const named = /^(issue|pullRequest)#(\d+)$/.exec(spec);
     return named === null ? null : { kind: named[1] as ItemRef["kind"], number: Number(named[2]) };
+}
+
+/** `owner/repo`, both halves spelled and neither holding a slash. */
+function repositoryOf(spec: string): RepositoryRef | null {
+    const halves = /^([^/\s]+)\/([^/\s]+)$/.exec(spec);
+    return halves === null ? null : { owner: halves[1] as string, repo: halves[2] as string };
 }
 
 /** The plan length no row holds: the longest call this effect ever named. */
@@ -95,9 +104,9 @@ export function explainEffect(store: Store, effectId: string): Explanation {
 }
 
 /** Every effect with a fact on one item and where each stands, then its decisions, newest first. */
-export function explainItem(store: Store, item: ItemRef): Explanation {
-    const effects = store.ledger.effectsOn(item);
-    const decisions = [...store.ledger.decisionsOn(item)].reverse();
+export function explainItem(store: Store, repository: RepositoryRef, item: ItemRef): Explanation {
+    const effects = store.ledger.effectsOn(repository, item);
+    const decisions = [...store.ledger.decisionsOn(repository, item)].reverse();
     return {
         found: effects.length > 0 || decisions.length > 0,
         lines: [
@@ -105,32 +114,49 @@ export function explainItem(store: Store, item: ItemRef): Explanation {
             ...effects.map((effectId) => {
                 const facts = store.ledger.factsOf(effectId);
                 const plan = planOf(facts);
-                return `effect ${effectId}  ${stateLine(fold(facts, plan), plan)}`;
+                const state = stateLine(fold(facts, plan), plan);
+                return `effect ${effectId}  ${spelledRepository(repository)}  ${state}`;
             }),
             ...decisions.map(decisionLine),
         ],
     };
 }
 
-const USAGE = "usage: pnpm shell:explain <effect-id> | pnpm shell:explain --item issue#40";
+const USAGE =
+    "usage: pnpm shell:explain <effect-id> | pnpm shell:explain --item issue#40 --repo owner/repo";
+
+/** The two questions the command asks: one effect, or one item of one repository (D169). */
+type Question =
+    | { readonly kind: "effect"; readonly effectId: string }
+    | { readonly kind: "item"; readonly repository: RepositoryRef; readonly item: ItemRef };
+
+/** What the arguments ask, or `null` where they ask nothing this command answers. */
+function questionOf(argv: readonly string[]): Question | null {
+    // pnpm forwards the root script's `--` separator as an argument; it asks nothing.
+
+    const [first, second, third, fourth] = argv[0] === "--" ? argv.slice(1) : argv;
+    if (first === undefined || first === "") return null;
+    if (first !== "--item") return { kind: "effect", effectId: first };
+    const item = itemOf(second ?? "");
+    const repository = third === "--repo" ? repositoryOf(fourth ?? "") : null;
+    if (item === null || repository === null) return null;
+    return { kind: "item", repository, item };
+}
 
 /** The command: which store to open, and which of the two questions to ask it. */
 export function explain(
     argv: readonly string[],
     env: Readonly<Partial<Record<string, string>>> = process.env,
 ): Explanation {
-    // pnpm forwards the root script's `--` separator as an argument; it asks nothing.
-
-    const [first, second] = argv[0] === "--" ? argv.slice(1) : argv;
-    const item = first === "--item" ? itemOf(second ?? "") : null;
-    if (first === undefined || first === "" || (first === "--item" && item === null)) {
-        return { found: false, lines: [USAGE] };
-    }
+    const question = questionOf(argv);
+    if (question === null) return { found: false, lines: [USAGE] };
     const path = storeFile(env);
     if (!existsSync(path)) return { found: false, lines: [`no store at ${path}`] };
     const store = new Store(path);
     try {
-        return item === null ? explainEffect(store, first) : explainItem(store, item);
+        return question.kind === "effect"
+            ? explainEffect(store, question.effectId)
+            : explainItem(store, question.repository, question.item);
     } finally {
         store.close();
     }

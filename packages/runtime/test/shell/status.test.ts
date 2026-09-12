@@ -6,11 +6,17 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
-import { asDeliveryGuid, type DeliveryGuid, type ItemRef } from "@hiero-hackers/automation-core";
+import {
+    asDeliveryGuid,
+    type DeliveryGuid,
+    type ItemRef,
+    type RepositoryRef,
+} from "@hiero-hackers/automation-core";
 import { Store, type Decision, type Fact, type StoredWarning } from "../../src/store/index.js";
 import { readStatus, status } from "../../src/shell/status.js";
 
 const ITEM: ItemRef = { kind: "issue", number: 40 };
+const REPOSITORY: RepositoryRef = { owner: "o", repo: "r" };
 const NOW = new Date("2026-09-12T15:00:00.000Z");
 
 /** Earlier than every claim below, so no claim here is taken over. */
@@ -70,6 +76,7 @@ const fact = (over: Partial<Fact> = {}): Fact => ({
     at: "2026-09-12T13:00:00.000Z",
     revision: "revision-1",
     capability: "inactivity",
+    repository: REPOSITORY,
     item: ITEM,
     verb: "postComment",
     login: null,
@@ -107,6 +114,7 @@ const decision = (verdict: string, at = "2026-09-12T14:00:00.000Z"): Decision =>
     source: "webhook",
     sourceId: "00000000-0000-0000-0000-000000000001",
     at,
+    repository: REPOSITORY,
     item: ITEM,
     capability: "inactivity",
     verdict,

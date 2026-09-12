@@ -88,7 +88,13 @@ describe("storage schema versions", () => {
         expect(created["seen_delivery"]).toContain("retry_not_before");
         expect(created["seen_delivery"]).toContain("'failed'");
         expect(created["effect_fact"]).toContain("'abandoned'");
+        expect(created["effect_fact"]).toContain("repository TEXT NOT NULL");
         expect(created["decision"]).toContain("verdict");
+        expect(created["decision"]).toContain("repository TEXT NOT NULL");
+        // Every item-keyed read takes the repository first, so the index leads with it (D169).
+
+        expect(created["fact_by_item"]).toContain("(repository, item_kind, item_number");
+        expect(created["decision_by_item"]).toContain("(repository, item_kind, item_number");
     });
 
     it("changes nothing when the file it already created is reopened", () => {

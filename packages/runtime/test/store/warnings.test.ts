@@ -48,6 +48,7 @@ const warned = (over: Partial<Fact> = {}): Fact => ({
     at: "2026-09-01T00:00:00.000Z",
     revision: "rev-1",
     capability: "inactivity",
+    repository: { owner: "o", repo: "r" },
     item: { kind: "issue", number: 40 },
     verb: null,
     login: null,

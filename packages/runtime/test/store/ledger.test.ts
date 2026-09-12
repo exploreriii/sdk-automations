@@ -8,7 +8,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
-import type { ItemRef } from "@hiero-hackers/automation-core";
+import type { ItemRef, RepositoryRef } from "@hiero-hackers/automation-core";
 import type { Decision, Fact, FactKind, StoredWarning } from "../../src/store/index.js";
 import { Store } from "../../src/store/store.js";
 
@@ -21,6 +21,9 @@ beforeEach(() => {
 
 const ITEM: ItemRef = { kind: "issue", number: 40 };
 const OTHER: ItemRef = { kind: "pullRequest", number: 41 };
+const REPOSITORY: RepositoryRef = { owner: "o", repo: "r" };
+/** The same item number in a repository this process also serves (D169). */
+const ELSEWHERE: RepositoryRef = { owner: "o", repo: "other" };
 const AT = "2026-09-12T09:00:00.000Z";
 
 const fact = (over: Partial<Fact> = {}): Fact => ({
@@ -30,6 +33,7 @@ const fact = (over: Partial<Fact> = {}): Fact => ({
     at: AT,
     revision: "revision-1",
     capability: "inactivity",
+    repository: REPOSITORY,
     item: ITEM,
     verb: "postComment",
     login: null,
@@ -61,6 +65,7 @@ const decision = (over: Partial<Decision> = {}): Decision => ({
     source: "webhook",
     sourceId: "00000000-0000-0000-0000-000000000001",
     at: AT,
+    repository: REPOSITORY,
     item: ITEM,
     capability: "inactivity",
     verdict: "apply",
@@ -125,6 +130,7 @@ describe("the sweep's worklist", () => {
         expect(store.ledger.open("2026-09-12T09:30:00.000Z")).toEqual([
             {
                 effectId: "open-effect",
+                repository: REPOSITORY,
                 seq: 1,
                 payload: '{"verb":"postComment"}',
                 attempts: 1,
@@ -147,6 +153,7 @@ describe("the sweep's worklist", () => {
         expect(store.ledger.open("2026-09-12T09:30:00.000Z")).toEqual([
             {
                 effectId: "effect-a",
+                repository: REPOSITORY,
                 seq: 1,
                 payload: '{"verb":"postComment"}',
                 attempts: 2,
@@ -174,13 +181,37 @@ describe("the writes the platform made on one item", () => {
             closed("refused", "2026-09-12T09:00:03.000Z", { effectId: "effect-c" }),
         );
 
-        expect(store.ledger.landedOn(ITEM)).toEqual([
+        expect(store.ledger.landedOn(REPOSITORY, ITEM)).toEqual([
             { verb: "releaseAssignment", login: "a", at: "2026-09-12T09:00:01.000Z" },
         ]);
-        expect(store.ledger.landedOn(OTHER)).toEqual([
+        expect(store.ledger.landedOn(REPOSITORY, OTHER)).toEqual([
             { verb: "postComment", login: null, at: "2026-09-12T09:00:02.000Z" },
         ]);
-        expect(store.ledger.landedOn({ kind: "issue", number: 99 })).toEqual([]);
+        expect(store.ledger.landedOn(REPOSITORY, { kind: "issue", number: 99 })).toEqual([]);
+        store.close();
+    });
+
+    /** D169: two repositories number their items in one sequence each. */
+    it("returns nothing another repository's, at the same item number", () => {
+        const store = new Store(path);
+
+        store.ledger.record(fact());
+        store.ledger.record(closed("landed", "2026-09-12T09:00:01.000Z"));
+        store.ledger.record(fact({ effectId: "effect-elsewhere", repository: ELSEWHERE }));
+        store.ledger.record(
+            closed("landed", "2026-09-12T09:00:02.000Z", {
+                effectId: "effect-elsewhere",
+                repository: ELSEWHERE,
+                verb: "addLabel",
+            }),
+        );
+
+        expect(store.ledger.landedOn(REPOSITORY, ITEM)).toEqual([
+            { verb: "postComment", login: null, at: "2026-09-12T09:00:01.000Z" },
+        ]);
+        expect(store.ledger.landedOn(ELSEWHERE, ITEM)).toEqual([
+            { verb: "addLabel", login: null, at: "2026-09-12T09:00:02.000Z" },
+        ]);
         store.close();
     });
 });
@@ -194,9 +225,21 @@ describe("the effects with a fact on one item", () => {
         store.ledger.record(fact({ effectId: "effect-a", at: "2026-09-12T09:00:02.000Z" }));
         store.ledger.record(fact({ effectId: "effect-c", item: OTHER }));
 
-        expect(store.ledger.effectsOn(ITEM)).toEqual(["effect-b", "effect-a"]);
-        expect(store.ledger.effectsOn(OTHER)).toEqual(["effect-c"]);
-        expect(store.ledger.effectsOn({ kind: "issue", number: 99 })).toEqual([]);
+        expect(store.ledger.effectsOn(REPOSITORY, ITEM)).toEqual(["effect-b", "effect-a"]);
+        expect(store.ledger.effectsOn(REPOSITORY, OTHER)).toEqual(["effect-c"]);
+        expect(store.ledger.effectsOn(REPOSITORY, { kind: "issue", number: 99 })).toEqual([]);
+        store.close();
+    });
+
+    /** D169: two repositories number their items in one sequence each. */
+    it("names nothing another repository's, at the same item number", () => {
+        const store = new Store(path);
+
+        store.ledger.record(fact());
+        store.ledger.record(fact({ effectId: "effect-elsewhere", repository: ELSEWHERE }));
+
+        expect(store.ledger.effectsOn(REPOSITORY, ITEM)).toEqual(["effect-a"]);
+        expect(store.ledger.effectsOn(ELSEWHERE, ITEM)).toEqual(["effect-elsewhere"]);
         store.close();
     });
 });
@@ -247,13 +290,27 @@ describe("the decisions a pass records", () => {
         );
         store.ledger.decide(decision({ item: OTHER }));
 
-        expect(store.ledger.decisionsOn(ITEM).map((row) => row.verdict)).toEqual([
+        expect(store.ledger.decisionsOn(REPOSITORY, ITEM).map((row) => row.verdict)).toEqual([
             "apply",
             "refused",
         ]);
-        expect(store.ledger.decisionsOn(OTHER)).toEqual([decision({ item: OTHER })]);
+        expect(store.ledger.decisionsOn(REPOSITORY, OTHER)).toEqual([decision({ item: OTHER })]);
         expect(() => store.ledger.decide(decision({ at: "soon" }))).toThrow(/at/);
         expect(() => store.ledger.decide(decision({ passId: " " }))).toThrow(/passId/);
+        store.close();
+    });
+
+    /** D169: two repositories number their items in one sequence each. */
+    it("lists nothing another repository's, at the same item number", () => {
+        const store = new Store(path);
+
+        store.ledger.decide(decision());
+        store.ledger.decide(decision({ passId: "pass-elsewhere", repository: ELSEWHERE }));
+
+        expect(store.ledger.decisionsOn(REPOSITORY, ITEM)).toEqual([decision()]);
+        expect(store.ledger.decisionsOn(ELSEWHERE, ITEM)).toEqual([
+            decision({ passId: "pass-elsewhere", repository: ELSEWHERE }),
+        ]);
         store.close();
     });
 });
@@ -314,7 +371,7 @@ describe("retention", () => {
 
         expect(store.ledger.pruneDecisions("2026-09-12T08:00:00.000Z")).toBe(0);
         expect(store.ledger.pruneDecisions(AT)).toBe(1);
-        expect(store.ledger.decisionsOn(ITEM)).toHaveLength(1);
+        expect(store.ledger.decisionsOn(REPOSITORY, ITEM)).toHaveLength(1);
         expect(() => store.ledger.pruneDecisions("whenever")).toThrow(/before/);
         store.close();
     });

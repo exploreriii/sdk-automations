@@ -356,7 +356,7 @@ describe("a delivery under a suspended installation", () => {
     it("writes no decision row, and names the kind it completed as", async () => {
         await suspendedLane().drain();
 
-        expect(store.ledger.decisionsOn(ITEM)).toEqual([]);
+        expect(store.ledger.decisionsOn(REPOSITORY, ITEM)).toEqual([]);
         expect(logged).toContainEqual({
             event: "deliveryCompleted",
             deliveryId: GUID as string,
@@ -925,7 +925,7 @@ describe("one fact record decided outside the queue", () => {
 describe("the decision rows one pass writes", () => {
     const ITEM = { kind: "issue", number: 164 } as const;
     const FOREVER = "2999-01-01T00:00:00.000Z";
-    const rows = () => store.ledger.decisionsOn(ITEM);
+    const rows = () => store.ledger.decisionsOn(REPOSITORY, ITEM);
 
     /** One outcome per approved effect, so a row has an effect id to carry. */
     const applying: Applier = {
@@ -972,6 +972,7 @@ describe("the decision rows one pass writes", () => {
             source: "webhook",
             sourceId: GUID as string,
             at: records()[0]?.["decidedAt"],
+            repository: REPOSITORY,
             item: ITEM,
             capability: "intake",
             detail: "New issue placed in triage.",

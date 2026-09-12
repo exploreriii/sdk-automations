@@ -27,6 +27,7 @@ import {
     type ObservedModes,
     type Projection,
     type RepositoryConfig,
+    type RepositoryRef,
     type WarningToRecord,
 } from "@hiero-hackers/automation-core";
 import type { Fact, FactKind, Ledger, OpenSend, StoredWarning } from "../store/index.js";
@@ -124,6 +125,8 @@ export interface Applier {
 interface Pass {
     readonly effectId: string;
     readonly capability: string;
+    /** The intent's own, or the open send's on a recovery pass (D169). */
+    readonly repository: RepositoryRef;
     readonly item: ItemRef;
     readonly config: RepositoryConfig;
     /** The warning this comment records when it lands; `null` for every recovery pass. */
@@ -273,10 +276,11 @@ export function createApplier(options: ApplierOptions): Applier {
      */
     const orderingFor = async (
         facts: ShellExternals,
+        repository: RepositoryRef,
         item: ItemRef,
     ): Promise<HumanChangeOrdering> => {
         try {
-            return await facts.latestHumanChangeAt(item, ledger.landedOn(item));
+            return await facts.latestHumanChangeAt(item, ledger.landedOn(repository, item));
         } catch {
             return "unknown";
         }
@@ -392,7 +396,7 @@ export function createApplier(options: ApplierOptions): Applier {
         const context = {
             killSwitchActive: facts.value.killSwitchActive,
             installationGrants: facts.value.installationGrants,
-            latestHumanChangeAt: await orderingFor(facts.value, intent.item),
+            latestHumanChangeAt: await orderingFor(facts.value, pass.repository, intent.item),
             world: deriveWorld(
                 projectionFrom(seen.value, intent.item.kind, pass.config),
                 intent.claims,
@@ -454,6 +458,7 @@ export function createApplier(options: ApplierOptions): Applier {
             at: now(),
             revision: pass.config.revision,
             capability: pass.capability,
+            repository: pass.repository,
             item: pass.item,
             verb: call?.verb ?? null,
             login: call === null ? null : loginOf(call),
@@ -515,6 +520,7 @@ export function createApplier(options: ApplierOptions): Applier {
             at: snapshot.warnedAt,
             revision: pass.config.revision,
             capability: pass.capability,
+            repository: pass.repository,
             item: pass.item,
             verb: null,
             login: null,
@@ -711,6 +717,7 @@ export function createApplier(options: ApplierOptions): Applier {
         const pass: Pass = {
             effectId: intent.idempotencyKey,
             capability: intent.capability,
+            repository: intent.repository,
             item: intent.item,
             config,
             records: effect.records,
@@ -791,6 +798,7 @@ export function createApplier(options: ApplierOptions): Applier {
             const pass: Pass = {
                 effectId: open.effectId,
                 capability: journaled.capability,
+                repository: open.repository,
                 item: journaled.item,
                 config,
                 records: null,

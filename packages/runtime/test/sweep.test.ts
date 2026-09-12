@@ -659,6 +659,7 @@ const FACT = {
     seq: 1,
     revision: "rev-sweep-1",
     capability: "inactivity",
+    repository: REPOSITORY,
     item: ISSUE,
     verb: "postComment",
     login: null,
@@ -670,6 +671,7 @@ const FACT = {
 const DECISION = {
     source: "sweep",
     sourceId: SCHEDULE,
+    repository: REPOSITORY,
     item: ISSUE,
     capability: "inactivity",
     verdict: "apply",
@@ -738,7 +740,9 @@ describe("what one firing prunes", () => {
 
         await driven().run();
 
-        expect(store.ledger.decisionsOn(ISSUE).map((row) => row.passId)).toEqual(["pass-new"]);
+        expect(store.ledger.decisionsOn(REPOSITORY, ISSUE).map((row) => row.passId)).toEqual([
+            "pass-new",
+        ]);
         expect(events("sweepPruned")).toMatchObject([{ deliveries: 0, effects: 0, decisions: 1 }]);
     });
 
@@ -1092,6 +1096,7 @@ describe("an item the platform released within the minute", () => {
             seq: 1,
             revision: "rev-sweep-1",
             capability: "inactivity",
+            repository: REPOSITORY,
             item: ISSUE,
             verb: "releaseAssignment",
             login: "bob",

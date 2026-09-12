@@ -14,6 +14,7 @@ import { fold } from "../../src/store/fold.js";
 const SEED = 20260912;
 const AT = "2026-09-12T09:00:00.000Z";
 const ITEM = { kind: "issue", number: 40 } as const;
+const REPOSITORY = { owner: "o", repo: "r" } as const;
 
 /** The four facts that close an open send. */
 const CLOSINGS = ["landed", "refused", "abandoned", "unsent"] as const;
@@ -30,6 +31,7 @@ const factAt = (seq: number, kind: FactKind): Fact => ({
     at: AT,
     revision: "revision-1",
     capability: "inactivity",
+    repository: REPOSITORY,
     item: ITEM,
     verb: kind === "warned" || kind === "reversed" ? null : "postComment",
     login: null,

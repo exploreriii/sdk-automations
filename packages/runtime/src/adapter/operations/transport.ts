@@ -1,12 +1,18 @@
 /** What one write operation's transport is: the endpoints it may reach and the verbs it contributes. */
 
-import type { ItemRef, RepositoryRef } from "@hiero-hackers/automation-core";
+import type { ItemRef, PermissionGrant, RepositoryRef } from "@hiero-hackers/automation-core";
 import { GITHUB_API_ORIGIN, repoPath, type GitHubWriteRequest } from "../contract.js";
 
 // ─── The endpoints ───────────────────────────────────────────────────
 
-/** The four write operations the endpoint matrix confirmed, by path shape. */
-export type WriteEndpoint = "addLabel" | "removeLabel" | "createComment" | "updateComment";
+/** The six write operations the endpoint matrix confirmed, by path shape. */
+export type WriteEndpoint =
+    | "addLabel"
+    | "removeLabel"
+    | "createComment"
+    | "updateComment"
+    | "closePullRequest"
+    | "releaseAssignment";
 
 /** Non-empty, and unchanged by a decode-then-encode round trip. */
 export function isEncodedSegment(segment: string | undefined): boolean {
@@ -24,6 +30,9 @@ export function isNumberSegment(segment: string | undefined): boolean {
 
 export interface EndpointShape {
     readonly endpoint: WriteEndpoint;
+    readonly resource: "issues" | "pulls";
+    /** The grant a 403 on this endpoint names; a write takes nothing weaker (D123). */
+    readonly grant: PermissionGrant;
     /** Structural match on method and the path's tail — never derived from the builder (D129). */
     matches(method: string, rest: readonly string[]): boolean;
     /** Cache keys a landed write makes untrustworthy. */
@@ -34,6 +43,14 @@ export interface EndpointShape {
 export function itemStaledBy(url: URL, list: "comments" | "labels"): readonly string[] {
     const item = `${GITHUB_API_ORIGIN}${url.pathname.split("/").slice(0, 6).join("/")}`;
     return [item, `${item}/${list}`, `${item}/timeline`];
+}
+
+/** The three hrefs one item's state is read from: both its views, and its timeline. */
+export function itemViewsStaledBy(url: URL): readonly string[] {
+    const [, , owner, repo, , number] = url.pathname.split("/");
+    const repository = `${GITHUB_API_ORIGIN}/repos/${String(owner)}/${String(repo)}`;
+    const issue = `${repository}/issues/${String(number)}`;
+    return [issue, `${issue}/timeline`, `${repository}/pulls/${String(number)}`];
 }
 
 // ─── The verbs ───────────────────────────────────────────────────────
@@ -55,9 +72,13 @@ export interface WriteVerbs {
     /** The one non-idempotent verb. */
     createComment(item: ItemRef, body: string): Promise<WriteResult>;
     updateComment(commentId: number, body: string): Promise<WriteResult>;
+    /** Closed unmerged; the reason is the notice's, never GitHub's. */
+    closePullRequest(item: ItemRef): Promise<WriteResult>;
+    /** ONE named login off the item's assignees, never the list whole (D63). */
+    releaseAssignment(item: ItemRef, login: string): Promise<WriteResult>;
 }
 
-/** The one status the four endpoints disagree about; the fallback is `invisible`, never `already` (D46). */
+/** The one status the endpoints disagree about; the fallback is `invisible`, never `already` (D46). */
 export type NotFoundMeaning = "invisible" | "labelMayBeAbsent";
 
 /** Nothing a builder receives is validated; the admission gate refuses a bad URL structurally. */
@@ -68,6 +89,11 @@ export interface VerbContext {
 
 export function issuePath(repository: RepositoryRef, item: ItemRef): string {
     return `${repoPath(repository)}/issues/${String(item.number)}`;
+}
+
+/** The pull-request view of the same number — a different row, and a different grant. */
+export function pullPath(repository: RepositoryRef, item: ItemRef): string {
+    return `${repoPath(repository)}/pulls/${String(item.number)}`;
 }
 
 // ─── The transport ───────────────────────────────────────────────────

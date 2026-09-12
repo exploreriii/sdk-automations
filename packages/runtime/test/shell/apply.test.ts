@@ -47,6 +47,7 @@ import {
     ITEM,
     labelEffect,
     markerOf,
+    PULL,
     READY_LABEL,
     releaseEffect,
     TRIAGE_LABEL,
@@ -1505,16 +1506,18 @@ describe("a close that claimed a native pull-request mode", () => {
             ),
         );
 
-    it("reaches the send while the mode it claimed still holds", async () => {
+    it("closes while the mode it claimed still holds, then posts its notice", async () => {
         recordWarning("draft");
         const github = fakeGitHub({ draft: true });
 
         const outcome = await applyAt(github, closeEffect("draft"));
 
-        // No confirmed endpoint closes a pull request, so the send is the
-        // stop — past every gate, which is what this row is about.
-        expect(outcome).toMatchObject({ outcome: "refused", code: "writeForbidden" });
-        expect(github.world.comments).toEqual([]);
+        expect(outcome).toMatchObject({ outcome: "applied", code: null });
+        expect(github.calls[0]).toBe(`closePullRequest #${String(PULL.number)}`);
+        expect(github.world.closed).toBe(true);
+        // The notice claims a close that landed: the plan stops at the first
+        // refusal, so it is sent second or not at all.
+        expect(appComments(github)).toHaveLength(1);
     });
 
     it("refuses `preconditionStale` when the pull request was marked ready for review", async () => {
@@ -1528,13 +1531,27 @@ describe("a close that claimed a native pull-request mode", () => {
         expect(github.calls).toEqual([]);
     });
 
-    it("reaches the send while the change request still stands", async () => {
+    it("closes while the change request still stands", async () => {
         recordWarning("changesRequested");
         const github = fakeGitHub({ changesRequested: true });
 
         const outcome = await applyAt(github, closeEffect("changesRequested"));
 
-        expect(outcome).toMatchObject({ outcome: "refused", code: "writeForbidden" });
+        expect(outcome).toMatchObject({ outcome: "applied", code: null });
+        expect(github.world.closed).toBe(true);
+    });
+
+    /** The read-back is the state, so a close GitHub accepted and did not make is not done. */
+    it("answers `postconditionUnconfirmed` when the pull request is still open", async () => {
+        recordWarning("draft");
+        const github = fakeGitHub({ draft: true });
+        github.faults.scripted = [{ outcome: "applied" }];
+
+        const outcome = await applyAt(github, closeEffect("draft"));
+
+        expect(outcome).toMatchObject({ outcome: "unknown", code: "postconditionUnconfirmed" });
+        expect(outcome.detail).toContain("notHeld");
+        expect(appComments(github)).toEqual([]);
     });
 
     it("refuses `preconditionStale` when a later review lifted the request", async () => {
@@ -1661,16 +1678,36 @@ describe("a graced act at the apply-time re-gate", () => {
     /**
      * The general door would have refused this `wrongEntryPoint` — a defect
      * code — rather than letting the send answer. Past the destructive gates
-     * the plan runs, and it stops at the release: no confirmed write endpoint
-     * performs one, so the notice never claims a release that did not land.
+     * the plan runs whole: the release, proved by the assignee read, and then
+     * the notice that says what the App did (grace.md §3).
      */
-    it("reaches the send once the grace has run, and stops before the notice", async () => {
+    it("releases the assignment once the grace has run, then posts its notice", async () => {
         recordWarning();
 
-        const { outcome, github } = await applyAt(later(8));
+        const { outcome, github } = await applyAt(
+            later(8),
+            releaseEffect(),
+            fakeGitHub({ assignees: ["alice", "bob"] }),
+        );
 
-        expect(outcome).toMatchObject({ outcome: "refused", code: "writeForbidden" });
-        expect(github.world.comments).toEqual([]);
+        expect(outcome).toMatchObject({ outcome: "applied", code: null });
+        expect(github.calls[0]).toBe("releaseAssignment alice");
+        // One named login, and the other assignee left where they were (D63).
+        expect(github.world.assignees).toEqual(["bob"]);
+        expect(appComments(github)).toHaveLength(1);
+    });
+
+    /** An unreadable assignee list proves nothing, so the row stays open. */
+    it("asks again when the release's read-back could not be made", async () => {
+        recordWarning();
+        const unreadable = fakeGitHub({ assignees: ["alice"] });
+        unreadable.faults.assigneeReadFails = true;
+
+        const { outcome, github } = await applyAt(later(8), releaseEffect(), unreadable);
+
+        expect(outcome).toMatchObject({ outcome: "unknown", code: "postconditionUnconfirmed" });
+        expect(outcome.detail).toContain("unknown");
+        expect(appComments(github)).toEqual([]);
     });
 
     it("refuses when the person acted after they were warned", async () => {

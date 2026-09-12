@@ -1,4 +1,4 @@
-/** Closing a pull request unmerged — refused at the send, because no confirmed write endpoint closes one. */
+/** Closing a pull request unmerged: the plan, its row, and the state read that proves it. */
 
 import { planWithNotice, type OperationHandler } from "./handler.js";
 import { text } from "./row.js";
@@ -20,13 +20,16 @@ export const closePullRequest: OperationHandler<"closePullRequest"> = {
         return reason === null ? null : { verb: "closePullRequest", reason };
     },
 
-    /** Refused here rather than earlier, so plan, row and dispatch stay identical. */
-    send: async () => ({
-        outcome: "forbidden",
-        detail: "no confirmed write endpoint closes a pull request; the adapter has four, and none of them is this",
-    }),
+    /** The reason is not sent: GitHub is told the state, and the notice says why (6.10). */
+    send: async (_call, pass) => await pass.writer.closePullRequest(pass.item),
 
-    // Unreachable: `send` refuses this verb before it is proved.
-
-    confirm: async () => "unknown",
+    /**
+     * The state on the pull request, and only that.
+     * `closed_by` is absent from the pull object — the actor of a close is on the timeline (6.10) — so a read-back that wanted it would never confirm.
+     */
+    async confirm(_call, pass) {
+        const seen = await pass.reader.item(pass.item);
+        if (!seen.ok) return "unknown";
+        return seen.value.closed ? "held" : "notHeld";
+    },
 };

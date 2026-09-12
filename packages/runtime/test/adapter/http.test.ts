@@ -1525,6 +1525,7 @@ describe("lastPageFromLink, held directly", () => {
 
 const ISSUE = `${GITHUB_API_ORIGIN}/repos/hiero-hackers/sdk-automations/issues/132`;
 const REPO = `${GITHUB_API_ORIGIN}/repos/hiero-hackers/sdk-automations`;
+const PULL = `${REPO}/pulls`;
 
 const addLabel: GitHubRequest = {
     url: `${ISSUE}/labels`,
@@ -1549,6 +1550,31 @@ const updateComment: GitHubRequest = {
     body: JSON.stringify({ body: "hello again" }),
     idempotency: "idempotent",
 };
+const releaseAssignment: GitHubRequest = {
+    url: `${ISSUE}/assignees`,
+    method: "DELETE",
+    body: JSON.stringify({ assignees: ["alice"] }),
+    idempotency: "idempotent",
+};
+const closePullRequest: GitHubRequest = {
+    url: `${PULL}/205`,
+    method: "PATCH",
+    body: JSON.stringify({ state: "closed" }),
+    idempotency: "idempotent",
+};
+
+/** The installation that holds both write surfaces — the close is on neither one alone. */
+const bothSurfaces = {
+    outcomes: [
+        {
+            ok: true,
+            token: {
+                ...token("both-surfaces"),
+                grants: ["issues:write", "pull_requests:write"],
+            },
+        },
+    ],
+} as const;
 
 /** A refusal's reason, for the many shapes the gate must reject. */
 function refusalOf(outcome: Awaited<ReturnType<GitHubHttpClient["request"]>>): string {
@@ -1563,6 +1589,7 @@ describe("the write gate", () => {
         ["remove label", removeLabel, "DELETE", `${ISSUE}/labels/status%3A%20stale`],
         ["create comment", createComment, "POST", `${ISSUE}/comments`],
         ["update comment", updateComment, "PATCH", `${REPO}/issues/comments/7788`],
+        ["release assignment", releaseAssignment, "DELETE", `${ISSUE}/assignees`],
     ])("admits %s with its exact method, url and body", async (_label, write, method, url) => {
         const { client, scripted } = harness([success("{}")]);
 
@@ -1574,6 +1601,72 @@ describe("the write gate", () => {
         expect(scripted.calls[0]!.init.method).toBe(method);
         expect(scripted.calls[0]!.init.redirect).toBe("manual");
         expect(scripted.calls[0]!.init.body).toBe("body" in write ? write.body : undefined);
+    });
+
+    /**
+     * The body rule is per endpoint, not per method: the label removal must
+     * carry none and the assignee release must carry one, and both are DELETEs.
+     */
+    it("admits a DELETE that carries a body, and sends the body", async () => {
+        const { client, scripted } = harness([success("{}")]);
+
+        const outcome = await client.request(releaseAssignment);
+
+        expect(outcome.ok).toBe(true);
+        expect(scripted.calls[0]!.init.body).toBe('{"assignees":["alice"]}');
+        expect(new Headers(scripted.calls[0]!.init.headers).get("content-type")).toBe(
+            "application/json",
+        );
+    });
+
+    it("refuses a body-less release, and a body-carrying label removal", async () => {
+        const noBody = harness([success("{}")]);
+        const withBody = harness([success("{}")]);
+
+        const released = await noBody.client.request({
+            url: `${ISSUE}/assignees`,
+            method: "DELETE",
+            idempotency: "idempotent",
+        });
+        const removed = await withBody.client.request({ ...removeLabel, body: "{}" });
+
+        expect([refusalOf(released), refusalOf(removed)]).toEqual(["invalidBody", "invalidBody"]);
+    });
+
+    it("admits the close on the pull surface, naming only the state", async () => {
+        const { client, scripted } = harness([success("{}")], bothSurfaces);
+
+        const outcome = await client.request(closePullRequest);
+
+        expect(outcome.ok).toBe(true);
+        expect(scripted.calls[0]!.url).toBe(`${PULL}/205`);
+        expect(scripted.calls[0]!.init.method).toBe("PATCH");
+        expect(scripted.calls[0]!.init.body).toBe('{"state":"closed"}');
+    });
+
+    it.each([
+        ["the pull collection", { url: PULL, method: "PATCH" }],
+        ["a pull's own sub-resource", { url: `${PULL}/205/merge`, method: "PATCH" }],
+        ["a pull by POST", { url: `${PULL}/205`, method: "POST" }],
+        [
+            "a login named in the path rather than the body",
+            {
+                url: `${ISSUE}/assignees/alice`,
+                method: "DELETE",
+            },
+        ],
+    ])("still refuses %s", async (_label, shape) => {
+        const { client, scripted } = harness([success("{}")], bothSurfaces);
+
+        const outcome = await client.request({
+            ...shape,
+            method: shape.method as "POST" | "DELETE" | "PATCH",
+            body: "{}",
+            idempotency: "idempotent",
+        } as GitHubRequest);
+
+        expect(refusalOf(outcome)).toBe("disallowedMethod");
+        expect(scripted.calls).toHaveLength(0);
     });
 
     it("declares a content type only where a body exists", async () => {
@@ -1702,6 +1795,30 @@ describe("the write grant precheck", () => {
         expect((await client.request(addLabel)).ok).toBe(true);
         expect(scripted.calls).toHaveLength(1);
     });
+
+    /**
+     * The grant is the ENDPOINT'S, not the write path's: the close's 403 named
+     * `pull_requests=write` and the release's named the issue surface (6.10).
+     */
+    it.each([
+        ["close", closePullRequest, ["issues:write"], "pull_requests:write"],
+        ["release", releaseAssignment, ["pull_requests:write"], "issues:write"],
+    ] as const)(
+        "refuses a %s under the other surface's write grant alone",
+        async (_label, write, grants, wanted) => {
+            const { client, scripted } = harness([success("{}")], {
+                outcomes: [{ ok: true, token: { ...token("one-surface"), grants } }],
+            });
+
+            const outcome = await client.request(write);
+
+            expect(outcome.ok ? null : outcome.failure).toEqual({
+                kind: "permissionMissing",
+                acceptedPermissions: wanted,
+            });
+            expect(scripted.calls).toHaveLength(0);
+        },
+    );
 
     it("leaves the GraphQL read's own two-grant precheck alone", async () => {
         const { client, scripted } = harness([success("{}")], {
@@ -1834,6 +1951,24 @@ describe("cache hygiene around a write", () => {
         expect(refusalOf(refusal)).toBe("disallowedMethod");
         expect(new Headers(scripted.calls[1]!.init.headers).get("if-none-match")).toBe('"v1"');
         expect(reread.ok && reread.fromCache).toBe(true);
+    });
+
+    /**
+     * A close reaches the item under `pulls` and is read back under either
+     * view, so both, and the timeline, lose their validators.
+     */
+    it.each([
+        ["the pull view", `${PULL}/205`],
+        ["the issue view", `${REPO}/issues/205`],
+        ["the timeline", `${REPO}/issues/205/timeline`],
+    ])("drops %s's validator when a close lands", async (_label, url) => {
+        const { client, scripted } = harness([listed(), success("{}"), conditional], bothSurfaces);
+        await client.request({ url, method: "GET" });
+
+        await client.request(closePullRequest);
+        await client.request({ url, method: "GET" });
+
+        expect(new Headers(scripted.calls[2]!.init.headers).get("if-none-match")).toBeNull();
     });
 
     it("leaves a resource the write did not touch alone", async () => {

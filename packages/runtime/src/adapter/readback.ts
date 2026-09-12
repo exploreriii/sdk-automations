@@ -15,6 +15,7 @@ import {
     type GitHubHttpClient,
 } from "./contract.js";
 import { readChangesRequested, readPullRequestActivity } from "./facts.js";
+import { readAssigneesOf } from "./resolvers.js";
 import { field, jsonArrayOf, jsonRecordOf } from "./untrusted.js";
 
 // ─── The chosen bounds ───────────────────────────────────────────────
@@ -81,6 +82,8 @@ export interface ReadBack {
         item: ItemRef,
         working: string | undefined,
     ): Promise<ReadBackOutcome<Date | null>>;
+    /** The logins on the item now; one read, because a released login cannot come back stale. */
+    assignees(item: ItemRef): Promise<ReadBackOutcome<readonly string[]>>;
     /** Is a comment matching `matches` there? Absence obeys the gap above. */
     commentPresence(item: ItemRef, matches: (comment: CommentFact) => boolean): Promise<Presence>;
     /** Is this exact label name there? Absence obeys the gap above. */
@@ -311,6 +314,9 @@ export function createReadBack({
             item.kind === "pullRequest"
                 ? readPullRequestActivity({ http, repository }, item.number, working)
                 : Promise.resolve({ ok: true, value: null }),
+        // The resolvers' reader, not a second one: assignees arrive whole on the item (6.9).
+
+        assignees: (item) => readAssigneesOf({ http, repository }, item.number),
         commentPresence: (item, matches) => presenceOf(() => comments(item), matches),
         // Exact names: this asks about the managed name the platform itself wrote (D4).
 

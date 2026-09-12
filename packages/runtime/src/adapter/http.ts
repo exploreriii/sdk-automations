@@ -554,7 +554,7 @@ export function createGitHubHttpClient({
                         return brokenSeamFailure("tokenSource");
                     }
                     if (!tokenOutcome.ok) return tokenOutcome;
-                    const missing = missingGrants(safeRequest, tokenOutcome.token);
+                    const missing = missingGrants(safeRequest, write, tokenOutcome.token);
                     if (missing.length > 0) {
                         return {
                             ok: false,

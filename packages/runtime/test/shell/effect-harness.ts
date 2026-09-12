@@ -365,6 +365,8 @@ export function markerOf(effect: Effect): string {
 export interface FakeWorld {
     labels: string[];
     comments: CommentSeen[];
+    /** The logins on the item, which a release takes one name off. */
+    assignees: string[];
     closed: boolean;
     merged: boolean;
     /** The two native pull-request modes an apply-time claim is judged against. */
@@ -388,6 +390,8 @@ export interface Faults {
     itemReadThrows: boolean;
     /** The comment list read refuses. */
     commentReadFails: boolean;
+    /** The assignee read refuses — the release's whole read-back. */
+    assigneeReadFails: boolean;
     /** Every presence question answers this instead of consulting the world. */
     presence: SeenState | null;
 }
@@ -419,6 +423,7 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
     const world: FakeWorld = {
         labels: [...(initial.labels ?? [])],
         comments: [...(initial.comments ?? [])],
+        assignees: [...(initial.assignees ?? [])],
         closed: initial.closed ?? false,
         merged: initial.merged ?? false,
         draft: initial.draft ?? false,
@@ -434,6 +439,7 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
         activityReadFails: false,
         itemReadThrows: false,
         commentReadFails: false,
+        assigneeReadFails: false,
         presence: null,
     };
     let nextCommentId = 1;
@@ -489,6 +495,23 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
                     return { outcome: "applied" };
                 }),
             ),
+        closePullRequest: (item) =>
+            Promise.resolve(
+                perform("closePullRequest", `#${String(item.number)}`, () => {
+                    if (world.closed) return { outcome: "already" };
+                    world.closed = true;
+                    return { outcome: "applied" };
+                }),
+            ),
+        releaseAssignment: (_item, login) =>
+            Promise.resolve(
+                perform("releaseAssignment", login, () => {
+                    const at = world.assignees.indexOf(login);
+                    if (at < 0) return { outcome: "already" };
+                    world.assignees.splice(at, 1);
+                    return { outcome: "applied" };
+                }),
+            ),
     };
 
     const presenceOf = (holds: boolean): SeenState =>
@@ -529,6 +552,12 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
                 faults.activityReadFails
                     ? { ok: false, detail: "GitHub refused the read" }
                     : { ok: true, value: world.activityAt },
+            ),
+        assignees: () =>
+            Promise.resolve(
+                faults.assigneeReadFails
+                    ? { ok: false, detail: "GitHub refused the read" }
+                    : { ok: true, value: [...world.assignees] },
             ),
         commentPresence: (_item, matches) =>
             Promise.resolve(presenceOf(world.comments.some(matches))),

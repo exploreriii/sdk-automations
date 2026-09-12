@@ -14,6 +14,8 @@ import {
 /** `POST …/issues/{n}/labels` — the item's label list, added to. */
 const ADD_LABEL: EndpointShape = {
     endpoint: "addLabel",
+    resource: "issues",
+    grant: "issues:write",
     matches: (method, rest) =>
         method === "POST" && rest.length === 2 && isNumberSegment(rest[0]) && rest[1] === "labels",
     invalidates: (url) => itemStaledBy(url, "labels"),
@@ -25,6 +27,8 @@ const ADD_LABEL: EndpointShape = {
  */
 const REMOVE_LABEL: EndpointShape = {
     endpoint: "removeLabel",
+    resource: "issues",
+    grant: "issues:write",
     matches: (method, rest) =>
         method === "DELETE" &&
         rest.length === 3 &&

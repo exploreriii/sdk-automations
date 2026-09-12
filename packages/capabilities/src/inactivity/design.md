@@ -1,6 +1,6 @@
 # inactivity — remind about stalled work, then release it
 
-Not built: phases 2, 3, 4.
+Not built: phase 4.
 
 ## What the output looks like
 
@@ -164,14 +164,14 @@ so protocol 8.2 owes it a run before it acts anywhere.
 | `facts` / `needs` | `issue` and `pullRequest`, needing `assignees` (each with `assignedAt` and last `/working`), `links`, `review` (changes requested, `reapableSince`, last commit) and `readiness` (draft). The fifth group, `command`, is the issue's and this capability does not read it. A producer that reads less — a webhook — is a `factsUnread` skip |
 | `resolvers` | `isAutomationActor` — the entry carries the links, so no per-item question is asked; quality-failure detection is pr-quality's job, arriving as `needsRevision` |
 | `intents` | `postManagedComment` · `releaseAssignment` · `closePullRequest`. Every act claims what it saw: the assignee ladder and the label reason claim meanings and closure, and each mode reason claims its own `pullRequestMode` |
-| Permissions | repository: `issues:read`, `pull_requests:read`, `issues:write`; phase 3 adds `pull_requests:write` · organization: none |
+| Permissions | repository: `issues:read`, `pull_requests:read`, `issues:write`, `pull_requests:write` — the close's own, and the only write on the pull surface · organization: none |
 | `operationalNeeds` | schedule: true · durableState: required · crossItemCoordination: false · externalDelivery: false |
 
 | Phase | Ships | Needs first |
 |---|---|---|
 | 1 | reminders only — both ladders, comment-only | nothing: the sweep driver, the commands mapping family and the `review` group's three reads all ship. Unproven end to end — no sweep has run against a live repository |
-| 2 | issue release — unassign after grace | the assignee write family (`design/guides/grace.md` wires the destructive gate to the sweep path) |
-| 3 | PR close after grace | a `closePullRequest` operation — the catalogue's first close, destructive-gated — and the pull-request write endpoint, which is an armed FX-gate run (protocol 8.2) nobody has made on this path |
+| 2 | issue release — unassign after grace | nothing: the release is a confirmed endpoint, a body-carrying `DELETE …/issues/{n}/assignees` under Issues W, and `design/guides/grace.md` wires the destructive gate to the sweep path |
+| 3 | PR close after grace | nothing to build: `closePullRequest` is the catalogue's first close, destructive-gated, and `PATCH …/pulls/{n}` is a confirmed endpoint under Pull requests W. Owed rather than needed first — the armed FX-gate run (protocol 8.2), which nobody has made on this path |
 | 4 (candidate) | stale unassigned triage/ready issues — remind, optionally close | an issue-closure operation and a policy conversation; unranked |
 
 ## Verified by

@@ -18,12 +18,14 @@ export type WriteResult =
     | { readonly outcome: "retryLater"; readonly detail: string }
     | { readonly outcome: "unknown"; readonly detail: string };
 
-/** The four confirmed write endpoints, and nothing else (D4). */
+/** The six confirmed write endpoints, and nothing else (D4). */
 export interface EffectWriter {
     addLabel(item: ItemRef, label: string): Promise<WriteResult>;
     removeLabel(item: ItemRef, label: string): Promise<WriteResult>;
     createComment(item: ItemRef, body: string): Promise<WriteResult>;
     updateComment(commentId: number, body: string): Promise<WriteResult>;
+    closePullRequest(item: ItemRef): Promise<WriteResult>;
+    releaseAssignment(item: ItemRef, login: string): Promise<WriteResult>;
 }
 
 /** A read that answered, or the reason it established nothing. */
@@ -59,6 +61,7 @@ export interface EffectReader {
         item: ItemRef,
         working: string | undefined,
     ): Promise<ReadAnswer<Date | null>>;
+    assignees(item: ItemRef): Promise<ReadAnswer<readonly string[]>>;
     commentPresence(item: ItemRef, matches: (comment: CommentSeen) => boolean): Promise<SeenState>;
     labelPresence(item: ItemRef, label: string): Promise<SeenState>;
 }

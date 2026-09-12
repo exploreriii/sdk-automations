@@ -293,6 +293,40 @@ describe("reading a pull request's review decision", () => {
     });
 });
 
+/** The release's whole read-back: one unpaged read of the item (6.9, 6.10). */
+describe("reading an item's assignees", () => {
+    const assigned = (...logins: readonly string[]): ResponseStep =>
+        listed(JSON.stringify({ number: 132, assignees: logins.map((login) => ({ login })) }));
+
+    it("reads the logins off the item, in one call to the item itself", async () => {
+        const { readBack, scripted } = harness([assigned("alice", "bob")]);
+
+        expect(await readBack.assignees(ITEM)).toEqual({ ok: true, value: ["alice", "bob"] });
+        expect(scripted.calls).toHaveLength(1);
+        expect(scripted.calls[0]!.url).toBe(ISSUE);
+    });
+
+    it("reads a released assignment as the empty list", async () => {
+        const { readBack } = harness([assigned()]);
+
+        expect(await readBack.assignees(ITEM)).toEqual({ ok: true, value: [] });
+    });
+
+    it("refuses whole rather than reporting a login it could not read", async () => {
+        const { readBack } = harness([
+            listed(JSON.stringify({ number: 132, assignees: [{ login: "alice" }, {}] })),
+        ]);
+
+        expect((await readBack.assignees(ITEM)).ok).toBe(false);
+    });
+
+    it("names GitHub's refusal rather than answering nobody is assigned", async () => {
+        const { readBack } = harness([failure(403, "Forbidden")]);
+
+        expect((await readBack.assignees(ITEM)).ok).toBe(false);
+    });
+});
+
 describe("a list longer than one page", () => {
     /** Page one names the last page; later pages carry the rest. */
     const paged =

@@ -14,6 +14,8 @@ import {
 /** `POST …/issues/{n}/comments` — the item's comment list, appended to. */
 const CREATE_COMMENT: EndpointShape = {
     endpoint: "createComment",
+    resource: "issues",
+    grant: "issues:write",
     matches: (method, rest) =>
         method === "POST" &&
         rest.length === 2 &&
@@ -28,6 +30,8 @@ const CREATE_COMMENT: EndpointShape = {
  */
 const UPDATE_COMMENT: EndpointShape = {
     endpoint: "updateComment",
+    resource: "issues",
+    grant: "issues:write",
     matches: (method, rest) =>
         method === "PATCH" &&
         rest.length === 2 &&

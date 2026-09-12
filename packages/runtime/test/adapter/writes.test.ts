@@ -6,6 +6,7 @@
  * idempotent verb than for the comment create.
  */
 
+import type { ItemRef } from "@hiero-hackers/automation-core";
 import { describe, expect, it } from "vitest";
 import { MAX_RESPONSE_BODY_BYTES } from "../../src/adapter/http.js";
 import type { WriteResult } from "../../src/adapter/operations/transport.js";
@@ -22,6 +23,19 @@ import {
 
 const ISSUE = "https://api.github.com/repos/hiero-hackers/sdk-automations/issues/132";
 const REPO = "https://api.github.com/repos/hiero-hackers/sdk-automations";
+
+/** The pull request the close names — a different surface from `ITEM`'s. */
+const PULL: ItemRef = { kind: "pullRequest", number: 205 };
+
+/** The close's grant is the pull surface's, which the default harness token lacks. */
+const bothSurfaces = {
+    outcomes: [
+        {
+            ok: true,
+            token: { ...token("both-surfaces"), grants: ["issues:write", "pull_requests:write"] },
+        },
+    ],
+} as const;
 
 /** A body one byte past the bound, so the read is abandoned mid-stream. */
 const oversized = (): Response =>
@@ -81,6 +95,24 @@ describe("the verbs name their endpoints", () => {
         expect(scripted.calls[0]!.init.body).toBe('{"body":"again"}');
     });
 
+    it("closes a pull request by setting its state, and nothing else", async () => {
+        const { verbs, scripted } = harness([success("{}")], bothSurfaces);
+
+        expect(await verbs.closePullRequest(PULL)).toEqual({ outcome: "applied" });
+        expect(scripted.calls[0]!.url).toBe(`${REPO}/pulls/205`);
+        expect(scripted.calls[0]!.init.method).toBe("PATCH");
+        expect(scripted.calls[0]!.init.body).toBe('{"state":"closed"}');
+    });
+
+    it("releases ONE named login, on a DELETE that carries the name (D63)", async () => {
+        const { verbs, scripted } = harness([success("{}")]);
+
+        expect(await verbs.releaseAssignment(ITEM, "alice")).toEqual({ outcome: "applied" });
+        expect(scripted.calls[0]!.url).toBe(`${ISSUE}/assignees`);
+        expect(scripted.calls[0]!.init.method).toBe("DELETE");
+        expect(scripted.calls[0]!.init.body).toBe('{"assignees":["alice"]}');
+    });
+
     it("turns a call the gate refuses into forbidden, unsent", async () => {
         const { verbs, scripted } = harness([success("{}")]);
 
@@ -120,6 +152,47 @@ describe("the ambiguous 404", () => {
 
     it("still matches the prose it was written against", () => {
         expect(LABEL_ABSENT.pattern.test(LABEL_ABSENT.documented)).toBe(true);
+    });
+});
+
+/**
+ * The permission each destructive write actually needs, as the negative control
+ * measured it, and the refusal the client makes for itself before it sends.
+ */
+describe("the two destructive writes without their grant", () => {
+    const denied = (permissions: string): Response =>
+        failure(403, "Resource not accessible by integration", {
+            "x-accepted-github-permissions": permissions,
+        });
+
+    it("reads the close's 403 as forbidden, naming what GitHub wants", async () => {
+        const { verbs } = harness([denied("pull_requests=write")], bothSurfaces);
+
+        const result = await verbs.closePullRequest(PULL);
+
+        expect(result.outcome).toBe("forbidden");
+        expect("detail" in result ? result.detail : "").toContain("pull_requests=write");
+    });
+
+    it("reads the release's 403 the same way, on the two names it returns", async () => {
+        const { verbs } = harness([denied("issues=write; pull_requests=write")]);
+
+        const result = await verbs.releaseAssignment(ITEM, "alice");
+
+        expect(result.outcome).toBe("forbidden");
+        expect("detail" in result ? result.detail : "").toContain(
+            "issues=write; pull_requests=write",
+        );
+    });
+
+    it("never sends the close under the issue surface's write grant alone", async () => {
+        const { verbs, scripted } = harness([success("{}")]);
+
+        const result = await verbs.closePullRequest(PULL);
+
+        expect(result.outcome).toBe("forbidden");
+        expect("detail" in result ? result.detail : "").toContain("pull_requests:write");
+        expect(scripted.calls).toHaveLength(0);
     });
 });
 
@@ -241,9 +314,15 @@ describe("an ambiguous outcome answers by idempotency", () => {
         const add = harness([step()]);
         const remove = harness([step()]);
         const update = harness([step()]);
+        const release = harness([step()]);
+        const close = harness([step()], bothSurfaces);
 
         expect((await add.verbs.addLabel(ITEM, "x")).outcome).toBe("retryLater");
         expect((await remove.verbs.removeLabel(ITEM, "x")).outcome).toBe("retryLater");
         expect((await update.verbs.updateComment(7, "x")).outcome).toBe("retryLater");
+        // Both destructive verbs are idempotent, as core's modules declare:
+        // a re-sent close or release cannot take a second thing away.
+        expect((await release.verbs.releaseAssignment(ITEM, "a")).outcome).toBe("retryLater");
+        expect((await close.verbs.closePullRequest(PULL)).outcome).toBe("retryLater");
     });
 });

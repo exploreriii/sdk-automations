@@ -1,4 +1,4 @@
-/** A clock-triggered release — refused at the send, because no confirmed write endpoint takes a person off an item. */
+/** A clock-triggered release: the plan, its row, and the assignee read that proves it. */
 
 import { planWithNotice, type OperationHandler } from "./handler.js";
 import { text } from "./row.js";
@@ -20,13 +20,16 @@ export const releaseAssignment: OperationHandler<"releaseAssignment"> = {
         return login === null ? null : { verb: "releaseAssignment", login };
     },
 
-    /** Refused here rather than earlier, so plan, row and dispatch stay identical. */
-    send: async () => ({
-        outcome: "forbidden",
-        detail: "no confirmed write endpoint releases an assignment; the adapter has four, and none of them is this",
-    }),
+    /** One named login, so the other assignees are left where they are (D63). */
+    send: async (call, pass) => await pass.writer.releaseAssignment(pass.item, call.login),
 
-    // Unreachable: `send` refuses this verb before it is proved.
-
-    confirm: async () => "unknown",
+    /**
+     * This login, gone from the list the item carries.
+     * One read rather than D46's two: a stale list still naming the login answers `notHeld`, which asks again, so staleness cannot confirm a release that did not land.
+     */
+    async confirm(call, pass) {
+        const seen = await pass.reader.assignees(pass.item);
+        if (!seen.ok) return "unknown";
+        return seen.value.includes(call.login) ? "notHeld" : "held";
+    },
 };

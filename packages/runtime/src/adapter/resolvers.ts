@@ -391,9 +391,12 @@ async function mergeability(
     return { ok: true, value: mergeable };
 }
 
-/** The logins assigned to one item. Unpaged: GitHub caps assignees at ten. */
+/**
+ * The logins assigned to one item. Unpaged: GitHub caps assignees at ten.
+ * Takes only the two options it uses, so the release's read-back can call it without a configuration it has no business holding.
+ */
 export async function readAssigneesOf(
-    { http, repository }: ResolverSourceOptions,
+    { http, repository }: Pick<ResolverSourceOptions, "http" | "repository">,
     number: number,
 ): Promise<ResolverAnswer<readonly string[]>> {
     const outcome = await http.request({

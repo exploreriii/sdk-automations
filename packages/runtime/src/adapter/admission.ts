@@ -37,9 +37,11 @@ function githubApiUrl(rawUrl: string): GitHubApiUrl {
         : { ok: false, refused: "disallowedOrigin" };
 }
 
-/** What admitting a write learned, for the client's retry policy and its cache. */
+/** What admitting a write learned, for the client's retry policy, its grants and its cache. */
 export interface AdmittedWrite {
     readonly endpoint: WriteEndpoint;
+    /** The grant this endpoint needs — the pull surface's is not the issue surface's. */
+    readonly grant: PermissionGrant;
     readonly invalidates: readonly string[];
 }
 
@@ -81,7 +83,7 @@ function admitGraphql(request: GitHubGraphqlRequest, url: URL): AdmittedRequest 
 
 /**
  * A write against the per-endpoint allowlist.
- * The body rule is per endpoint, not per method: the label removal carries none.
+ * The body rule is per endpoint, not per method: the label removal carries none, and the assignee release is a DELETE that must.
  */
 function admitWrite(request: GitHubWriteRequest, url: URL): AdmittedRequest {
     const write = writeEndpointOf(request.method, url);
@@ -118,9 +120,6 @@ export function admit(request: GitHubRequest): AdmittedRequest {
 
 const LINKED_ISSUES_GRANTS: readonly PermissionGrant[] = ["issues:read", "pull_requests:read"];
 
-/** Every admitted write is an issue-surface write; nothing weaker allows one. */
-const WRITE_GRANT: PermissionGrant = "issues:write";
-
 function hasReadGrant(token: InstallationToken, required: PermissionGrant): boolean {
     const write = `${required.slice(0, -4)}write`;
     return token.grants.some((grant) => grant === required || grant === write);
@@ -128,14 +127,15 @@ function hasReadGrant(token: InstallationToken, required: PermissionGrant): bool
 
 /**
  * Grants this request needs and the token does not carry.
- * A read is satisfied by the matching write grant; a write by nothing weaker (D123).
+ * A read is satisfied by the matching write grant; a write by the one its own endpoint names, and nothing weaker (D123).
  */
 export function missingGrants(
     request: GitHubRequest,
+    write: AdmittedWrite | null,
     token: InstallationToken,
 ): readonly PermissionGrant[] {
-    if (isWrite(request)) {
-        return token.grants.some((grant) => grant === WRITE_GRANT) ? [] : [WRITE_GRANT];
+    if (write !== null) {
+        return token.grants.some((grant) => grant === write.grant) ? [] : [write.grant];
     }
     if (request.method !== "POST") return [];
     return LINKED_ISSUES_GRANTS.filter((grant) => !hasReadGrant(token, grant));

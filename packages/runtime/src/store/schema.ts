@@ -129,6 +129,7 @@ const EFFECT_CLAIM = `
         at        TEXT NOT NULL
     )`;
 
+/** `resume_after` is the item number a firing stopped reading at; null reads the list from the beginning (D170). */
 const SCHEDULE = `
     CREATE TABLE schedule (
         schedule_id TEXT PRIMARY KEY,
@@ -136,7 +137,8 @@ const SCHEDULE = `
         effect      TEXT NOT NULL,
         status      TEXT NOT NULL CHECK (status IN ('pending', 'running', 'done')),
         claimed_at  TEXT,
-        claim_token TEXT
+        claim_token TEXT,
+        resume_after INTEGER
     )`;
 
 const SCHEMA_BY_VERSION = {

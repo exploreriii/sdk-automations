@@ -166,6 +166,17 @@ if (writeCap !== null && (!Number.isInteger(writeCap) || writeCap < 1)) {
     process.exit(1);
 }
 
+/**
+ * How many items' facts ONE firing may read, overriding the budget `sweep.ts` declares (D170).
+ * Like the write cap it arms nothing: it only narrows a firing.
+ */
+const budget = env["SWEEP_READ_BUDGET"];
+const readBudget = budget === undefined ? null : Number(budget);
+if (readBudget !== null && (!Number.isInteger(readBudget) || readBudget < 1)) {
+    console.error("SWEEP_READ_BUDGET must be a whole number of items, 1 or more.");
+    process.exit(1);
+}
+
 const killSwitchActive = env["KILL_SWITCH"] === "1";
 /** The installation switch: accept every delivery, decide none, read nothing (D171). */
 const suspended = env["SUSPENDED"] === "1";
@@ -336,6 +347,7 @@ const sweep =
               facts: live.facts,
               cadenceMs: cadenceHours * 60 * 60_000,
               ...(writeCap === null ? {} : { writeCap }),
+              ...(readBudget === null ? {} : { readBudget }),
           };
 
 const shell = createShell({

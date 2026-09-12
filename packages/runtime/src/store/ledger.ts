@@ -415,7 +415,7 @@ export class Ledger {
     schedule(scheduleId: string, dueAt: string, effect: string): void {
         assertUtcInstant(dueAt, "dueAt");
         this.db
-            .prepare("INSERT OR IGNORE INTO schedule VALUES (?, ?, ?, 'pending', NULL, NULL)")
+            .prepare("INSERT OR IGNORE INTO schedule VALUES (?, ?, ?, 'pending', NULL, NULL, NULL)")
             .run(scheduleId, dueAt, effect);
     }
 
@@ -433,7 +433,7 @@ export class Ledger {
                     claimed_at = ?,
                     claim_token = lower(hex(randomblob(16)))
                 WHERE status = 'pending' AND due_at <= ?
-                RETURNING schedule_id, due_at, effect, claim_token
+                RETURNING schedule_id, due_at, effect, claim_token, resume_after
             `,
             )
             .all(now, now) as {
@@ -441,12 +441,14 @@ export class Ledger {
             due_at: string;
             effect: string;
             claim_token: string;
+            resume_after: number | null;
         }[];
         return rows.map((r) => ({
             scheduleId: r.schedule_id,
             dueAt: r.due_at,
             effect: r.effect,
             claimToken: r.claim_token,
+            resumeAfter: r.resume_after,
         }));
     }
 
@@ -467,18 +469,25 @@ export class Ledger {
     /**
      * Complete this firing and arm the next one, in one statement: `schedule()` is
      * `INSERT OR IGNORE`, so a completed sweep could never come round again, and a crash between two statements would lose the schedule or strand the claim.
+     * The read cursor is written with the due date: where the next firing starts (D170).
      */
-    scheduleAgain(scheduleId: string, claimToken: string, dueAt: string): boolean {
+    scheduleAgain(
+        scheduleId: string,
+        claimToken: string,
+        dueAt: string,
+        resumeAfter: number | null,
+    ): boolean {
         assertUtcInstant(dueAt, "dueAt");
         const result = this.db
             .prepare(
                 `
                 UPDATE schedule
-                SET status = 'pending', due_at = ?, claimed_at = NULL, claim_token = NULL
+                SET status = 'pending', due_at = ?, claimed_at = NULL, claim_token = NULL,
+                    resume_after = ?
                 WHERE schedule_id = ? AND status = 'running' AND claim_token = ?
             `,
             )
-            .run(dueAt, scheduleId, claimToken);
+            .run(dueAt, resumeAfter, scheduleId, claimToken);
         return result.changes === 1;
     }
 

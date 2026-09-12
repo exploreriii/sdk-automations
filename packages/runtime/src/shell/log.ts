@@ -129,6 +129,16 @@ export type ShellEvent =
           readonly detail: string;
       }
     | {
+          /** The read budget stopped a firing short; the next one continues from the cursor (D170). */
+          readonly event: "sweepPartial";
+          readonly scheduleId: string;
+          /** Items this firing read facts for — the budget, or what was left of the list. */
+          readonly read: number;
+          readonly remaining: number;
+          /** The item number the next firing resumes after. */
+          readonly resumeAfter: number;
+      }
+    | {
           /** A firing's retention pass removed something; it says nothing when it removed nothing. */
           readonly event: "sweepPruned";
           readonly deliveries: number;
@@ -139,6 +149,7 @@ export type ShellEvent =
           /** A firing ended and the next one is armed. */
           readonly event: "sweepFinished";
           readonly scheduleId: string;
+          /** Open items the list held; `decided` says how many of them this firing read. */
           readonly items: number;
           readonly decided: number;
           /** Records whose links went unread; see `sweep.ts` on the inverse. */
@@ -147,6 +158,10 @@ export type ShellEvent =
           readonly writes: number;
           /** Approved effects the cap held back; the next firing decides each again. */
           readonly heldBack: number;
+          /** Items the read budget left for the next firing (D170). */
+          readonly remaining: number;
+          /** Where the next firing starts reading; null starts the list again. */
+          readonly resumeAfter: number | null;
           readonly nextDueAt: string;
       }
     | {

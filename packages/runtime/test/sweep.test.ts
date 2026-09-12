@@ -40,6 +40,7 @@ import {
     serializeCall,
     stubbedExternals,
     SWEEP_EFFECT,
+    SWEEP_READ_BUDGET,
     SWEEP_WRITE_CAP,
     sweepScheduleId,
     type ConfigSource,
@@ -257,6 +258,7 @@ function driven(script: Script = {}, config = configFrom(CONFIG_TEXT, CAPABILITI
         clock: () => NOW,
         cadenceMs: DAY_MS,
         writeCap: SWEEP_WRITE_CAP,
+        readBudget: SWEEP_READ_BUDGET,
         log,
     });
     return { reader, decided, run: () => sweep.runDue() };
@@ -366,6 +368,7 @@ describe("a firing that reads nothing", () => {
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
+            readBudget: SWEEP_READ_BUDGET,
             log,
         });
 
@@ -402,6 +405,7 @@ describe("a firing that reads nothing", () => {
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
+            readBudget: SWEEP_READ_BUDGET,
             log,
         });
 
@@ -434,6 +438,7 @@ describe("the claim", () => {
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
+            readBudget: SWEEP_READ_BUDGET,
             log,
         });
 
@@ -483,6 +488,7 @@ describe("the claim", () => {
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
+            readBudget: SWEEP_READ_BUDGET,
             log,
         });
 
@@ -570,6 +576,7 @@ describe("the writes one firing may send", () => {
             clock: () => now,
             cadenceMs: DAY_MS,
             writeCap: 2,
+            readBudget: SWEEP_READ_BUDGET,
             log,
         });
 
@@ -614,12 +621,130 @@ describe("the writes one firing may send", () => {
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: 2,
+            readBudget: SWEEP_READ_BUDGET,
             log,
         });
 
         await sweep.runDue();
 
         expect(events("sweepFinished")).toMatchObject([{ decided: 2, writes: 0, heldBack: 0 }]);
+    });
+});
+
+// ─── The read budget ─────────────────────────────────────────────────
+
+/** Five open issues, listed out of order: the numbers a cursor walks through (D170). */
+const FIVE: readonly SweptItem[] = [13, 11, 15, 12, 14].map((number) =>
+    listedItem({ kind: "issue", number }),
+);
+
+interface Budgeted {
+    /** The item numbers handed to the processor, across every firing, in order. */
+    read(): number[];
+    /** What the next firing's list answers; a case may make it unreadable. */
+    readonly listing: { items: SweptItems };
+    /** Fire once, `days` cadences after the row was armed. */
+    fire(days: number): Promise<void>;
+}
+
+/** One sweep under a read budget, fired as often as a case likes. */
+function budgeted(readBudget: number): Budgeted {
+    const listing: { items: SweptItems } = { items: { ok: true, items: FIVE } };
+    const { processor, decided } = scriptedProcessor(configFrom(CONFIG_TEXT, CAPABILITIES));
+    let now = NOW;
+    const sweep = createSweep({
+        store,
+        capabilities: CAPABILITIES,
+        processor,
+        facts: scriptedReader(listing).facts,
+        clock: () => now,
+        cadenceMs: DAY_MS,
+        writeCap: SWEEP_WRITE_CAP,
+        readBudget,
+        log,
+    });
+    return {
+        read: () => decided.map((input) => input.facts.item.number),
+        listing,
+        fire: (days) => {
+            now = new Date(NOW.getTime() + days * DAY_MS);
+            return sweep.runDue();
+        },
+    };
+}
+
+/** The cursor the row carries, read the way a firing reads it: by claiming it. */
+const cursorAfter = (days: number): number | null | undefined =>
+    store.ledger.claimDue(new Date(NOW.getTime() + days * DAY_MS).toISOString())[0]?.resumeAfter;
+
+describe("the items one firing may read", () => {
+    it("reads the budget in number order, says what remains, and keeps the cursor", async () => {
+        armed();
+        const firing = budgeted(2);
+
+        await firing.fire(0);
+
+        // The two LOWEST numbers, though the list arrived in neither order.
+        expect(firing.read()).toEqual([11, 12]);
+        expect(events("sweepPartial")).toEqual([
+            {
+                event: "sweepPartial",
+                scheduleId: SCHEDULE,
+                read: 2,
+                remaining: 3,
+                resumeAfter: 12,
+            },
+        ]);
+        expect(events("sweepFinished")).toMatchObject([
+            { items: 5, decided: 2, remaining: 3, resumeAfter: 12 },
+        ]);
+        expect(cursorAfter(1)).toBe(12);
+    });
+
+    it("reads the next two from the cursor on the next firing", async () => {
+        armed();
+        const firing = budgeted(2);
+
+        await firing.fire(0);
+        await firing.fire(1);
+
+        expect(firing.read()).toEqual([11, 12, 13, 14]);
+        expect(events("sweepPartial")[1]).toMatchObject({ read: 2, remaining: 1, resumeAfter: 14 });
+        expect(cursorAfter(2)).toBe(14);
+    });
+
+    it("clears the cursor on the firing that finishes the list, and starts over", async () => {
+        armed();
+        const firing = budgeted(2);
+
+        await firing.fire(0);
+        await firing.fire(1);
+        await firing.fire(2);
+
+        expect(firing.read()).toEqual([11, 12, 13, 14, 15]);
+        // Nothing remained, so the third firing says nothing about a cursor.
+        expect(events("sweepPartial")).toHaveLength(2);
+        expect(events("sweepFinished")[2]).toMatchObject({
+            items: 5,
+            decided: 1,
+            remaining: 0,
+            resumeAfter: null,
+        });
+        expect(cursorAfter(3)).toBeNull();
+    });
+
+    it("leaves the cursor where it stood when the list could not be read", async () => {
+        armed();
+        const firing = budgeted(2);
+
+        await firing.fire(0);
+        firing.listing.items = { ok: false, detail: "GitHub refused the read" };
+        await firing.fire(1);
+
+        expect(firing.read()).toEqual([11, 12]);
+        expect(events("sweepUnreadable")).toHaveLength(1);
+        expect(events("sweepFinished")[1]).toMatchObject({ items: 0, resumeAfter: 12 });
+        expect(cursorAfter(2)).toBe(12);
     });
 });
 
@@ -781,6 +906,7 @@ describe("what one firing prunes", () => {
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
+            readBudget: SWEEP_READ_BUDGET,
             log,
         });
 
@@ -822,6 +948,7 @@ describe("a firing under a suspended installation", () => {
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
+            readBudget: SWEEP_READ_BUDGET,
             suspended: true,
             log,
         });
@@ -986,6 +1113,7 @@ describe("the reader and the driver together", () => {
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
+            readBudget: SWEEP_READ_BUDGET,
             log,
         });
 
@@ -1167,6 +1295,7 @@ describe("an item the platform released within the minute", () => {
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
+            readBudget: SWEEP_READ_BUDGET,
             log,
         });
 

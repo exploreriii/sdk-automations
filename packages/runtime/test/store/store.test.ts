@@ -296,7 +296,7 @@ describe("schedules — the stage-five exit-gate behavior, testable today", () =
         const fired = s.ledger.claimDue("2026-07-23T10:00:00.000Z")[0]!;
 
         expect(
-            s.ledger.scheduleAgain("sweep:o/r", fired.claimToken, "2026-07-24T10:00:00.000Z"),
+            s.ledger.scheduleAgain("sweep:o/r", fired.claimToken, "2026-07-24T10:00:00.000Z", null),
         ).toBe(true);
 
         // The claim is gone, the row is pending again, and it fires only once
@@ -317,15 +317,55 @@ describe("schedules — the stage-five exit-gate behavior, testable today", () =
         const second = s.ledger.claimDue("2026-07-23T10:01:00.000Z")[0]!;
 
         expect(
-            s.ledger.scheduleAgain("sweep:o/r", first.claimToken, "2026-07-24T10:00:00.000Z"),
+            s.ledger.scheduleAgain("sweep:o/r", first.claimToken, "2026-07-24T10:00:00.000Z", null),
         ).toBe(false);
         expect(
-            s.ledger.scheduleAgain("sweep:o/r", second.claimToken, "2026-07-24T10:00:00.000Z"),
+            s.ledger.scheduleAgain(
+                "sweep:o/r",
+                second.claimToken,
+                "2026-07-24T10:00:00.000Z",
+                null,
+            ),
         ).toBe(true);
-        expect(() => s.ledger.scheduleAgain("sweep:o/r", second.claimToken, "nonsense")).toThrow(
-            /dueAt/,
-        );
+        expect(() =>
+            s.ledger.scheduleAgain("sweep:o/r", second.claimToken, "nonsense", null),
+        ).toThrow(/dueAt/);
         s.close();
+    });
+
+    /** D170: the read cursor is a column on the row, so it outlives the process that set it. */
+    it("re-arming carries the read cursor, and a restart claims it back", () => {
+        const before = new Store(path);
+        before.ledger.schedule("sweep:o/r", "2026-07-23T10:00:00.000Z", "sweep");
+        const fired = before.ledger.claimDue("2026-07-23T10:00:00.000Z")[0]!;
+        expect(fired.resumeAfter).toBeNull();
+        expect(
+            before.ledger.scheduleAgain(
+                "sweep:o/r",
+                fired.claimToken,
+                "2026-07-24T10:00:00.000Z",
+                412,
+            ),
+        ).toBe(true);
+        before.close();
+
+        const restarted = new Store(path);
+        const resumed = restarted.ledger.claimDue("2026-07-24T11:00:00.000Z")[0]!;
+        expect(resumed.resumeAfter).toBe(412);
+
+        // The firing that finishes the list clears it, and the next one starts over.
+        expect(
+            restarted.ledger.scheduleAgain(
+                "sweep:o/r",
+                resumed.claimToken,
+                "2026-07-25T10:00:00.000Z",
+                null,
+            ),
+        ).toBe(true);
+        expect(restarted.ledger.claimDue("2026-07-25T11:00:00.000Z")).toMatchObject([
+            { scheduleId: "sweep:o/r", resumeAfter: null },
+        ]);
+        restarted.close();
     });
 
     it("not due → not fired; re-declaring an existing schedule is a no-op", () => {

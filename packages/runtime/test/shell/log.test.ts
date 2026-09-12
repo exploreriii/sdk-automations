@@ -205,6 +205,16 @@ const ROUTING: Record<
         },
         problem: true,
     },
+    sweepPartial: {
+        event: {
+            event: "sweepPartial",
+            scheduleId: "sweep:owner/repo",
+            read: 500,
+            remaining: 12,
+            resumeAfter: 512,
+        },
+        problem: false,
+    },
     sweepPruned: {
         event: { event: "sweepPruned", deliveries: 1, effects: 2, decisions: 3 },
         problem: false,
@@ -218,6 +228,8 @@ const ROUTING: Record<
             unread: 0,
             writes: 2,
             heldBack: 0,
+            remaining: 0,
+            resumeAfter: null,
             nextDueAt: "2026-09-10T10:00:00.000Z",
         },
         problem: false,

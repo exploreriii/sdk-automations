@@ -153,6 +153,7 @@ const SHELL_VARIABLES = [
     "SWEEP_INTERVAL_SECONDS",
     "SWEEP_CADENCE_HOURS",
     "SWEEP_WRITE_CAP",
+    "SWEEP_READ_BUDGET",
     "XDG_STATE_HOME",
 ];
 
@@ -683,6 +684,8 @@ async function withLiveGitHub(
         readonly cadenceHours?: string;
         /** How many writes one firing may send, over the sweep's own cap. */
         readonly writeCap?: string;
+        /** How many items' facts one firing may read, over the sweep's own budget. */
+        readonly readBudget?: string;
         /** How often the reconciliation tick runs — the sweep rides it. */
         readonly intervalSeconds?: string;
     },
@@ -716,6 +719,9 @@ async function withLiveGitHub(
                     ? {}
                     : { SWEEP_CADENCE_HOURS: github.cadenceHours }),
                 ...(github.writeCap === undefined ? {} : { SWEEP_WRITE_CAP: github.writeCap }),
+                ...(github.readBudget === undefined
+                    ? {}
+                    : { SWEEP_READ_BUDGET: github.readBudget }),
                 ...(github.intervalSeconds === undefined
                     ? {}
                     : { SWEEP_INTERVAL_SECONDS: github.intervalSeconds }),
@@ -841,6 +847,25 @@ describe("the sandbox entry point, as a process", () => {
                 expect(await shell.exit).toBe(1);
                 expect(shell.stderr().trim()).toBe(
                     "SWEEP_WRITE_CAP must be a whole number of writes, 1 or more.",
+                );
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /** The read budget is the same shape for the other half of a firing (D170). */
+    it.each(["0", "-1", "1.5", "all"])(
+        "fails closed when SWEEP_READ_BUDGET is %j",
+        async (budget) => {
+            await withShell({ ...bootEnvironment(), SWEEP_READ_BUDGET: budget }, async (shell) => {
+                await until(
+                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
+                    "the read budget to be refused",
+                );
+                expect(shell.stdout()).toBe("");
+                expect(await shell.exit).toBe(1);
+                expect(shell.stderr().trim()).toBe(
+                    "SWEEP_READ_BUDGET must be a whole number of items, 1 or more.",
                 );
             });
         },
@@ -1075,7 +1100,8 @@ describe("the sandbox entry point, as a process", () => {
      * route is `timeline`, and this case scripts that empty), so the firing
      * decides nothing and the case stays about the WIRING rather than about a
      * ladder's judgement — which `test/sweep.test.ts` owns. `SWEEP_WRITE_CAP`
-     * rides the same wiring: accepted at boot, and spent by nothing here.
+     * and `SWEEP_READ_BUDGET` ride the same wiring: accepted at boot, and spent
+     * by nothing here, so the firing finishes the list with no cursor to keep.
      */
     it(
         "with SWEEP_CADENCE_HOURS a delivery arms a sweep row, and the tick fires it",
@@ -1086,6 +1112,7 @@ describe("the sandbox entry point, as a process", () => {
                     timeline: [],
                     cadenceHours: "24",
                     writeCap: "5",
+                    readBudget: "50",
                     intervalSeconds: "1",
                 },
                 async ({ port, shell }) => {
@@ -1102,6 +1129,8 @@ describe("the sandbox entry point, as a process", () => {
                         decided: 0,
                         writes: 0,
                         heldBack: 0,
+                        remaining: 0,
+                        resumeAfter: null,
                     });
                 },
             );

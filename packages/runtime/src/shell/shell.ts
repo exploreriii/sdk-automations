@@ -22,6 +22,7 @@ import { contained, createLogger, detailOf, type Log } from "./log.js";
 import {
     createSweep,
     DEFAULT_SWEEP_CADENCE_MS,
+    SWEEP_READ_BUDGET,
     SWEEP_WRITE_CAP,
     type SweepFactsSource,
 } from "./sweep.js";
@@ -55,6 +56,8 @@ export interface ShellOptions {
         readonly cadenceMs?: number;
         /** How many writes one firing may send; the default is `SWEEP_WRITE_CAP`. */
         readonly writeCap?: number;
+        /** How many items' facts one firing may read; the default is `SWEEP_READ_BUDGET`. */
+        readonly readBudget?: number;
     };
     /** The installation switch (D171): deliveries are accepted and recorded, and nothing is read, decided or sent. */
     readonly suspended?: boolean;
@@ -109,6 +112,7 @@ export function createShell(options: ShellOptions): Shell {
                   clock,
                   cadenceMs: options.sweep.cadenceMs ?? DEFAULT_SWEEP_CADENCE_MS,
                   writeCap: options.sweep.writeCap ?? SWEEP_WRITE_CAP,
+                  readBudget: options.sweep.readBudget ?? SWEEP_READ_BUDGET,
                   suspended,
                   log,
               });

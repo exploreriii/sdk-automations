@@ -70,6 +70,8 @@ export interface SweepOptions {
     readonly cadenceMs: number;
     /** How many writes one firing may send; the default is `SWEEP_WRITE_CAP`. */
     readonly writeCap: number;
+    /** How many items' facts one firing may read; the default is `SWEEP_READ_BUDGET`. */
+    readonly readBudget: number;
     /** The installation switch (D171): a firing reads nothing, and still prunes and re-arms. */
     readonly suspended?: boolean;
     readonly log: Log;
@@ -83,6 +85,12 @@ export const DEFAULT_SWEEP_CADENCE_MS = 60 * 60_000;
 
 /** How many writes one firing may send before it carries the rest to the next (D167). */
 export const SWEEP_WRITE_CAP = 20;
+
+/**
+ * How many items' facts one firing may read before it carries the rest to the next (D170).
+ * The open-item list itself is not budgeted: it is paged, and one page is one cheap read.
+ */
+export const SWEEP_READ_BUDGET = 500;
 
 const DAY_MS = 24 * 60 * 60_000;
 
@@ -116,16 +124,58 @@ interface Swept {
     readonly unread: number;
     readonly writes: number;
     readonly heldBack: number;
+    /** Items past the read budget, left for the next firing (D170). */
+    readonly remaining: number;
+    /** Where the next firing starts reading; null reads the list again from the beginning. */
+    readonly resumeAfter: number | null;
 }
 
-/** A firing that read nothing — an unusable list, or a repository that wants none. */
-const SWEPT_NOTHING: Swept = { items: 0, decided: 0, unread: 0, writes: 0, heldBack: 0 };
+/**
+ * A firing that read nothing — an unusable list, a suspension, or a repository that wants none.
+ * The cursor is handed back as it stood: nothing was read, so nothing moved it.
+ */
+const nothingRead = (row: ClaimedScheduleRow): Swept => ({
+    items: 0,
+    decided: 0,
+    unread: 0,
+    writes: 0,
+    heldBack: 0,
+    remaining: 0,
+    resumeAfter: row.resumeAfter,
+});
 
 /** How many of one record's effects the write cap turned away. */
 const heldBackIn = (record: ShellRecord): number =>
     record.kind === "decision"
         ? record.effects.filter((effect) => effect.code === "sweepWriteCap").length
         : 0;
+
+/** The items one firing reads, and where it stopped — `withinBudget`'s answer. */
+interface Reading {
+    readonly taken: readonly SweptItem[];
+    readonly remaining: number;
+    /** The last number read when items remain; null when the list was finished. */
+    readonly resumeAfter: number | null;
+}
+
+/**
+ * Sorted by number ascending, skipped past the cursor, stopped at the budget (D170).
+ * A judgement: the list is the only thing read before it, and it decides what else is.
+ */
+function withinBudget(items: readonly SweptItem[], after: number | null, budget: number): Reading {
+    const eligible = items
+        .filter(({ item }) => after === null || item.number > after)
+        .sort((left, right) => left.item.number - right.item.number);
+    const taken = eligible.slice(0, budget);
+    // In number order, so the last item read IS the cursor the next firing resumes after.
+
+    const stopped = taken.length < eligible.length ? taken.at(-1) : undefined;
+    return {
+        taken,
+        remaining: eligible.length - taken.length,
+        resumeAfter: stopped === undefined ? null : stopped.item.number,
+    };
+}
 
 export function createSweep(options: SweepOptions): Sweep {
     const {
@@ -136,6 +186,7 @@ export function createSweep(options: SweepOptions): Sweep {
         clock,
         cadenceMs,
         writeCap,
+        readBudget,
         suspended = false,
         log,
     } = options;
@@ -143,7 +194,7 @@ export function createSweep(options: SweepOptions): Sweep {
     const nextDue = (): string => new Date(clock().getTime() + cadenceMs).toISOString();
 
     /**
-     * Every open item, read once, split by kind.
+     * Every open item the budget reaches, read once, split by kind.
      * One list call covers both kinds because GitHub's issue list carries pull requests too.
      */
     const readRecords = async (
@@ -154,10 +205,14 @@ export function createSweep(options: SweepOptions): Sweep {
         const listed = await reader.openItems();
         if (!listed.ok) {
             log({ event: "sweepUnreadable", scheduleId: row.scheduleId, detail: listed.detail });
-            return SWEPT_NOTHING;
+            return nothingRead(row);
         }
-        const issues = listed.items.filter(({ item }) => item.kind === "issue");
-        const pulls = listed.items.filter(({ item }) => item.kind === "pullRequest");
+        const reading = withinBudget(listed.items, row.resumeAfter, readBudget);
+        // Split from what the budget took, never from the whole list: a link to an item
+        // outside this window is one more facts read, which is what the budget spends.
+
+        const issues = reading.taken.filter(({ item }) => item.kind === "issue");
+        const pulls = reading.taken.filter(({ item }) => item.kind === "pullRequest");
 
         // Pull requests first: their `links` are the only read that says which pull
         // requests an issue has, and the driver reverses them below.
@@ -206,12 +261,23 @@ export function createSweep(options: SweepOptions): Sweep {
             heldBack += heldBackIn(shellRecord);
             decided += 1;
         }
+        if (reading.resumeAfter !== null) {
+            log({
+                event: "sweepPartial",
+                scheduleId: row.scheduleId,
+                read: reading.taken.length,
+                remaining: reading.remaining,
+                resumeAfter: reading.resumeAfter,
+            });
+        }
         return {
             items: listed.items.length,
             decided,
             unread,
             writes: writeCap - budget.remaining,
             heldBack,
+            remaining: reading.remaining,
+            resumeAfter: reading.resumeAfter,
         };
     };
 
@@ -240,7 +306,7 @@ export function createSweep(options: SweepOptions): Sweep {
     const readingOf = async (row: ClaimedScheduleRow): Promise<Swept> => {
         if (suspended) {
             log({ event: "sweepSuspended", scheduleId: row.scheduleId });
-            return SWEPT_NOTHING;
+            return nothingRead(row);
         }
         try {
             const config = await processor.configuration();
@@ -253,7 +319,7 @@ export function createSweep(options: SweepOptions): Sweep {
         } catch (error) {
             log({ event: "sweepFailed", detail: detailOf(error) });
         }
-        return SWEPT_NOTHING;
+        return nothingRead(row);
     };
 
     /**
@@ -265,7 +331,14 @@ export function createSweep(options: SweepOptions): Sweep {
         const swept = await readingOf(row);
         pruneRetained();
         const nextDueAt = nextDue();
-        if (!store.ledger.scheduleAgain(row.scheduleId, row.claimToken, nextDueAt)) {
+        if (
+            !store.ledger.scheduleAgain(
+                row.scheduleId,
+                row.claimToken,
+                nextDueAt,
+                swept.resumeAfter,
+            )
+        ) {
             // A redrive took the claim over while this firing ran; whoever holds it now
             // owns the next due date, and the reading just done was thrown away.
 
@@ -294,7 +367,12 @@ export function createSweep(options: SweepOptions): Sweep {
                     event: "sweepFailed",
                     detail: `schedule "${row.scheduleId}" carries the unknown effect "${row.effect}"`,
                 });
-                store.ledger.scheduleAgain(row.scheduleId, row.claimToken, nextDue());
+                store.ledger.scheduleAgain(
+                    row.scheduleId,
+                    row.claimToken,
+                    nextDue(),
+                    row.resumeAfter,
+                );
             }
         } catch (error) {
             log({ event: "sweepFailed", detail: detailOf(error) });

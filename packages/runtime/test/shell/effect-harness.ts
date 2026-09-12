@@ -383,6 +383,7 @@ export interface Faults {
     itemReadFails: boolean;
     /** The reviews read refuses — the other half of a mode re-gate. */
     reviewReadFails: boolean;
+    activityReadFails: boolean;
     /** The item read throws — an uncontained seam, which is a crash. */
     itemReadThrows: boolean;
     /** The comment list read refuses. */
@@ -430,6 +431,7 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
         scripted: [],
         itemReadFails: false,
         reviewReadFails: false,
+        activityReadFails: false,
         itemReadThrows: false,
         commentReadFails: false,
         presence: null,
@@ -522,7 +524,12 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
                     ? { ok: false, detail: "GitHub refused the read" }
                     : { ok: true, value: world.changesRequested },
             ),
-        pullRequestActivity: () => Promise.resolve({ ok: true, value: world.activityAt }),
+        pullRequestActivity: () =>
+            Promise.resolve(
+                faults.activityReadFails
+                    ? { ok: false, detail: "GitHub refused the read" }
+                    : { ok: true, value: world.activityAt },
+            ),
         commentPresence: (_item, matches) =>
             Promise.resolve(presenceOf(world.comments.some(matches))),
         labelPresence: (_item, label) => Promise.resolve(presenceOf(world.labels.includes(label))),

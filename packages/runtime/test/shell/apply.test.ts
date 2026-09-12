@@ -1573,6 +1573,18 @@ describe("a close that claimed a native pull-request mode", () => {
         expect(github.calls).toEqual([]);
     });
 
+    it("asks again when current pull-request activity cannot be read", async () => {
+        recordWarning("draft");
+        const github = fakeGitHub({ draft: true });
+        github.faults.activityReadFails = true;
+
+        const outcome = await applyAt(github, closeEffect("draft"));
+
+        expect(outcome).toMatchObject({ outcome: "retryLater", code: "itemUnreadable" });
+        expect(outcome.detail).toContain("activity could not be read");
+        expect(github.calls).toEqual([]);
+    });
+
     it("asks again rather than closing on a mode it could not read", async () => {
         recordWarning("changesRequested");
         const github = fakeGitHub({ changesRequested: true });

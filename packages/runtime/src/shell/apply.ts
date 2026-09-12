@@ -477,7 +477,6 @@ export function createApplier(options: ApplierOptions): Applier {
         seq: number,
         call: Call,
         revision: string,
-        intent: AnyIntent | null,
     ): Promise<CallResult> => {
         const proof = await confirm(pass, call);
         if (proof === "held") {
@@ -500,23 +499,7 @@ export function createApplier(options: ApplierOptions): Applier {
                 "the configuration changed after this call was journalled; nothing was resent",
             );
         }
-        const operation = operationOf(call);
-        const destructive =
-            INTENT_OPERATIONS[operation].actionClassFloor === "clockTriggeredDestructive";
-        let gate: GateVerdict;
-        if (seq === 1 && destructive) {
-            if (intent === null) {
-                store.done(pass.effectId, seq, now());
-                return stop(
-                    "refused",
-                    "preconditionStale",
-                    "the destructive call cannot be safely rebuilt from this recovery row; nothing was resent",
-                );
-            }
-            gate = await freshGate(pass, intent);
-        } else {
-            gate = await resumeGate(pass, operation);
-        }
+        const gate = await resumeGate(pass, operationOf(call));
         if (!gate.ok) {
             if (gate.result.outcome === "refused") store.done(pass.effectId, seq, now());
             return { kind: "stop", result: gate.result };
@@ -548,7 +531,6 @@ export function createApplier(options: ApplierOptions): Applier {
         seq: number,
         row: string,
         revision: string,
-        intent: AnyIntent,
         calls: readonly Call[],
     ): Promise<PassResult> => {
         // Nothing can be resent from bytes nobody can read, and leaving the row open
@@ -563,7 +545,7 @@ export function createApplier(options: ApplierOptions): Applier {
                 detail: "the journal row for this call could not be read; it is closed and nothing was resent",
             };
         }
-        const resolved = await resolveOpen(pass, seq, journaled.call, revision, intent);
+        const resolved = await resolveOpen(pass, seq, journaled.call, revision);
         if (resolved.kind === "stop") return resolved.result;
         if (seq >= calls.length) {
             return { outcome: "applied", code: null, detail: null };
@@ -595,7 +577,7 @@ export function createApplier(options: ApplierOptions): Applier {
             };
         }
         if (state.state === "sentUnknown") {
-            return await continueOpen(pass, state.seq, state.intent, state.revision, intent, calls);
+            return await continueOpen(pass, state.seq, state.intent, state.revision, calls);
         }
         if (state.state === "midSequence") {
             if (state.revision !== pass.config.revision) {
@@ -691,13 +673,7 @@ export function createApplier(options: ApplierOptions): Applier {
             };
             if (!claim(open.effectId)) return;
             try {
-                const resolved = await resolveOpen(
-                    pass,
-                    open.seq,
-                    journaled.call,
-                    open.revision,
-                    null,
-                );
+                const resolved = await resolveOpen(pass, open.seq, journaled.call, open.revision);
                 if (resolved.kind === "done") {
                     log({ event: "effectApplied", effectId: open.effectId, seq: open.seq });
                 } else if (resolved.result.outcome === "refused") {

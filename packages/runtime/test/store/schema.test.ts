@@ -315,6 +315,14 @@ function schemaFingerprint(path: string): Record<string, string> {
     );
 }
 
+/** One legacy journal row, read directly: no code reads that table after version 7 (D164). */
+function journalRow(path: string, effectId: string): unknown {
+    const db = new DatabaseSync(path);
+    const row = db.prepare("SELECT * FROM effect_journal WHERE effect_id = ?").get(effectId);
+    db.close();
+    return row;
+}
+
 function schemaState(path: string): {
     readonly version: number;
     readonly tables: string[];
@@ -376,10 +384,10 @@ describe("storage schema versions", () => {
         createVersion1Schema(databasePath);
         const store = new Store(databasePath);
 
-        expect(store.effectState("effect-old", 2)).toEqual({
-            state: "sentUnknown",
-            seq: 1,
+        expect(journalRow(databasePath, "effect-old")).toMatchObject({
+            call_seq: 1,
             intent: "write",
+            status: "sent",
             attempt: 1,
             revision: "legacy:unknown",
         });
@@ -403,10 +411,10 @@ describe("storage schema versions", () => {
         createVersion2Schema(databasePath);
         const store = new Store(databasePath);
 
-        expect(store.effectState("effect-newer", 2)).toEqual({
-            state: "sentUnknown",
-            seq: 1,
+        expect(journalRow(databasePath, "effect-newer")).toMatchObject({
+            call_seq: 1,
             intent: "write",
+            status: "sent",
             attempt: 3,
             revision: "revision-3",
         });

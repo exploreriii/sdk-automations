@@ -116,14 +116,14 @@ export function createShell(options: ShellOptions): Shell {
         },
     });
     /**
-     * The effects a worker journalled and never closed.
-     * Every row is re-driven through the applier's dispatch, which reads GitHub before it resends, so a sweep can never turn a landed write into a second one.
+     * The sends a worker made and never closed.
+     * Every one is re-driven through the applier's dispatch, which reads GitHub before it resends, so a sweep can never turn a landed write into a second one.
      */
     const recoverEffects = async (): Promise<void> => {
         const applier = options.applier;
         if (applier === undefined) return;
         const before = new Date(clock().getTime() - EFFECT_LEASE_STALE_MINUTES * 60_000);
-        const open = options.store.openIntents(before.toISOString());
+        const open = options.store.ledger.open(before.toISOString());
         if (open.length === 0) return;
         const config = await processor.configuration();
         if (config === null) return;

@@ -304,7 +304,14 @@ const store = new Store(storeFile);
 const applier: Applier | undefined =
     writePath === null
         ? undefined
-        : createApplier({ store, ...writePath, worker: WORKER, clock, log });
+        : createApplier({
+              ledger: store.ledger,
+              leases: store,
+              ...writePath,
+              worker: WORKER,
+              clock,
+              log,
+          });
 
 /**
  * The fact sweep, armed or absent — what this process does when nobody is talking.

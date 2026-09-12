@@ -15,7 +15,7 @@ import {
     type ResolverAnswer,
     type ResolverSource,
 } from "@hiero-hackers/automation-core";
-import type { Store, StoredOwnWrite } from "../store/index.js";
+import type { LandedWrite, Ledger } from "../store/index.js";
 
 /**
  * Core's externals, with the ordering read also taking the platform's own writes (D159).
@@ -24,17 +24,19 @@ import type { Store, StoredOwnWrite } from "../store/index.js";
 export type ShellExternals = Omit<Externals, "now" | "latestHumanChangeAt"> & {
     readonly latestHumanChangeAt: (
         item: ItemRef,
-        ownWrites?: readonly StoredOwnWrite[],
+        ownWrites?: readonly LandedWrite[],
     ) => HumanChangeOrdering | Promise<HumanChangeOrdering>;
 };
 
 /**
- * The recorded-warning seam, over the owned store (grace.md §2).
+ * The recorded-warning seam, over the effect ledger (grace.md §2).
  * Nothing here validates; the destructive door matches the snapshot to the request.
  */
-export function recordedWarningsIn(store: Store): (effectId: string) => DestructiveWarning | null {
+export function recordedWarningsIn(
+    ledger: Ledger,
+): (effectId: string) => DestructiveWarning | null {
     return (effectId) => {
-        const row = store.warning(effectId);
+        const row = ledger.warningFor(effectId);
         if (row === null) return null;
         return createDestructiveWarning({
             request: {

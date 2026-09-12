@@ -20,6 +20,14 @@ const STILL_OPEN = `
           AND closing.kind IN ${CLOSING} AND closing.fact_id > sent.fact_id
     )`;
 
+/** The newest send at its seq: a resend supersedes the send it retries, as one attempt of one call. */
+const LATEST_SEND = `
+    NOT EXISTS (
+        SELECT 1 FROM effect_fact newer
+        WHERE newer.effect_id = sent.effect_id AND newer.seq = sent.seq
+          AND newer.kind = 'sent' AND newer.fact_id > sent.fact_id
+    )`;
+
 const ATTEMPTS_AT = `
     (SELECT COUNT(CASE WHEN spent.kind = 'sent' THEN 1 END)
           - COUNT(CASE WHEN spent.kind = 'unsent' THEN 1 END)
@@ -161,7 +169,8 @@ export class Ledger {
                 SELECT sent.effect_id, sent.seq, sent.payload, sent.at, sent.revision,
                        ${ATTEMPTS_AT} AS attempts
                 FROM effect_fact sent
-                WHERE sent.kind = 'sent' AND sent.at <= ? AND ${STILL_OPEN}
+                WHERE sent.kind = 'sent' AND sent.at <= ?
+                  AND ${STILL_OPEN} AND ${LATEST_SEND}
                 ORDER BY sent.at, sent.fact_id
             `,
             )

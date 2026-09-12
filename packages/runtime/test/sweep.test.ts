@@ -672,8 +672,8 @@ describe("an item the platform released within the minute", () => {
     /**
      * The release landed as this firing was reading, which is what makes it bite: the
      * rule compares against the record's own instant, and a tie goes to the human (D33).
-     * The same instant twice, because GitHub dates an event to the second and the journal
-     * declares in milliseconds; the read-back closed the row 30s later, inside the window.
+     * The same instant twice, because GitHub dates an event to the second and the ledger
+     * records in milliseconds; the read-back landed the call 30s later, inside the window.
      */
     const RELEASED_AT = "2026-09-09T12:00:00Z";
     const DECLARED_AT = "2026-09-09T12:00:00.000Z";
@@ -713,15 +713,30 @@ describe("an item the platform released within the minute", () => {
         ],
     };
 
-    /** The row the applier leaves behind for a release it saw through. */
+    /** The facts the applier leaves behind for a release it saw through. */
     function journalTheRelease(into: Store): void {
-        const row = serializeCall({
+        const fact = {
+            effectId: "released-bob",
+            seq: 1,
+            revision: "rev-sweep-1",
             capability: "inactivity",
             item: ISSUE,
-            call: { verb: "releaseAssignment", login: "bob" },
+            verb: "releaseAssignment",
+            login: "bob",
+            code: null,
+            detail: null,
+        } as const;
+        into.ledger.record({
+            ...fact,
+            kind: "sent",
+            at: DECLARED_AT,
+            payload: serializeCall({
+                capability: "inactivity",
+                item: ISSUE,
+                call: { verb: "releaseAssignment", login: "bob" },
+            }),
         });
-        into.intent("released-bob", 1, row, DECLARED_AT, "rev-sweep-1");
-        into.done("released-bob", 1, JOURNAL_CLOSED_AT);
+        into.ledger.record({ ...fact, kind: "landed", at: JOURNAL_CLOSED_AT, payload: null });
     }
 
     /** One firing over `into`, and the codes the issue's decision came to. */
@@ -785,7 +800,7 @@ describe("an item the platform released within the minute", () => {
             : [];
     }
 
-    it("reads its own release off the journal, and the same event without one as a human's", async () => {
+    it("reads its own release off the ledger, and the same event without one as a human's", async () => {
         const journalled = new Store(temp.file("journalled.sqlite"));
         const unjournalled = new Store(temp.file("unjournalled.sqlite"));
         try {
@@ -798,7 +813,7 @@ describe("an item the platform released within the minute", () => {
                 "modeRecordsOnly",
                 "wouldApply",
             ]);
-            // The same timeline with no row behind it: the App's release is a human's.
+            // The same timeline with no fact behind it: the App's release is a human's.
             expect(await sweptCodes(unjournalled)).toEqual(["newerHumanChange"]);
         } finally {
             journalled.close();

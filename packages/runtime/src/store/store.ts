@@ -8,7 +8,7 @@
 
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { asDeliveryGuid, type DeliveryGuid, type ItemRef } from "@hiero-hackers/automation-core";
+import { asDeliveryGuid, type DeliveryGuid } from "@hiero-hackers/automation-core";
 import { assertUtcInstant } from "./instants.js";
 import {
     assertSupportedStorageSchemaVersion,
@@ -29,8 +29,6 @@ import type {
     ReleaseDeliveryAfterFailureResult,
     ReleaseDeliveryResult,
 } from "./deliveries.js";
-import type { EffectState, OpenIntent, StoredOwnWrite } from "./effects.js";
-import type { StoredWarning } from "./facts.js";
 import { Ledger } from "./ledger.js";
 import type { ClaimedScheduleRow, ScheduleRow } from "./schedules.js";
 
@@ -88,44 +86,6 @@ function assertReportJson(value: string): void {
 
 function payloadDigest(payload: Uint8Array): string {
     return createHash("sha256").update(payload).digest("hex");
-}
-
-/** One field of a parsed row, own properties only, so no prototype value arrives as a row's. */
-function field(value: unknown, name: string): unknown {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-    return Object.hasOwn(value, name) ? (value as Record<string, unknown>)[name] : undefined;
-}
-
-/** A journal row's bytes read as a write on `item`, or `null` when they are not one. */
-function ownWriteOn(item: ItemRef, intent: string, doneAt: string): StoredOwnWrite | null {
-    let row: unknown;
-    try {
-        row = JSON.parse(intent);
-    } catch {
-        return null;
-    }
-    const named = field(row, "item");
-    if (field(named, "kind") !== item.kind || field(named, "number") !== item.number) return null;
-    const operation = field(row, "verb");
-    if (typeof operation !== "string") return null;
-    const login = field(row, "login");
-    return { operation, ...(typeof login === "string" ? { login } : {}), doneAt };
-}
-
-/** One `destructive_warning` row, as SQLite hands it back. */
-interface StoredWarningRow {
-    readonly effect_id: string;
-    readonly warned_at: string;
-    readonly grace_hours: number;
-    readonly earliest_action_at: string;
-    readonly cancelled_by: string;
-    readonly reverses_with: string;
-    readonly action_class: string;
-    readonly capability: string;
-    readonly cause_observed_at: string;
-    readonly cause: string;
-    readonly item: string;
-    readonly change: string;
 }
 
 interface StoredDeliveryIdentity {
@@ -595,139 +555,6 @@ export class Store {
         }));
     }
 
-    // ── Effect journal (detector) ───────────────────────────────────
-
-    /**
-     * Record intent BEFORE the call — the row that survives any crash after it. A
-     * `done` row is immutable, and re-declaring a still-open call increments a durable `attempt` counter (D42). `revision` has no default: one would match no real plan.
-     */
-    intent(effectId: string, seq: number, intent: string, at: string, revision: string): void {
-        assertUtcInstant(at, "at");
-        this.db
-            .prepare(
-                `
-                INSERT INTO effect_journal VALUES (?, ?, ?, 'sent', ?, 1, ?)
-                ON CONFLICT(effect_id, call_seq) DO UPDATE
-                    SET attempt = attempt + 1,
-                        at = excluded.at,
-                        intent = excluded.intent,
-                        revision = excluded.revision
-                    WHERE effect_journal.status != 'done'
-            `,
-            )
-            .run(effectId, seq, intent, at, revision);
-    }
-
-    /** Give back the attempt an unsent call spent, so the cap counts sends only. */
-    unspend(effectId: string, seq: number): void {
-        this.db
-            .prepare(
-                "UPDATE effect_journal SET attempt = attempt - 1 WHERE effect_id = ? AND call_seq = ? AND status = 'sent' AND attempt > 1",
-            )
-            .run(effectId, seq);
-    }
-
-    /**
-     * Mark a call done. `false` means no such intent row exists, which is a caller bug
-     * worth noticing rather than a state the store absorbs silently.
-     */
-    done(effectId: string, seq: number, at: string): boolean {
-        assertUtcInstant(at, "at");
-        const result = this.db
-            .prepare(
-                "UPDATE effect_journal SET status = 'done', at = ? WHERE effect_id = ? AND call_seq = ?",
-            )
-            .run(at, effectId, seq);
-        return result.changes === 1;
-    }
-
-    /**
-     * Classify an effect from the journal alone — the recovery loop's left half.
-     * Reads the highest-seq row only, which assumes caller discipline: seq N+1 is never declared while seq N is still `sent`, and the store does not police that.
-     */
-    effectState(effectId: string, planLength: number): EffectState {
-        const rows = this.db
-            .prepare(
-                "SELECT call_seq, intent, status, attempt, revision FROM effect_journal WHERE effect_id = ? ORDER BY call_seq DESC LIMIT 1",
-            )
-            .all(effectId) as {
-            call_seq: number;
-            intent: string;
-            status: string;
-            attempt: number;
-            revision: string;
-        }[];
-        const last = rows[0];
-        if (last === undefined) return { state: "neverStarted" };
-        if (last.status === "sent") {
-            return {
-                state: "sentUnknown",
-                seq: last.call_seq,
-                intent: last.intent,
-                attempt: last.attempt,
-                revision: last.revision,
-            };
-        }
-        if (last.call_seq >= planLength) {
-            return {
-                state: "complete",
-                lastDoneSeq: last.call_seq,
-                revision: last.revision,
-            };
-        }
-        return {
-            state: "midSequence",
-            lastDoneSeq: last.call_seq,
-            revision: last.revision,
-        };
-    }
-
-    /**
-     * The sweep's worklist — every open `sent` row at or before `before`.
-     * Read-only; resolution stays with `done`/`intent` and the resolver.
-     */
-    openIntents(before: string): OpenIntent[] {
-        assertUtcInstant(before, "before");
-        const rows = this.db
-            .prepare(
-                `
-                SELECT effect_id, call_seq, intent, attempt, at, revision FROM effect_journal
-                WHERE status = 'sent' AND at <= ?
-                ORDER BY at
-            `,
-            )
-            .all(before) as {
-            effect_id: string;
-            call_seq: number;
-            intent: string;
-            attempt: number;
-            at: string;
-            revision: string;
-        }[];
-        return rows.map((r) => ({
-            effectId: r.effect_id,
-            seq: r.call_seq,
-            intent: r.intent,
-            attempt: r.attempt,
-            at: r.at,
-            revision: r.revision,
-        }));
-    }
-
-    /**
-     * Every completed call the platform made on one item — what GitHub's actor cannot say (D159).
-     * A row whose bytes name no item is skipped: bytes nobody can read claim no write.
-     */
-    ownWritesOn(item: ItemRef): StoredOwnWrite[] {
-        const rows = this.db
-            .prepare("SELECT intent, at FROM effect_journal WHERE status = 'done' ORDER BY at")
-            .all() as { intent: string; at: string }[];
-        return rows.flatMap((row) => {
-            const write = ownWriteOn(item, row.intent, row.at);
-            return write === null ? [] : [write];
-        });
-    }
-
     // ── Claims (lock) ───────────────────────────────────────────────
 
     /**
@@ -758,74 +585,6 @@ export class Store {
             .prepare("DELETE FROM effect_claim WHERE effect_id = ? AND worker = ?")
             .run(effectId, worker);
         return result.changes === 1;
-    }
-
-    // ── Destructive warnings (grace.md §4) ──────────────────────────
-
-    /**
-     * Record the warning an act's warning comment just landed, keyed by the ACT's id.
-     * An upsert, because the applier writes it after a comment that may have been `already`: a re-record re-dates the promise, which is the conservative direction.
-     */
-    recordWarning(warning: StoredWarning): void {
-        assertUtcInstant(warning.warnedAt, "warnedAt");
-        assertUtcInstant(warning.earliestActionAt, "earliestActionAt");
-        assertUtcInstant(warning.causeObservedAt, "causeObservedAt");
-        assertNonEmpty(warning.effectId, "effectId");
-        this.db
-            .prepare(
-                `
-                INSERT INTO destructive_warning
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(effect_id) DO UPDATE SET
-                    warned_at = excluded.warned_at,
-                    grace_hours = excluded.grace_hours,
-                    earliest_action_at = excluded.earliest_action_at,
-                    cancelled_by = excluded.cancelled_by,
-                    reverses_with = excluded.reverses_with,
-                    action_class = excluded.action_class,
-                    capability = excluded.capability,
-                    cause_observed_at = excluded.cause_observed_at,
-                    cause = excluded.cause,
-                    item = excluded.item,
-                    change = excluded.change
-            `,
-            )
-            .run(
-                warning.effectId,
-                warning.warnedAt,
-                warning.gracePeriodHours,
-                warning.earliestActionAt,
-                warning.cancelledBy,
-                warning.reversesWith,
-                warning.actionClass,
-                warning.capability,
-                warning.causeObservedAt,
-                warning.cause,
-                warning.item,
-                warning.change,
-            );
-    }
-
-    /** The warning standing for one effect, or `null` — nobody was warned. */
-    warning(effectId: string): StoredWarning | null {
-        const row = this.db
-            .prepare("SELECT * FROM destructive_warning WHERE effect_id = ?")
-            .get(effectId) as StoredWarningRow | undefined;
-        if (row === undefined) return null;
-        return {
-            effectId: row.effect_id,
-            warnedAt: row.warned_at,
-            gracePeriodHours: row.grace_hours,
-            earliestActionAt: row.earliest_action_at,
-            cancelledBy: row.cancelled_by,
-            reversesWith: row.reverses_with,
-            actionClass: row.action_class,
-            capability: row.capability,
-            causeObservedAt: row.cause_observed_at,
-            cause: row.cause,
-            item: row.item,
-            change: row.change,
-        };
     }
 
     // ── Schedules ───────────────────────────────────────────────────
@@ -967,27 +726,6 @@ export class Store {
             }
             throw error;
         }
-    }
-
-    /**
-     * Delete warnings warned at or before `before` (grace.md §4).
-     * The caller sets the boundary; pruning by `warned_at` keeps the rule every other retention window uses — how long ago did this happen.
-     */
-    pruneWarnings(before: string): number {
-        assertUtcInstant(before, "before");
-        return this.db.prepare("DELETE FROM destructive_warning WHERE warned_at <= ?").run(before)
-            .changes as number;
-    }
-
-    /**
-     * Delete DONE journal rows at or before `before`.
-     * Open (`sent`) rows are never pruned, however old.
-     */
-    pruneDoneJournal(before: string): number {
-        assertUtcInstant(before, "before");
-        return this.db
-            .prepare("DELETE FROM effect_journal WHERE status = 'done' AND at <= ?")
-            .run(before).changes as number;
     }
 
     close(): void {

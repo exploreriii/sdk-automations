@@ -272,7 +272,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
 
     /**
      * One record's externals as CORE takes them — both callers' only way in.
-     * Two seams bind to the store HERE, because core's take one argument and this is the lane that owns a store: the recorded warning, which is the store's rather than the delivery's, so every composition owning one can answer it with credentials or without (grace.md §2); and the item's journal, because GitHub names the ASSIGNEE as the actor of a release the App made, so an unbound ordering read hands that release back as a human change and refuses the next act over it (D159).
+     * Two seams bind to the store HERE, because core's take one argument and this is the lane that owns a store: the recorded warning, which is the store's rather than the delivery's, so every composition owning one can answer it with credentials or without (grace.md §2); and the item's landed writes, because GitHub names the ASSIGNEE as the actor of a release the App made, so an unbound ordering read hands that release back as a human change and refuses the next act over it (D159).
      */
     const externalsFor = async (
         delivery: Parameters<ExternalsForDelivery>[0],
@@ -280,8 +280,9 @@ export function createProcessor(options: ProcessorOptions): Processor {
         const facts = await externals(delivery);
         return {
             ...facts,
-            latestHumanChangeAt: (item) => facts.latestHumanChangeAt(item, store.ownWritesOn(item)),
-            warningFor: recordedWarningsIn(store),
+            latestHumanChangeAt: (item) =>
+                facts.latestHumanChangeAt(item, store.ledger.landedOn(item)),
+            warningFor: recordedWarningsIn(store.ledger),
         };
     };
 
@@ -345,7 +346,7 @@ export function createProcessor(options: ProcessorOptions): Processor {
             };
         }
         const config = await loadConfig();
-        // One instant is the record's `decidedAt` AND the gates' clock, so the journal
+        // One instant is the record's `decidedAt` AND the gates' clock, so the ledger
         // never disagrees with the decision it holds.
 
         const identity = identityFor(claimed, config.revision, clock());

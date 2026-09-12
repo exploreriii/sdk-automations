@@ -2,7 +2,7 @@
  * How one approved effect becomes a landed GitHub change, exactly once — stage C.
  * `effects.ts` says what an effect's calls ARE and `operations/` what each one plans
  * and sends; this file is the choreography around them, and it knows no verb. Two
- * rules run through all of it: nothing is sent that was not journalled first, and
+ * rules run through all of it: nothing is sent the ledger did not record first, and
  * nothing is closed that was not read back.
  */
 
@@ -29,7 +29,7 @@ import {
     type RepositoryConfig,
     type WarningToRecord,
 } from "@hiero-hackers/automation-core";
-import type { OpenIntent, Store } from "../store/index.js";
+import type { Fact, FactKind, Ledger, OpenSend, Store, StoredWarning } from "../store/index.js";
 import type { Call, EffectOutcome, EffectOutcomeCode, EffectOutcomeName } from "./effects.js";
 import { recordedWarningsIn, type ShellExternals } from "./externals.js";
 import { detailOf, type Log } from "./log.js";
@@ -73,7 +73,7 @@ export const EFFECT_LEASE_STALE_MINUTES = 10;
 
 /**
  * How many times one call may be declared before recovery gives up on it.
- * The journal's `attempt` column counts durably, so this bounds the effect, not a process (D42).
+ * The ledger counts its sends durably, so this bounds the effect, not a process (D161).
  */
 export const EFFECT_ATTEMPT_CAP = 5;
 
@@ -85,8 +85,12 @@ export const EFFECT_ATTEMPT_CAP = 5;
  */
 export type EffectExternalsSource = () => ShellExternals | Promise<ShellExternals>;
 
+/** The lease, which is the store's and not the ledger's — all the applier mutates outside facts. */
+export type Leases = Pick<Store, "claim" | "release">;
+
 export interface ApplierOptions {
-    readonly store: Store;
+    readonly ledger: Ledger;
+    readonly leases: Leases;
     readonly writer: EffectWriter;
     readonly reader: EffectReader;
     readonly externals: EffectExternalsSource;
@@ -104,8 +108,8 @@ export interface Applier {
         effects: readonly Effect[],
         config: RepositoryConfig,
     ): Promise<readonly EffectOutcome[]>;
-    /** One open journal row, resolved against GitHub — the sweep's unit of work. */
-    recover(open: OpenIntent, config: RepositoryConfig): Promise<void>;
+    /** One open send, resolved against GitHub — the sweep's unit of work. */
+    recover(open: OpenSend, config: RepositoryConfig): Promise<void>;
 }
 
 // ─── What a pass is working on ───────────────────────────────────────
@@ -146,6 +150,22 @@ const refuse = (code: EffectOutcomeCode, detail: string): GateVerdict => ({
     result: { outcome: "refused", code, detail },
 });
 
+/** What a fact says beyond the call it is about. */
+interface Said {
+    readonly code?: string | null;
+    readonly detail?: string | null;
+    readonly payload?: string;
+}
+
+/** The login a call names; every other verb names none. */
+const loginOf = (call: Call): string | null => ("login" in call ? call.login : null);
+
+/** What a settled effect tells the next pass: nothing follows a refusal or an abandonment (D161). */
+const settledDetail = (how: "landed" | "refused" | "abandoned"): string =>
+    how === "landed"
+        ? "the ledger says every call in this effect's plan landed"
+        : `this effect settled as ${how}; nothing more is sent`;
+
 /**
  * The live item as a projection.
  * A merged pull request is `merged` and everything else closed is `closedByHuman`; every closure refuses the write by the same rule, so the choice cannot change a verdict.
@@ -180,15 +200,15 @@ const isMine = (body: string): ((comment: CommentSeen) => boolean) => {
 };
 
 export function createApplier(options: ApplierOptions): Applier {
-    const { store, writer, reader, externals, worker, clock, log } = options;
+    const { ledger, leases, writer, reader, externals, worker, clock, log } = options;
 
     const now = (): string => clock().toISOString();
 
     /**
-     * The recorded warning, read from the SAME store the applier journals in.
+     * The recorded warning, read from the SAME ledger the applier appends to.
      * Not through `externals`: a warning is the platform's own record, so the credential-free path can still gate its own destructive acts (grace.md §2).
      */
-    const warningFor = recordedWarningsIn(store);
+    const warningFor = recordedWarningsIn(ledger);
 
     /**
      * Did the affected person act after they were warned?
@@ -207,7 +227,7 @@ export function createApplier(options: ApplierOptions): Applier {
     /** Take the lease, or learn that a live worker holds it. */
     const claim = (effectId: string): boolean => {
         const at = clock();
-        return store.claim(
+        return leases.claim(
             effectId,
             worker,
             at.toISOString(),
@@ -227,14 +247,14 @@ export function createApplier(options: ApplierOptions): Applier {
     /**
      * Contained the way `decide()` contains it: a lookup that threw established nothing,
      * and D51 rules an unestablished ordering a conflict, which the rules already refuse.
-     * The journal goes with the item, because GitHub attributes the App's own release to the assignee (D159).
+     * The item's landed writes go with it, because GitHub attributes the App's own release to the assignee (D159).
      */
     const orderingFor = async (
         facts: ShellExternals,
         item: ItemRef,
     ): Promise<HumanChangeOrdering> => {
         try {
-            return await facts.latestHumanChangeAt(item, store.ownWritesOn(item));
+            return await facts.latestHumanChangeAt(item, ledger.landedOn(item));
         } catch {
             return "unknown";
         }
@@ -397,6 +417,48 @@ export function createApplier(options: ApplierOptions): Applier {
     const confirm = async (pass: Pass, call: Call): Promise<Confirmation> =>
         await confirmCall(call, contextFor(pass));
 
+    /** Append one fact about one call: the identity is the pass's, the verb the call's (D161). */
+    const appendFact = (
+        pass: Pass,
+        kind: FactKind,
+        seq: number,
+        call: Call | null,
+        said: Said = {},
+    ): void => {
+        ledger.record({
+            effectId: pass.effectId,
+            seq,
+            kind,
+            at: now(),
+            revision: pass.config.revision,
+            capability: pass.capability,
+            item: pass.item,
+            verb: call?.verb ?? null,
+            login: call === null ? null : loginOf(call),
+            code: said.code ?? null,
+            detail: said.detail ?? null,
+            payload: said.payload ?? null,
+        });
+    };
+
+    /** A refusal settles the effect, so the fact is appended and the pass stops at it. */
+    const refuseCall = (
+        pass: Pass,
+        seq: number,
+        call: Call,
+        code: EffectOutcomeCode,
+        detail: string,
+    ): CallResult => {
+        appendFact(pass, "refused", seq, call, { code, detail });
+        return stop("refused", code, detail);
+    };
+
+    /** The newest send of an effect — the identity and revision a closing fact repeats. */
+    const sendOf = (effectId: string): Fact | null => {
+        const sends = ledger.factsOf(effectId).filter((fact) => fact.kind === "sent");
+        return sends[sends.length - 1] ?? null;
+    };
+
     const HOUR_MS = 60 * 60 * 1000;
 
     /**
@@ -407,8 +469,7 @@ export function createApplier(options: ApplierOptions): Applier {
         if (pass.records === null || call.verb !== "postComment") return;
         const warnedAt = clock();
         const { request } = pass.records;
-        store.recordWarning({
-            effectId: pass.records.effectId,
+        const snapshot: Omit<StoredWarning, "effectId"> = {
             warnedAt: warnedAt.toISOString(),
             gracePeriodHours: pass.records.gracePeriodHours,
             earliestActionAt: new Date(
@@ -422,22 +483,34 @@ export function createApplier(options: ApplierOptions): Applier {
             cause: request.cause,
             item: request.target.item,
             change: request.target.change,
+        };
+        // The ACT's history, not this comment's, and seq 0 because no call of it (D162).
+
+        ledger.record({
+            effectId: pass.records.effectId,
+            seq: 0,
+            kind: "warned",
+            at: snapshot.warnedAt,
+            revision: pass.config.revision,
+            capability: pass.capability,
+            item: pass.item,
+            verb: null,
+            login: null,
+            code: null,
+            detail: null,
+            payload: JSON.stringify(snapshot),
         });
     };
 
     /**
-     * Journal, send, prove — in that order, always.
-     * A definite refusal — conflict or forbidden — CLOSES the row: nothing landed and nothing will, so leaving it open would ask the sweep to re-decide a settled question.
-     * A write no endpoint realises leaves the row open instead, spending no backoff: the sweep's effect recovery redrives it until a composition can send it.
+     * Append the send, send it, prove it — in that order, always.
+     * A definite refusal — conflict or forbidden — SETTLES the effect: nothing landed and nothing will, so leaving the send open would ask the sweep to re-decide a settled question.
+     * A write no endpoint realises is `unsent` instead, spending no attempt: the send closes and the next pass resumes at the same call.
      */
     const journalAndSend = async (pass: Pass, seq: number, call: Call): Promise<CallResult> => {
-        store.intent(
-            pass.effectId,
-            seq,
-            serializeCall({ capability: pass.capability, item: pass.item, call }),
-            now(),
-            pass.config.revision,
-        );
+        appendFact(pass, "sent", seq, call, {
+            payload: serializeCall({ capability: pass.capability, item: pass.item, call }),
+        });
         const answer = await send(pass, call);
         switch (answer.outcome) {
             case "applied": {
@@ -449,22 +522,23 @@ export function createApplier(options: ApplierOptions): Applier {
                         `GitHub accepted the ${call.verb} but the read-back answered ${proof}`,
                     );
                 }
-                store.done(pass.effectId, seq, now());
+                appendFact(pass, "landed", seq, call);
                 record(pass, call);
                 return { kind: "done", changed: true };
             }
             case "already":
-                store.done(pass.effectId, seq, now());
+                appendFact(pass, "landed", seq, call);
                 record(pass, call);
                 return { kind: "done", changed: false };
             case "conflict":
-                store.done(pass.effectId, seq, now());
-                return stop("refused", "writeConflict", answer.detail);
+                return refuseCall(pass, seq, call, "writeConflict", answer.detail);
             case "forbidden":
-                store.done(pass.effectId, seq, now());
-                return stop("refused", "writeForbidden", answer.detail);
+                return refuseCall(pass, seq, call, "writeForbidden", answer.detail);
             case "unsupported":
-                store.unspend(pass.effectId, seq);
+                appendFact(pass, "unsent", seq, call, {
+                    code: "writeUnsupported",
+                    detail: answer.detail,
+                });
                 return stop("refused", "writeUnsupported", answer.detail);
             case "retryLater":
                 return stop("retryLater", "writeRetryLater", answer.detail);
@@ -474,18 +548,18 @@ export function createApplier(options: ApplierOptions): Applier {
     };
 
     /**
-     * One open `sent` row, resolved — the whole of `SENT-UNKNOWN`.
-     * GitHub is asked BEFORE anything else. Only the resend branch meets a gate, because by then nothing has landed, so a world that now says no makes the row final.
+     * One open send, resolved — the whole of `SENT-UNKNOWN`.
+     * GitHub is asked BEFORE anything else. Only the resend branch meets a gate, because by then nothing has landed, so a world that now says no settles the effect.
      */
     const resolveOpen = async (
         pass: Pass,
         seq: number,
         call: Call,
-        revision: string,
+        revision: string | null,
     ): Promise<CallResult> => {
         const proof = await confirm(pass, call);
         if (proof === "held") {
-            store.done(pass.effectId, seq, now());
+            appendFact(pass, "landed", seq, call);
             record(pass, call);
             return { kind: "done", changed: true };
         }
@@ -497,16 +571,19 @@ export function createApplier(options: ApplierOptions): Applier {
             );
         }
         if (revision !== pass.config.revision) {
-            store.done(pass.effectId, seq, now());
-            return stop(
-                "refused",
+            return refuseCall(
+                pass,
+                seq,
+                call,
                 "configurationChanged",
-                "the configuration changed after this call was journalled; nothing was resent",
+                "the configuration changed after this call was recorded; nothing was resent",
             );
         }
         const gate = await resumeGate(pass, operationOf(call));
         if (!gate.ok) {
-            if (gate.result.outcome === "refused") store.done(pass.effectId, seq, now());
+            if (gate.result.outcome === "refused") {
+                appendFact(pass, "refused", seq, call, gate.result);
+            }
             return { kind: "stop", result: gate.result };
         }
         return await journalAndSend(pass, seq, call);
@@ -530,25 +607,23 @@ export function createApplier(options: ApplierOptions): Applier {
             : { outcome: "already", code: null, detail: "every call in this plan already held" };
     };
 
-    /** The open row a `sentUnknown` names, then whatever the plan has left. */
+    /** The open send the fold names, then whatever the plan has left. */
     const continueOpen = async (
         pass: Pass,
         seq: number,
-        row: string,
-        revision: string,
+        payload: string | null,
+        revision: string | null,
         calls: readonly Call[],
     ): Promise<PassResult> => {
-        // Nothing can be resent from bytes nobody can read, and leaving the row open
+        // Nothing can be resent from bytes nobody can read, and leaving the send open
         // would hand the sweep the same dead end forever.
 
-        const journaled = parseJournaledCall(row);
+        const journaled = payload === null ? null : parseJournaledCall(payload);
         if (journaled === null) {
-            store.done(pass.effectId, seq, now());
-            return {
-                outcome: "refused",
-                code: "rowUnreadable",
-                detail: "the journal row for this call could not be read; it is closed and nothing was resent",
-            };
+            const detail =
+                "the ledger's bytes for this call could not be read; it is closed and nothing was resent";
+            appendFact(pass, "refused", seq, null, { code: "rowUnreadable", detail });
+            return { outcome: "refused", code: "rowUnreadable", detail };
         }
         const resolved = await resolveOpen(pass, seq, journaled.call, revision);
         if (resolved.kind === "stop") return resolved.result;
@@ -567,25 +642,31 @@ export function createApplier(options: ApplierOptions): Applier {
         return await runFrom(pass, calls, seq + 1, true);
     };
 
-    /** The dispatch: the recovery loop's four states, four answers. */
+    /** The dispatch: the fold's five states, five answers (D161). */
     const drive = async (
         pass: Pass,
         intent: AnyIntent,
         calls: readonly Call[],
     ): Promise<PassResult> => {
-        const state = store.effectState(pass.effectId, calls.length);
-        if (state.state === "complete") {
-            return {
-                outcome: "already",
-                code: null,
-                detail: "the journal says every call in this effect's plan is done",
-            };
+        const state = ledger.stateOf(pass.effectId, calls.length);
+        if (state.kind === "settled") {
+            return { outcome: "already", code: null, detail: settledDetail(state.how) };
         }
-        if (state.state === "sentUnknown") {
-            return await continueOpen(pass, state.seq, state.intent, state.revision, calls);
+        if (state.kind === "inconsistent") {
+            return { outcome: "refused", code: "ledgerInconsistent", detail: state.detail };
         }
-        if (state.state === "midSequence") {
-            if (state.revision !== pass.config.revision) {
+        if (state.kind === "open") {
+            const sent = sendOf(pass.effectId);
+            return await continueOpen(
+                pass,
+                state.seq,
+                state.payload,
+                sent?.revision ?? null,
+                calls,
+            );
+        }
+        if (state.kind === "resumable") {
+            if (sendOf(pass.effectId)?.revision !== pass.config.revision) {
                 return {
                     outcome: "refused",
                     code: "configurationChanged",
@@ -593,7 +674,11 @@ export function createApplier(options: ApplierOptions): Applier {
                 };
             }
             const gate = await resumeGate(pass, intent.operation);
-            return gate.ok ? await runFrom(pass, calls, state.lastDoneSeq + 1, true) : gate.result;
+            // Resuming at the first call means nothing landed, so nothing has changed yet.
+
+            return gate.ok
+                ? await runFrom(pass, calls, state.nextSeq, state.nextSeq > 1)
+                : gate.result;
         }
         const gate = await freshGate(pass, intent);
         return gate.ok ? await runFrom(pass, calls, 1, false) : gate.result;
@@ -631,7 +716,7 @@ export function createApplier(options: ApplierOptions): Applier {
         try {
             return outcomeOf(await drive(pass, intent, plan.calls));
         } finally {
-            store.release(pass.effectId, worker);
+            leases.release(pass.effectId, worker);
         }
     };
 
@@ -643,29 +728,33 @@ export function createApplier(options: ApplierOptions): Applier {
         },
 
         /**
-         * One open row the sweep found, resolved and reported.
-         * Log-only, and a row still open at the end says nothing: the sweep meets it again.
+         * One open send the sweep found, resolved and reported.
+         * Log-only, and a send still open at the end says nothing: the sweep meets it again.
          */
         async recover(open, config) {
-            const journaled = parseJournaledCall(open.intent);
+            const journaled = open.payload === null ? null : parseJournaledCall(open.payload);
             if (journaled === null) {
-                store.done(open.effectId, open.seq, now());
+                const sent = sendOf(open.effectId);
+                const detail =
+                    "the ledger's bytes could not be read; it is closed and nothing was resent";
+                // Only the send it closes can say which item and capability this was.
+
+                if (sent !== null) {
+                    ledger.record({
+                        ...sent,
+                        kind: "refused",
+                        at: now(),
+                        code: "rowUnreadable",
+                        detail,
+                        payload: null,
+                    });
+                }
                 log({
                     event: "effectRefused",
                     effectId: open.effectId,
                     seq: open.seq,
                     code: "rowUnreadable",
-                    detail: "the journal row could not be read; it is closed and nothing was resent",
-                });
-                return;
-            }
-            if (open.attempt >= EFFECT_ATTEMPT_CAP) {
-                store.done(open.effectId, open.seq, now());
-                log({
-                    event: "effectAbandoned",
-                    effectId: open.effectId,
-                    seq: open.seq,
-                    attempts: open.attempt,
+                    detail,
                 });
                 return;
             }
@@ -676,6 +765,19 @@ export function createApplier(options: ApplierOptions): Applier {
                 config,
                 records: null,
             };
+            if (open.attempts >= EFFECT_ATTEMPT_CAP) {
+                appendFact(pass, "abandoned", open.seq, journaled.call, {
+                    code: "effectAbandoned",
+                    detail: `this call was sent ${String(open.attempts)} times and nothing more is sent`,
+                });
+                log({
+                    event: "effectAbandoned",
+                    effectId: open.effectId,
+                    seq: open.seq,
+                    attempts: open.attempts,
+                });
+                return;
+            }
             if (!claim(open.effectId)) return;
             try {
                 const resolved = await resolveOpen(pass, open.seq, journaled.call, open.revision);
@@ -691,7 +793,7 @@ export function createApplier(options: ApplierOptions): Applier {
                     });
                 }
             } finally {
-                store.release(open.effectId, worker);
+                leases.release(open.effectId, worker);
             }
         },
     };

@@ -60,7 +60,7 @@ const TIMELINE_READ_CAP = 3;
 
 const TIMELINE_PAGE_SIZE = 100;
 
-/** How long before its journalled `done` instant an own write's timeline event may be dated. */
+/** How long before a landed write's instant its own timeline event may be dated. */
 const OWN_WRITE_WINDOW_MS = 60_000;
 
 /** The delivery's causing human action, so it cannot conflict with itself. */
@@ -73,13 +73,13 @@ export interface CauseFingerprint {
 }
 
 /**
- * One completed call the platform made on the item being read — the store's `StoredOwnWrite`.
+ * One completed call the platform made on the item being read — the store's `LandedWrite`.
  * Restated rather than imported, and `main.ts` is where the two shapes are checked against each other.
  */
-export interface OwnWrite {
-    readonly operation: string;
-    readonly login?: string;
-    readonly doneAt: string;
+export interface LandedWrite {
+    readonly verb: string | null;
+    readonly login: string | null;
+    readonly at: string;
 }
 
 /** What one delivery's ordering reads need; built fresh per delivery. */
@@ -105,14 +105,14 @@ function changeTarget(entry: unknown, action: string): unknown {
 }
 
 /**
- * Does the journal hold a release of this login dated within the window before `at`?
+ * Does the ledger hold a release of this login dated within the window before `at`?
  * A human unassigning the same login in the same minute is indistinguishable, and holds the platform back.
  */
-function releasedByApp(login: unknown, at: Date, ownWrites: readonly OwnWrite[]): boolean {
+function releasedByApp(login: unknown, at: Date, ownWrites: readonly LandedWrite[]): boolean {
     if (typeof login !== "string") return false;
     return ownWrites.some((write) => {
-        if (write.operation !== "releaseAssignment" || write.login !== login) return false;
-        const done = new Date(write.doneAt).getTime();
+        if (write.verb !== "releaseAssignment" || write.login !== login) return false;
+        const done = new Date(write.at).getTime();
         if (!Number.isFinite(done)) return false;
         const gap = done - at.getTime();
         return gap >= 0 && gap <= OWN_WRITE_WINDOW_MS;
@@ -120,7 +120,10 @@ function releasedByApp(login: unknown, at: Date, ownWrites: readonly OwnWrite[])
 }
 
 /** A `Date`; `null` for an entry that does not count; `"unparsable"` for one that cannot be trusted. */
-function humanChangeAt(entry: unknown, ownWrites: readonly OwnWrite[]): Date | null | "unparsable" {
+function humanChangeAt(
+    entry: unknown,
+    ownWrites: readonly LandedWrite[],
+): Date | null | "unparsable" {
     const kind = field(entry, "event");
     // Stryker disable next-line ConditionalExpression: Set.has answers false for any non-string already; the typeof arm is for readers.
     if (typeof kind !== "string" || !HUMAN_CHANGE_EVENTS.has(kind)) return null;
@@ -143,7 +146,7 @@ function humanChangeAt(entry: unknown, ownWrites: readonly OwnWrite[]): Date | n
 /** Exclude at most one matching cause. Every other change still counts, including ties. */
 function newestIn(
     events: readonly unknown[],
-    ownWrites: readonly OwnWrite[],
+    ownWrites: readonly LandedWrite[],
     cause?: CauseFingerprint,
 ): HumanChangeOrdering {
     let newest: Date | null = null;
@@ -199,7 +202,7 @@ function parsePage(outcome: GitHubOutcome): PageOutcome {
 async function readOrdering(
     { http, repository, cause, onUnknownOrdering }: OrderingEvidenceOptions,
     item: ItemRef,
-    ownWrites: readonly OwnWrite[],
+    ownWrites: readonly LandedWrite[],
 ): Promise<HumanChangeOrdering> {
     const pageUrl = (page: number): string =>
         `${repoPath(repository)}/issues/${String(item.number)}/timeline` +
@@ -281,7 +284,7 @@ export function causeFingerprintOf(payload: unknown): CauseFingerprint | undefin
  */
 export function orderingEvidenceSource(
     options: OrderingEvidenceOptions,
-): (item: ItemRef, ownWrites?: readonly OwnWrite[]) => Promise<HumanChangeOrdering> {
+): (item: ItemRef, ownWrites?: readonly LandedWrite[]) => Promise<HumanChangeOrdering> {
     const memo = new Map<string, Promise<HumanChangeOrdering>>();
     return (item, ownWrites = []) => {
         const key = `${item.kind}#${String(item.number)}`;
@@ -299,7 +302,7 @@ export interface LiveExternalFacts {
     readonly installationGrants: readonly PermissionGrant[];
     readonly latestHumanChangeAt: (
         item: ItemRef,
-        ownWrites?: readonly OwnWrite[],
+        ownWrites?: readonly LandedWrite[],
     ) => Promise<HumanChangeOrdering>;
     readonly resolve: ResolverSource;
 }

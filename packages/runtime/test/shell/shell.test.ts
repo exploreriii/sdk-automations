@@ -638,7 +638,7 @@ describe("the first slice, end to end", () => {
 });
 
 /**
- * The sweep's second job: an effect a worker journalled and never closed.
+ * The sweep's second job: a send a worker recorded and never closed.
  *
  * Nothing here delivers anything. That is the claim — in a quiet repository
  * the only thing that could ever resolve a lost write is the clock, and these
@@ -660,26 +660,34 @@ mappings:
     const LABEL = "status: triage";
     const EFFECT_ID = "orphan-effect";
 
-    /** The row a crashed worker left, older than one lease window. */
-    function orphanRow(): void {
+    /** The open send a crashed worker left, older than one lease window. */
+    function orphanRow(effectId = EFFECT_ID, number = 164): void {
         const revision = existsSync(configFile)
             ? revisionOf(readFileSync(configFile, "utf8"))
             : ABSENT_CONFIG_REVISION;
-        store.intent(
-            EFFECT_ID,
-            1,
-            serializeCall({
+        const item = { kind: "issue", number } as const;
+        store.ledger.record({
+            effectId,
+            seq: 1,
+            kind: "sent",
+            at: new Date(BASE.getTime() - 60 * 60_000).toISOString(),
+            revision,
+            capability: "intake",
+            item,
+            verb: "addLabel",
+            login: null,
+            code: null,
+            detail: null,
+            payload: serializeCall({
                 capability: "intake",
-                item: { kind: "issue", number: 164 },
+                item,
                 call: { verb: "addLabel", label: LABEL },
             }),
-            new Date(BASE.getTime() - 60 * 60_000).toISOString(),
-            revision,
-        );
+        });
     }
 
     const openRows = (): number =>
-        store.openIntents(new Date(BASE.getTime() + 60 * 60_000).toISOString()).length;
+        store.ledger.open(new Date(BASE.getTime() + 60 * 60_000).toISOString()).length;
 
     function shellWithWritePath(github: ReturnType<typeof fakeGitHub>): Shell {
         let tick = 0;
@@ -695,7 +703,8 @@ mappings:
             sweepIntervalMs: 5,
             log,
             applier: createApplier({
-                store,
+                ledger: store.ledger,
+                leases: store,
                 writer: github.writer,
                 reader: github.reader,
                 externals: () => stubbedExternals(),
@@ -762,7 +771,7 @@ mappings:
         writeFileSync(configFile, "schemaVersion: 9");
         orphanRow();
         const github = fakeGitHub();
-        const worklist = vi.spyOn(store, "openIntents");
+        const worklist = vi.spyOn(store.ledger, "open");
 
         shellWithWritePath(github);
 
@@ -775,18 +784,7 @@ mappings:
     it("reports a recovery pass it could not run, and keeps serving", async () => {
         writeFileSync(configFile, ACTIVE_CONFIG);
         orphanRow();
-        const revision = revisionOf(readFileSync(configFile, "utf8"));
-        store.intent(
-            "second-orphan",
-            1,
-            serializeCall({
-                capability: "intake",
-                item: { kind: "issue", number: 165 },
-                call: { verb: "addLabel", label: LABEL },
-            }),
-            new Date(BASE.getTime() - 60 * 60_000).toISOString(),
-            revision,
-        );
+        orphanRow("second-orphan", 165);
         const recovered: string[] = [];
         running.push(
             createShell({
@@ -827,7 +825,7 @@ mappings:
         writeFileSync(configFile, ACTIVE_CONFIG);
         orphanRow();
         const requeues = vi.spyOn(store, "requeueStuckDeliveries");
-        const worklist = vi.spyOn(store, "openIntents");
+        const worklist = vi.spyOn(store.ledger, "open");
 
         buildShell(toEngine(intake), 5);
 

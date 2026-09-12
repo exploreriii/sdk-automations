@@ -13,7 +13,7 @@ import {
     liveExternalsForDelivery,
     orderingEvidenceSource,
     type CauseFingerprint,
-    type OwnWrite,
+    type LandedWrite,
 } from "../../src/adapter/externals.js";
 import {
     failure,
@@ -390,10 +390,10 @@ describe("ordering evidence", () => {
 describe("the platform's own assignment writes", () => {
     const RELEASED_AT = "2026-08-20T10:00:03Z";
     const EVENT_AT = "2026-08-20T10:00:00Z";
-    const release = (login: string, doneAt = RELEASED_AT): OwnWrite => ({
-        operation: "releaseAssignment",
+    const release = (login: string, at = RELEASED_AT): LandedWrite => ({
+        verb: "releaseAssignment",
         login,
-        doneAt,
+        at,
     });
     /** The event GitHub writes for a release, App-made or human: the assignee acting on themselves. */
     const unassigned = (login: string, createdAt: string) =>
@@ -427,9 +427,9 @@ describe("the platform's own assignment writes", () => {
         expect(await lookup(ITEM, [release("alice")])).toBeNull();
     });
 
-    it("counts an own write of another operation, and one naming another login", async () => {
+    it("counts a landed write of another verb, and one naming another login", async () => {
         const { lookup } = source([page([unassigned("alice", EVENT_AT)])]);
-        const label: OwnWrite = { operation: "addLabel", doneAt: RELEASED_AT };
+        const label: LandedWrite = { verb: "addLabel", login: null, at: RELEASED_AT };
 
         expect(await lookup(ITEM, [label, release("carol")])).toEqual(new Date(EVENT_AT));
     });

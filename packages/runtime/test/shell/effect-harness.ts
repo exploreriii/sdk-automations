@@ -233,6 +233,9 @@ const GRACE = {
     activityAt: null,
 } as const;
 
+/** The warning comment's body — what a world already holding it must be given. */
+export const WARNING_BODY = GRACE.warning.body;
+
 /** The act's own effect id — the key a warning is recorded under. */
 export const ACT_EFFECT_ID = deriveIdempotencyKey({
     capability: "intake",

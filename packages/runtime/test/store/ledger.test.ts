@@ -136,6 +136,26 @@ describe("the sweep's worklist", () => {
         expect(() => store.ledger.open("whenever")).toThrow(/before/);
         store.close();
     });
+
+    /** One row per open call, however often it was sent: the sweep resolves calls, not sends. */
+    it("lists a resent call once, at the instant of its newest send", () => {
+        const store = new Store(path);
+
+        store.ledger.record(fact());
+        store.ledger.record(fact({ at: "2026-09-12T09:05:00.000Z" }));
+
+        expect(store.ledger.open("2026-09-12T09:30:00.000Z")).toEqual([
+            {
+                effectId: "effect-a",
+                seq: 1,
+                payload: '{"verb":"postComment"}',
+                attempts: 2,
+                at: "2026-09-12T09:05:00.000Z",
+                revision: "revision-1",
+            },
+        ]);
+        store.close();
+    });
 });
 
 describe("the writes the platform made on one item", () => {

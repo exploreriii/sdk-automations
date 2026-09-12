@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
 import { Store } from "../../src/store/store.js";
-import { asDeliveryGuid, type ItemRef } from "@hiero-hackers/automation-core";
+import { asDeliveryGuid } from "@hiero-hackers/automation-core";
 
 const temp = useTempDir("store-test-");
 let path: string;
@@ -78,7 +78,7 @@ describe("timestamp boundary — lexicographic order must BE chronological order
         // it would misfire schedules and freeze leases, so it throws.
         expect(() => s.schedule("x", "2026-07-24T00:00:00+01:00", "sweep")).toThrow(TypeError);
         expect(() => s.claimDue("24 Jul 2026 12:00")).toThrow(TypeError);
-        expect(() => s.intent("e1", 1, "read", "2026-07-23", "rev-1")).toThrow(TypeError);
+        expect(() => s.ledger.open("2026-07-23")).toThrow(TypeError);
         expect(() =>
             s.acceptDelivery({
                 deliveryId: id("00000000-0000-0000-0000-000000000001"),
@@ -106,16 +106,12 @@ describe("timestamp boundary — lexicographic order must BE chronological order
     it("names the invalid time at every durable boundary", () => {
         const s = new Store(path);
         const cases: readonly [() => unknown, RegExp][] = [
-            [() => s.intent("e", 1, "call", "invalid", "rev"), /^at must/],
-            [() => s.done("e", 1, "invalid"), /^at must/],
-            [() => s.openIntents("invalid"), /before/],
             [() => s.claim("e", "w", "invalid", "2026-01-01T00:00:00.000Z"), /now/],
             [() => s.claim("e", "w", "2026-01-01T00:00:00.000Z", "invalid"), /staleBefore/],
             [() => s.schedule("s", "invalid", "effect"), /dueAt/],
             [() => s.claimDue("invalid"), /now/],
             [() => s.requeueStuck("invalid"), /claimedBefore/],
             [() => s.pruneCompletedDeliveries("invalid"), /before/],
-            [() => s.pruneDoneJournal("invalid"), /before/],
         ];
         for (const [operation, parameter] of cases) {
             expect(operation).toThrow(parameter);
@@ -128,229 +124,7 @@ describe("timestamp boundary — lexicographic order must BE chronological order
         expect(() => s.schedule("impossible", "2026-02-31T00:00:00.000Z", "sweep")).toThrow(
             TypeError,
         );
-        expect(() => s.intent("e1", 1, "read", "2026-99-99T99:99:99.999Z", "rev-1")).toThrow(
-            TypeError,
-        );
-        s.close();
-    });
-});
-
-describe("effect journal — the 6.5 crash grid, restated as instance reopening", () => {
-    it("kill after call 1 (read done, write never sent) → midSequence: provably safe to resume", () => {
-        const before = new Store(path);
-        before.intent("e1", 1, "list-comments", "2026-07-23T10:00:00.000Z", "rev-1");
-        before.done("e1", 1, "2026-07-23T10:00:00.001Z");
-        before.close(); // crash at kill point e1-after-call-1
-
-        const recovered = new Store(path);
-        expect(recovered.effectState("e1", 2)).toMatchObject({
-            state: "midSequence",
-            lastDoneSeq: 1,
-        });
-        recovered.close();
-    });
-
-    it("lost response (intent written, nothing else) → sentUnknown: the journal alone cannot say", () => {
-        const before = new Store(path);
-        before.intent("e1", 1, "list-comments", "2026-07-23T10:00:00.000Z", "rev-1");
-        before.done("e1", 1, "2026-07-23T10:00:00.001Z");
-        before.intent("e1", 2, "create-comment", "2026-07-23T10:00:02.000Z", "rev-1"); // write sent, response discarded, crash
-        before.close();
-
-        const recovered = new Store(path);
-        expect(recovered.effectState("e1", 2)).toMatchObject({
-            state: "sentUnknown",
-            seq: 2,
-            intent: "create-comment",
-            attempt: 1,
-        });
-        recovered.close();
-    });
-
-    // FINDING(store-journal-attempts)
-    it("a retry increments a durable attempt counter — the bound survives restart", () => {
-        const before = new Store(path);
-        before.intent("e1", 1, "create-comment", "2026-07-23T10:00:00.000Z", "rev-1"); // attempt 1, response lost
-        before.intent("e1", 1, "create-comment", "2026-07-23T10:01:00.000Z", "rev-1"); // resolver said absent; attempt 2
-        before.close(); // crash
-
-        const recovered = new Store(path);
-        recovered.intent("e1", 1, "create-comment", "2026-07-23T10:07:00.000Z", "rev-1"); // attempt 3, after restart
-        expect(recovered.effectState("e1", 1)).toMatchObject({
-            state: "sentUnknown",
-            seq: 1,
-            intent: "create-comment",
-            attempt: 3,
-        });
-        recovered.close();
-    });
-
-    it("unspend gives back the attempt an unsent call took, never below the first", () => {
-        const store = new Store(path);
-        store.intent("e1", 1, "create-comment", "2026-07-23T10:00:00.000Z", "rev-1");
-        store.unspend("e1", 1);
-        store.intent("e1", 1, "create-comment", "2026-07-23T10:01:00.000Z", "rev-1");
-        store.unspend("e1", 1);
-        expect(store.effectState("e1", 1)).toMatchObject({ state: "sentUnknown", attempt: 1 });
-        store.close();
-    });
-
-    it("a done row is immutable to intent — acknowledged history never regresses to sent", () => {
-        const s = new Store(path);
-        s.intent("e1", 1, "add-label", "2026-07-23T10:00:00.000Z", "rev-1");
-        s.done("e1", 1, "2026-07-23T10:00:00.001Z");
-        // A buggy or duplicate-delivery-driven caller re-declares the
-        // same call. The receipt must survive.
-        s.intent("e1", 1, "add-label", "2026-07-23T10:02:00.000Z", "rev-1");
-        expect(s.effectState("e1", 1)).toMatchObject({ state: "complete" });
-        s.close();
-    });
-
-    it("done on a row that was never declared reports the caller bug", () => {
-        const s = new Store(path);
-        s.intent("e1", 1, "read", "2026-07-23T10:00:00.000Z", "rev-1");
-        expect(s.done("e1", 1, "2026-07-23T10:00:00.001Z")).toBe(true);
-        expect(s.done("e1", 7, "2026-07-23T10:00:00.002Z")).toBe(false); // no such call
-        expect(s.done("ghost", 1, "2026-07-23T10:00:00.003Z")).toBe(false); // no such effect
-        s.close();
-    });
-
-    it("full run → complete; untouched effect → neverStarted", () => {
-        const s = new Store(path);
-        s.intent("e1", 1, "read", "2026-07-23T10:00:00.000Z", "rev-1");
-        s.done("e1", 1, "2026-07-23T10:00:00.001Z");
-        s.intent("e1", 2, "write", "2026-07-23T10:00:01.000Z", "rev-1");
-        s.done("e1", 2, "2026-07-23T10:00:01.001Z");
-        expect(s.effectState("e1", 2)).toMatchObject({ state: "complete" });
-        expect(s.effectState("ghost", 2)).toEqual({ state: "neverStarted" });
-        s.close();
-    });
-});
-
-describe("journal retention pruning (D43's adopted window)", () => {
-    it("prunes old done journal rows, but NEVER an open sent row", () => {
-        const s = new Store(path);
-        s.intent("old-done", 1, "add-label", "2026-04-01T00:00:00.000Z", "rev-1");
-        s.done("old-done", 1, "2026-04-01T00:00:00.001Z");
-        s.intent("old-open", 1, "create-comment", "2026-04-01T00:00:00.000Z", "rev-1"); // unresolved, ancient
-        s.intent("new-done", 1, "add-label", "2026-07-20T00:00:00.000Z", "rev-1");
-        s.done("new-done", 1, "2026-07-20T00:00:00.001Z");
-
-        const cutoff = "2026-04-27T00:00:00.000Z"; // ~90 days before "today"
-        expect(s.pruneDoneJournal(cutoff)).toBe(1);
-
-        // The ancient OPEN intent survives pruning — still the sweep's problem.
-        expect(s.openIntents("2026-07-25T00:00:00.000Z")).toMatchObject([
-            { effectId: "old-open", seq: 1 },
-        ]);
-        // The recent done row survives.
-        expect(s.effectState("new-done", 1)).toMatchObject({ state: "complete" });
-        s.close();
-    });
-
-    it("retains a newly resolved intent from its completion time, not its stale send time", () => {
-        const s = new Store(path);
-        s.intent("resolved-now", 1, "create-comment", "2026-01-01T00:00:00.000Z", "rev-1");
-        expect(s.done("resolved-now", 1, "2026-07-01T00:00:00.000Z")).toBe(true);
-        expect(s.pruneDoneJournal("2026-04-01T00:00:00.000Z")).toBe(0);
-        expect(s.effectState("resolved-now", 1)).toMatchObject({ state: "complete" });
-        s.close();
-    });
-});
-
-describe("openIntents — the sweep's journal worklist", () => {
-    it("lists unresolved sent rows across effects, oldest first; resolved rows drop out", () => {
-        const s = new Store(path);
-        s.intent("e2", 1, "create-comment", "2026-07-23T10:05:00.000Z", "rev-1"); // unresolved
-        s.intent("e1", 1, "add-label", "2026-07-23T10:00:00.000Z", "rev-1"); // will resolve
-        s.intent("e3", 1, "add-assignee", "2026-07-23T11:00:00.000Z", "rev-1"); // too new for the sweep window
-        s.done("e1", 1, "2026-07-23T10:00:00.001Z");
-
-        const open = s.openIntents("2026-07-23T10:30:00.000Z");
-        expect(open).toEqual([
-            {
-                effectId: "e2",
-                seq: 1,
-                intent: "create-comment",
-                attempt: 1,
-                at: "2026-07-23T10:05:00.000Z",
-                revision: "rev-1",
-            },
-        ]);
-        s.close();
-    });
-});
-
-/**
- * The rows are written here by hand rather than through the shell's serializer:
- * only the runtime's composition root may span both, and what this read depends
- * on is the row's BYTES — the item it names, its verb, and a release's login.
- */
-describe("ownWritesOn — the journal as the record of what the platform did", () => {
-    const ISSUE: ItemRef = { kind: "issue", number: 164 };
-    const row = (item: unknown, fields: Record<string, unknown>): string =>
-        JSON.stringify({ capability: "inactivity", item, ...fields });
-    const released = row(ISSUE, { verb: "releaseAssignment", login: "alice" });
-
-    it("answers a completed release with its login and the instant it closed", () => {
-        const s = new Store(path);
-        s.intent("e1", 1, released, "2026-07-23T10:00:00.000Z", "rev-1");
-        s.done("e1", 1, "2026-07-23T10:00:02.000Z");
-
-        expect(s.ownWritesOn(ISSUE)).toEqual([
-            {
-                operation: "releaseAssignment",
-                login: "alice",
-                doneAt: "2026-07-23T10:00:02.000Z",
-            },
-        ]);
-        s.close();
-    });
-
-    it("answers a call that names no login without one", () => {
-        const s = new Store(path);
-        const labelled = row(ISSUE, { verb: "addLabel", label: "ready" });
-        s.intent("e1", 1, labelled, "2026-07-23T10:00:00.000Z", "rev-1");
-        s.done("e1", 1, "2026-07-23T10:00:01.000Z");
-
-        expect(s.ownWritesOn(ISSUE)).toEqual([
-            { operation: "addLabel", doneAt: "2026-07-23T10:00:01.000Z" },
-        ]);
-        s.close();
-    });
-
-    it("leaves out an open row, because a call nobody proved is no write", () => {
-        const s = new Store(path);
-        s.intent("e1", 1, released, "2026-07-23T10:00:00.000Z", "rev-1");
-
-        expect(s.ownWritesOn(ISSUE)).toEqual([]);
-        s.close();
-    });
-
-    it.each([
-        ["another number", row({ kind: "issue", number: 165 }, { verb: "releaseAssignment" })],
-        ["another kind", row({ kind: "pullRequest", number: 164 }, { verb: "releaseAssignment" })],
-        ["no verb", row(ISSUE, { login: "alice" })],
-        ["no item", row(undefined, { verb: "releaseAssignment" })],
-        ["bytes that are not JSON", "add-label"],
-    ])("leaves out a row naming %s", (_name, intent) => {
-        const s = new Store(path);
-        s.intent("e1", 1, intent, "2026-07-23T10:00:00.000Z", "rev-1");
-        s.done("e1", 1, "2026-07-23T10:00:01.000Z");
-
-        expect(s.ownWritesOn(ISSUE)).toEqual([]);
-        s.close();
-    });
-
-    it("lists every item's own writes oldest first, across effects", () => {
-        const s = new Store(path);
-        s.intent("e2", 1, released, "2026-07-23T11:00:00.000Z", "rev-1");
-        s.done("e2", 1, "2026-07-23T11:00:01.000Z");
-        const releasedBob = row(ISSUE, { verb: "releaseAssignment", login: "bob" });
-        s.intent("e1", 1, releasedBob, "2026-07-23T10:00:00.000Z", "rev-1");
-        s.done("e1", 1, "2026-07-23T10:00:01.000Z");
-
-        expect(s.ownWritesOn(ISSUE).map((write) => write.login)).toEqual(["bob", "alice"]);
+        expect(() => s.claimDue("2026-99-99T99:99:99.999Z")).toThrow(TypeError);
         s.close();
     });
 });

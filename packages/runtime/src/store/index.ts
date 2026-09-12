@@ -18,7 +18,6 @@ export type {
     ReleaseDeliveryAfterFailureResult,
     ReleaseDeliveryResult,
 } from "./deliveries.js";
-export type { EffectState, OpenIntent, StoredOwnWrite } from "./effects.js";
 export type {
     Decision,
     Fact,

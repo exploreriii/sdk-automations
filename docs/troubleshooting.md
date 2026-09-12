@@ -42,6 +42,9 @@ change out. It keeps asking on every sweep, so the act lands once a release can 
 |---|---|
 | `writeUnsupported` | The platform has no confirmed endpoint for this write yet; the intent stands and is re-tried each sweep |
 
+One code here is not waiting on a release: `ledgerInconsistent` means the ledger holds a history the
+App cannot read as one effect, `pnpm shell:explain` prints it, and clearing it is a person's job.
+
 ## It should never happen
 
 These indicate a defect in a capability or the platform — never in your configuration. If you see

@@ -1,23 +1,23 @@
 /**
  * The write path's one promise: whatever a crash, a lost response or a
  * concurrent human does, the repository is changed at most once and the
- * journal always says which.
+ * ledger always says which.
  *
  * Every case here is a claim about a WINDOW — a named point between the
- * journal, the send and the acknowledgement — and the fake GitHub in
- * `effect-harness.ts` is what puts a crash inside one. A test that asserted
+ * recorded send, the send itself and the acknowledgement — and the fake GitHub
+ * in `effect-harness.ts` is what puts a crash inside one. A test that asserted
  * only the final world would pass for a path that sent twice and got lucky,
  * so the assertions are on the calls made as well as the world reached.
  *
- * The store is real, on a temp file, because the journal is the mechanism
+ * The store is real, on a temp file, because the ledger is the mechanism
  * under test. Two suites reopen it from disk mid-test: that is the closest
  * this package can honestly get to a killed worker, and it is what proves the
- * rows survive the process that wrote them.
+ * facts survive the process that wrote them.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeRequestFor, type Effect } from "@hiero-hackers/automation-core";
-import { Store, type StoredOwnWrite } from "../../src/store/index.js";
+import { writeRequestFor, type Effect, type ItemRef } from "@hiero-hackers/automation-core";
+import { Store, type Fact, type LandedWrite, type StoredWarning } from "../../src/store/index.js";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
 import {
     createApplier,
@@ -51,6 +51,7 @@ import {
     READY_LABEL,
     releaseEffect,
     TRIAGE_LABEL,
+    WARNING_BODY,
     warningEffect,
     type FakeGitHub,
 } from "./effect-harness.js";
@@ -82,8 +83,10 @@ interface ApplierOverrides {
 }
 
 function applierOver(github: FakeGitHub, overrides: ApplierOverrides = {}): Applier {
+    const owner = overrides.store ?? store;
     return createApplier({
-        store: overrides.store ?? store,
+        ledger: owner.ledger,
+        leases: owner,
         writer: github.writer,
         reader: github.reader,
         externals: overrides.externals ?? (() => stubbedExternals()),
@@ -94,6 +97,48 @@ function applierOver(github: FakeGitHub, overrides: ApplierOverrides = {}): Appl
 }
 
 const keyOf = (effect: ReturnType<typeof labelEffect>): string => effect.intent.idempotencyKey;
+
+/** One `sent` fact, as the applier appends one — the open send a crashed worker leaves. */
+function sent(effectId: string, payload: string, over: Partial<Fact> = {}): void {
+    store.ledger.record({
+        effectId,
+        seq: 1,
+        kind: "sent",
+        at: BASE.toISOString(),
+        revision: "rev-1",
+        capability: "intake",
+        item: ITEM,
+        verb: "addLabel",
+        login: null,
+        code: null,
+        detail: null,
+        payload,
+        ...over,
+    });
+}
+
+/** The `landed` fact that closes one, carrying the same identity (D159). */
+function landed(effectId: string, over: Partial<Fact> = {}): void {
+    sent(effectId, "", { ...over, kind: "landed", payload: null });
+}
+
+/** The `warned` fact an act's warning comment appends when it lands (grace.md §3, D162). */
+function warn(effectId: string, item: ItemRef, snapshot: Omit<StoredWarning, "effectId">): void {
+    store.ledger.record({
+        effectId,
+        seq: 0,
+        kind: "warned",
+        at: snapshot.warnedAt,
+        revision: "rev-1",
+        capability: "intake",
+        item,
+        verb: null,
+        login: null,
+        code: null,
+        detail: null,
+        payload: JSON.stringify(snapshot),
+    });
+}
 
 /** Whether the effect's lease is free — the probe claim only inserts if it is. */
 const leaseIsFree = (effectId: string): boolean =>
@@ -129,7 +174,10 @@ describe("an effect nothing has started", () => {
         });
         expect(github.calls).toEqual([`addLabel ${READY_LABEL}`]);
         expect(github.world.labels).toEqual([READY_LABEL]);
-        expect(store.effectState(keyOf(effect), 1)).toMatchObject({ state: "complete" });
+        expect(store.ledger.stateOf(keyOf(effect), 1)).toMatchObject({
+            kind: "settled",
+            how: "landed",
+        });
     });
 
     it("says `already` when GitHub reports the postcondition already held", async () => {
@@ -152,7 +200,7 @@ describe("an effect nothing has started", () => {
 
         expect(second).toMatchObject({
             outcome: "already",
-            detail: "the journal says every call in this effect's plan is done",
+            detail: "the ledger says every call in this effect's plan landed",
         });
         expect(github.calls).toHaveLength(1);
     });
@@ -164,10 +212,9 @@ describe("an effect nothing has started", () => {
 
         await applierOver(github).applyAll([effect], configFor("active", "rev-abc"));
 
-        expect(store.effectState(keyOf(effect), 1)).toMatchObject({
-            state: "sentUnknown",
-            revision: "rev-abc",
-        });
+        expect(store.ledger.factsOf(keyOf(effect))).toMatchObject([
+            { kind: "sent", revision: "rev-abc" },
+        ]);
     });
 
     it("does not resend an open call after the configuration changes", async () => {
@@ -181,7 +228,11 @@ describe("an effect nothing has started", () => {
 
         expect(outcome).toMatchObject({ outcome: "refused", code: "configurationChanged" });
         expect(callsOf(github, "addLabel")).toHaveLength(1);
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
+        expect(store.ledger.stateOf(keyOf(effect), 1)).toMatchObject({
+            kind: "settled",
+            how: "refused",
+        });
     });
 
     it("applies each approved effect in turn, in the order it was approved", async () => {
@@ -210,7 +261,7 @@ describe("an effect nothing has started", () => {
 
         expect(outcome).toMatchObject({ outcome: "refused", code: "labelUnmapped" });
         expect(github.calls).toEqual([]);
-        expect(store.effectState(keyOf(effect), 1)).toEqual({ state: "neverStarted" });
+        expect(store.ledger.stateOf(keyOf(effect), 1)).toEqual({ kind: "neverStarted" });
     });
 });
 
@@ -227,7 +278,7 @@ describe("a crash at each window between deciding and acknowledging", () => {
             "the item read seam broke",
         );
 
-        expect(store.effectState(keyOf(effect), 1)).toEqual({ state: "neverStarted" });
+        expect(store.ledger.stateOf(keyOf(effect), 1)).toEqual({ kind: "neverStarted" });
         expect(github.calls).toEqual([]);
         expect(leaseIsFree(keyOf(effect))).toBe(true);
 
@@ -240,7 +291,7 @@ describe("a crash at each window between deciding and acknowledging", () => {
         expect(appComments(github)).toHaveLength(1);
     });
 
-    /** Window 2: journalled, then died before GitHub saw anything. */
+    /** Window 2: the send was recorded, then the process died before GitHub saw anything. */
     it("resends a call the read-back proves never landed", async () => {
         const github = fakeGitHub();
         github.faults.crashOn = { verb: "createComment", when: "beforeSend" };
@@ -250,7 +301,7 @@ describe("a crash at each window between deciding and acknowledging", () => {
             "crash before createComment",
         );
 
-        expect(store.effectState(keyOf(effect), 1)).toMatchObject({ state: "sentUnknown", seq: 1 });
+        expect(store.ledger.stateOf(keyOf(effect), 1)).toMatchObject({ kind: "open", seq: 1 });
         expect(appComments(github)).toEqual([]);
 
         github.faults.crashOn = null;
@@ -258,7 +309,10 @@ describe("a crash at each window between deciding and acknowledging", () => {
 
         expect(outcome).toMatchObject({ outcome: "applied" });
         expect(appComments(github)).toHaveLength(1);
-        expect(store.effectState(keyOf(effect), 1)).toMatchObject({ state: "complete" });
+        expect(store.ledger.stateOf(keyOf(effect), 1)).toMatchObject({
+            kind: "settled",
+            how: "landed",
+        });
     });
 
     /** Window 3: GitHub had it, and the acknowledgement was lost. */
@@ -271,7 +325,7 @@ describe("a crash at each window between deciding and acknowledging", () => {
             "crash after createComment",
         );
 
-        expect(store.effectState(keyOf(effect), 1)).toMatchObject({ state: "sentUnknown" });
+        expect(store.ledger.stateOf(keyOf(effect), 1)).toMatchObject({ kind: "open" });
         expect(appComments(github)).toHaveLength(1);
 
         github.faults.crashOn = null;
@@ -300,7 +354,7 @@ describe("a crash at each window between deciding and acknowledging", () => {
             code: "postconditionUnconfirmed",
             detail: "GitHub accepted the addLabel but the read-back answered notHeld",
         });
-        expect(store.openIntents(FUTURE)).toHaveLength(1);
+        expect(store.ledger.open(FUTURE)).toHaveLength(1);
     });
 
     it("leaves the row open when GitHub itself could not say what happened", async () => {
@@ -315,19 +369,19 @@ describe("a crash at each window between deciding and acknowledging", () => {
             code: "writeUnknown",
             detail: "the connection dropped",
         });
-        expect(store.openIntents(FUTURE)).toHaveLength(1);
+        expect(store.ledger.open(FUTURE)).toHaveLength(1);
     });
 
     it("closes an open row it cannot read, rather than resending from guesswork", async () => {
         const github = fakeGitHub();
         const effect = labelEffect({ meaning: "ready" });
-        store.intent(keyOf(effect), 1, "not a row", BASE.toISOString(), "rev-1");
+        sent(keyOf(effect), "not a row");
 
         const outcome = one(await applierOver(github).applyAll([effect], configFor()));
 
         expect(outcome).toMatchObject({ outcome: "refused", code: "rowUnreadable" });
         expect(github.calls).toEqual([]);
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
     });
 
     it("leaves the row open when the read-back cannot tell either way", async () => {
@@ -341,7 +395,7 @@ describe("a crash at each window between deciding and acknowledging", () => {
         const outcome = one(await applierOver(github).applyAll([effect], configFor()));
 
         expect(outcome).toMatchObject({ outcome: "unknown", code: "writeUnknown" });
-        expect(store.openIntents(FUTURE)).toHaveLength(1);
+        expect(store.ledger.open(FUTURE)).toHaveLength(1);
         expect(appComments(github)).toEqual([]);
     });
 });
@@ -379,7 +433,10 @@ describe("a worker that died holding an effect, seen by the process that replace
 
             expect(outcome).toMatchObject({ outcome: "applied" });
             expect(callsOf(github, "createComment")).toHaveLength(1);
-            expect(restarted.effectState(keyOf(effect), 1)).toMatchObject({ state: "complete" });
+            expect(restarted.ledger.stateOf(keyOf(effect), 1)).toMatchObject({
+                kind: "settled",
+                how: "landed",
+            });
         } finally {
             restarted.close();
         }
@@ -413,19 +470,15 @@ describe("recovering an effect nobody closed", () => {
     const orphan = (call: Parameters<typeof serializeCall>[0]["call"], attempts = 1): string => {
         const effectId = "orphan-effect";
         for (let attempt = 0; attempt < attempts; attempt += 1) {
-            store.intent(
-                effectId,
-                1,
-                serializeCall({ capability: "intake", item: ITEM, call }),
-                BASE.toISOString(),
-                "rev-1",
-            );
+            sent(effectId, serializeCall({ capability: "intake", item: ITEM, call }), {
+                verb: call.verb,
+            });
         }
         return effectId;
     };
 
     const openRow = () => {
-        const rows = store.openIntents(FUTURE);
+        const rows = store.ledger.open(FUTURE);
         expect(rows).toHaveLength(1);
         return rows[0]!;
     };
@@ -437,7 +490,7 @@ describe("recovering an effect nobody closed", () => {
         await applierOver(github).recover(openRow(), configFor());
 
         expect(github.calls).toEqual([]);
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
         expect(logged).toEqual([{ event: "effectApplied", effectId, seq: 1 }]);
         expect(leaseIsFree(effectId)).toBe(true);
     });
@@ -450,7 +503,7 @@ describe("recovering an effect nobody closed", () => {
 
         expect(callsOf(github, "addLabel")).toEqual([`addLabel ${READY_LABEL}`]);
         expect(github.world.labels).toEqual([READY_LABEL]);
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
     });
 
     it("does not recover a call under a different configuration revision", async () => {
@@ -460,7 +513,7 @@ describe("recovering an effect nobody closed", () => {
         await applierOver(github).recover(openRow(), configFor("active", "rev-2"));
 
         expect(github.calls).toEqual([]);
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
         expect(logged).toContainEqual(
             expect.objectContaining({
                 event: "effectRefused",
@@ -477,7 +530,7 @@ describe("recovering an effect nobody closed", () => {
         await applierOver(github).recover(openRow(), configFor("active", "rev-2"));
 
         expect(github.calls).toEqual([]);
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
     });
 
     it("keeps an unknown call open when the configuration changed", async () => {
@@ -488,7 +541,7 @@ describe("recovering an effect nobody closed", () => {
         await applierOver(github).recover(openRow(), configFor("active", "rev-2"));
 
         expect(github.calls).toEqual([]);
-        expect(store.openIntents(FUTURE)).toHaveLength(1);
+        expect(store.ledger.open(FUTURE)).toHaveLength(1);
     });
 
     it("leaves an unresolvable row exactly where it was, and says nothing", async () => {
@@ -499,7 +552,7 @@ describe("recovering an effect nobody closed", () => {
         await applierOver(github).recover(openRow(), configFor());
 
         expect(github.calls).toEqual([]);
-        expect(store.openIntents(FUTURE)).toHaveLength(1);
+        expect(store.ledger.open(FUTURE)).toHaveLength(1);
         expect(logged).toEqual([]);
     });
 
@@ -514,7 +567,7 @@ describe("recovering an effect nobody closed", () => {
         await applierOver(github).recover(openRow(), config);
 
         expect(github.calls).toEqual([]);
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
         expect(logged).toEqual([
             expect.objectContaining({ event: "effectRefused", effectId, seq: 1, code }),
         ]);
@@ -549,7 +602,7 @@ describe("recovering an effect nobody closed", () => {
         }).recover(openRow(), configFor());
 
         expect(github.calls).toEqual([]);
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
         expect(logged).toEqual([
             expect.objectContaining({
                 event: "effectRefused",
@@ -568,7 +621,7 @@ describe("recovering an effect nobody closed", () => {
             externals: () => stubbedExternals({ installationGrants: ["issues:read"] }),
         }).recover(openRow(), configFor());
 
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
         expect(logged).toEqual([
             expect.objectContaining({ event: "effectRefused", code: "permissionMissing" }),
         ]);
@@ -577,12 +630,17 @@ describe("recovering an effect nobody closed", () => {
     it("abandons a call that has been declared as many times as the cap allows", async () => {
         const github = fakeGitHub();
         const effectId = orphan({ verb: "addLabel", label: READY_LABEL }, EFFECT_ATTEMPT_CAP);
-        expect(openRow().attempt).toBe(EFFECT_ATTEMPT_CAP);
+        expect(openRow().attempts).toBe(EFFECT_ATTEMPT_CAP);
 
         await applierOver(github).recover(openRow(), configFor());
 
         expect(github.calls).toEqual([]);
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
+        expect(store.ledger.stateOf(effectId, 1)).toEqual({
+            kind: "settled",
+            how: "abandoned",
+            seq: 1,
+        });
         expect(logged).toEqual([
             {
                 event: "effectAbandoned",
@@ -615,17 +673,17 @@ describe("recovering an effect nobody closed", () => {
 
         // Not a refusal: nothing said no, so the row is not closed.
         expect(github.calls).toEqual([]);
-        expect(store.openIntents(FUTURE)).toHaveLength(1);
+        expect(store.ledger.open(FUTURE)).toHaveLength(1);
         expect(logged).toEqual([]);
     });
 
     it("closes a row whose bytes nobody can read, rather than retrying it forever", async () => {
         const github = fakeGitHub();
-        store.intent("broken-effect", 1, "not a row", BASE.toISOString(), "rev-1");
+        sent("broken-effect", "not a row");
 
         await applierOver(github).recover(openRow(), configFor());
 
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
         expect(logged).toEqual([
             expect.objectContaining({
                 event: "effectRefused",
@@ -645,7 +703,7 @@ describe("recovering an effect nobody closed", () => {
         await applierOver(github).recover(openRow(), configFor());
 
         expect(github.calls).toEqual([]);
-        expect(store.openIntents(FUTURE)).toHaveLength(1);
+        expect(store.ledger.open(FUTURE)).toHaveLength(1);
         expect(logged).toEqual([]);
     });
 
@@ -658,13 +716,13 @@ describe("recovering an effect nobody closed", () => {
         const first = one(await applierOver(github).applyAll([effect], configFor()));
         expect(first).toMatchObject({ outcome: "retryLater", code: "writeRetryLater" });
         expect(github.world.labels).toEqual([]);
-        expect(store.openIntents(FUTURE)).toHaveLength(1);
+        expect(store.ledger.open(FUTURE)).toHaveLength(1);
 
         await applierOver(github).recover(openRow(), configFor());
 
         expect(callsOf(github, "addLabel")).toHaveLength(2);
         expect(github.world.labels).toEqual([READY_LABEL]);
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
     });
 });
 
@@ -681,7 +739,7 @@ describe("re-gating at apply time", () => {
 
         expect(outcome).toMatchObject({ outcome: "refused", code: "itemClosed" });
         expect(github.calls).toEqual([]);
-        expect(store.effectState(keyOf(effect), 1)).toEqual({ state: "neverStarted" });
+        expect(store.ledger.stateOf(keyOf(effect), 1)).toEqual({ kind: "neverStarted" });
         expect(leaseIsFree(keyOf(effect))).toBe(true);
     });
 
@@ -829,28 +887,35 @@ describe("re-gating at apply time", () => {
     /**
      * D159. GitHub names the ASSIGNEE as the actor of an `unassigned` event even
      * when the App made the release, so the only record that the platform itself
-     * released `alice` is the journal row below. The seam is handed that row and
+     * released `alice` is the landed fact below. The seam is handed that fact and
      * applies the rule; what this pins is that the applier reads it and passes it,
-     * with the login and the instant the journal closed the call.
+     * with the login and the instant the call landed.
      */
-    it("hands the ordering seam the release this item's own journal records", async () => {
+    it("hands the ordering seam the release this item's own ledger records", async () => {
         const releasedAt = new Date(CAUSE_AT.getTime() + 30 * 60_000);
         const row = serializeCall({
             capability: "inactivity",
             item: ITEM,
             call: { verb: "releaseAssignment", login: "alice" },
         });
-        store.intent("released-by-us", 1, row, releasedAt.toISOString(), "rev-1");
-        store.done("released-by-us", 1, releasedAt.toISOString());
+        sent("released-by-us", row, {
+            at: releasedAt.toISOString(),
+            verb: "releaseAssignment",
+            login: "alice",
+        });
+        landed("released-by-us", {
+            at: releasedAt.toISOString(),
+            verb: "releaseAssignment",
+            login: "alice",
+        });
 
-        let handed: readonly StoredOwnWrite[] | undefined;
+        let handed: readonly LandedWrite[] | undefined;
         const externals: EffectExternalsSource = () =>
             stubbedExternals({
                 latestHumanChangeAt: (_item, ownWrites) => {
                     handed = ownWrites;
                     return ownWrites?.some(
-                        (write) =>
-                            write.operation === "releaseAssignment" && write.login === "alice",
+                        (write) => write.verb === "releaseAssignment" && write.login === "alice",
                     )
                         ? null
                         : releasedAt;
@@ -866,11 +931,7 @@ describe("re-gating at apply time", () => {
         );
 
         expect(handed).toEqual([
-            {
-                operation: "releaseAssignment",
-                login: "alice",
-                doneAt: releasedAt.toISOString(),
-            },
+            { verb: "releaseAssignment", login: "alice", at: releasedAt.toISOString() },
         ]);
         expect(outcome).toMatchObject({ outcome: "applied" });
     });
@@ -889,33 +950,31 @@ describe("a label move that displaces the position the item held", () => {
         expect(outcome).toMatchObject({ outcome: "applied" });
         expect(github.calls).toEqual([`addLabel ${READY_LABEL}`, `removeLabel ${TRIAGE_LABEL}`]);
         expect(github.world.labels).toEqual([READY_LABEL]);
-        expect(store.effectState(keyOf(swap), 2)).toMatchObject({ state: "complete" });
+        expect(store.ledger.stateOf(keyOf(swap), 2)).toMatchObject({
+            kind: "settled",
+            how: "landed",
+        });
     });
 
     /**
-     * The journal state a crash between the two calls leaves: seq 1 done, seq
-     * 2 never declared. The item is then in the intermediate state the plan
-     * chose — two position labels, which projects as a conflict — and finishing
-     * is what clears it. A full re-gate here could only answer
-     * `preconditionStale`, which is why a resume passes the brakes instead.
+     * The facts a crash between the two calls leaves: seq 1 landed, seq 2 never
+     * sent. The item is then in the intermediate state the plan chose — two
+     * position labels, which projects as a conflict — and finishing is what
+     * clears it. A full re-gate here could only answer `preconditionStale`,
+     * which is why a resume passes the brakes instead.
      */
     it("resumes at the second call and sends only that one", async () => {
         const github = fakeGitHub({ labels: [TRIAGE_LABEL, READY_LABEL] });
-        store.intent(
-            keyOf(swap),
-            1,
-            serializeCall({
-                capability: "intake",
-                item: ITEM,
-                call: { verb: "addLabel", label: READY_LABEL },
-            }),
-            BASE.toISOString(),
-            "rev-1",
-        );
-        expect(store.done(keyOf(swap), 1, BASE.toISOString())).toBe(true);
-        expect(store.effectState(keyOf(swap), 2)).toMatchObject({
-            state: "midSequence",
-            lastDoneSeq: 1,
+        const row = serializeCall({
+            capability: "intake",
+            item: ITEM,
+            call: { verb: "addLabel", label: READY_LABEL },
+        });
+        sent(keyOf(swap), row);
+        landed(keyOf(swap));
+        expect(store.ledger.stateOf(keyOf(swap), 2)).toMatchObject({
+            kind: "resumable",
+            nextSeq: 2,
         });
 
         const outcome = one(await applierOver(github).applyAll([swap], configFor()));
@@ -923,13 +982,16 @@ describe("a label move that displaces the position the item held", () => {
         expect(outcome).toMatchObject({ outcome: "applied" });
         expect(github.calls).toEqual([`removeLabel ${TRIAGE_LABEL}`]);
         expect(github.world.labels).toEqual([READY_LABEL]);
-        expect(store.effectState(keyOf(swap), 2)).toMatchObject({ state: "complete" });
+        expect(store.ledger.stateOf(keyOf(swap), 2)).toMatchObject({
+            kind: "settled",
+            how: "landed",
+        });
     });
 
     it("does not resume a partial plan under another configuration", async () => {
         const github = fakeGitHub({ labels: [TRIAGE_LABEL, READY_LABEL] });
-        store.intent(keyOf(swap), 1, "{}", BASE.toISOString(), "rev-1");
-        store.done(keyOf(swap), 1, BASE.toISOString());
+        sent(keyOf(swap), "{}");
+        landed(keyOf(swap));
 
         const outcome = one(
             await applierOver(github).applyAll([swap], configFor("active", "rev-2")),
@@ -941,8 +1003,8 @@ describe("a label move that displaces the position the item held", () => {
 
     it("stops a resume the operator has since braked, and sends nothing", async () => {
         const github = fakeGitHub({ labels: [TRIAGE_LABEL, READY_LABEL] });
-        store.intent(keyOf(swap), 1, "{}", BASE.toISOString(), "rev-1");
-        store.done(keyOf(swap), 1, BASE.toISOString());
+        sent(keyOf(swap), "{}");
+        landed(keyOf(swap));
 
         const outcome = one(
             await applierOver(github, {
@@ -959,7 +1021,7 @@ describe("a label move that displaces the position the item held", () => {
         const github = fakeGitHub({ labels: [TRIAGE_LABEL] });
         github.faults.crashOn = { verb: "addLabel", when: "afterSend" };
         await expect(applierOver(github).applyAll([swap], configFor())).rejects.toThrow();
-        expect(store.effectState(keyOf(swap), 2)).toMatchObject({ state: "sentUnknown", seq: 1 });
+        expect(store.ledger.stateOf(keyOf(swap), 2)).toMatchObject({ kind: "open", seq: 1 });
 
         github.faults.crashOn = null;
         const outcome = one(await applierOver(github).applyAll([swap], configFor()));
@@ -1001,7 +1063,7 @@ describe("a label move that displaces the position the item held", () => {
         expect(outcome).toMatchObject({ outcome: "refused", code: "killSwitch" });
         expect(callsOf(github, "removeLabel")).toEqual([]);
         expect(github.world.labels).toEqual([TRIAGE_LABEL, READY_LABEL]);
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
     });
 
     it("stops the plan where GitHub refused it, and closes that call", async () => {
@@ -1016,7 +1078,12 @@ describe("a label move that displaces the position the item held", () => {
             detail: "the item changed underneath",
         });
         expect(github.calls).toEqual([`addLabel ${READY_LABEL}`]);
-        expect(store.openIntents(FUTURE)).toEqual([]);
+        expect(store.ledger.open(FUTURE)).toEqual([]);
+        expect(store.ledger.stateOf(keyOf(swap), 2)).toEqual({
+            kind: "settled",
+            how: "refused",
+            seq: 1,
+        });
     });
 });
 
@@ -1091,39 +1158,37 @@ describe("a second occasion of the same purpose on the same item", () => {
 });
 
 /**
- * The marker is a WIRE FORMAT, and a journal row outlives the deployment that
- * wrote it. A row whose body carries a schema this reader does not read names
+ * The marker is a WIRE FORMAT, and a recorded send outlives the deployment that
+ * made it. A send whose body carries a schema this reader does not read names
  * an identity it cannot compute, so it recognises nothing — including the
- * comment that row already posted.
+ * comment that send already posted.
  */
-describe("a journal row from a deployment before the schema bump", () => {
+describe("a recorded send from a deployment before the schema bump", () => {
     const V1_BODY =
         '<!-- hiero-automation:{"schemaVersion":1,"capability":"intake","kind":"summary","effect":"0a70e62c14228dbe"} -->\n\nthe summary';
 
     it("claims no comment at all, and cannot confirm the one it posts", async () => {
         const github = fakeGitHub({ comments: [appComment(7, V1_BODY)] });
-        store.intent(
+        sent(
             "an-old-effect",
-            1,
             serializeCall({
                 capability: "intake",
                 item: ITEM,
                 call: { verb: "postComment", kind: "summary", body: V1_BODY },
             }),
-            BASE.toISOString(),
-            "rev-1",
+            { verb: "postComment" },
         );
 
-        await applierOver(github).recover(store.openIntents(FUTURE)[0]!, configFor());
+        await applierOver(github).recover(store.ledger.open(FUTURE)[0]!, configFor());
 
         // The v1 comment is left exactly as it stands — this reader has no
         // grounds to edit a comment it cannot prove is its own.
         expect(github.world.comments[0]).toEqual(appComment(7, V1_BODY));
         expect(github.calls).toEqual([`createComment ${V1_BODY}`]);
-        // Nothing is logged and the row stays open: an unconfirmable call is
-        // `unknown`, and the attempt cap is what eventually ends it (D42).
+        // Nothing is logged and the send stays open: an unconfirmable call is
+        // `unknown`, and the attempt cap is what eventually ends it (D161).
         expect(logged).toEqual([]);
-        expect(store.openIntents(FUTURE)).toHaveLength(1);
+        expect(store.ledger.open(FUTURE)).toHaveLength(1);
     });
 });
 
@@ -1158,9 +1223,8 @@ describe("a managed comment this effect may already own", () => {
         const github = fakeGitHub({
             comments: [appComment(7, `${markerOf(effect)}\n\na human rewrote this`)],
         });
-        store.intent(
+        sent(
             keyOf(effect),
-            1,
             serializeCall({
                 capability: "intake",
                 item: ITEM,
@@ -1170,11 +1234,10 @@ describe("a managed comment this effect may already own", () => {
                     body: `${markerOf(effect)}\n\nthe App's words`,
                 },
             }),
-            BASE.toISOString(),
-            "rev-1",
+            { verb: "postComment" },
         );
 
-        await applierOver(github).recover(store.openIntents(FUTURE)[0]!, configFor());
+        await applierOver(github).recover(store.ledger.open(FUTURE)[0]!, configFor());
 
         expect(github.calls).toEqual(["updateComment #7"]);
         expect(github.world.comments[0]!.body).toBe(`${markerOf(effect)}\n\nthe App's words`);
@@ -1254,11 +1317,16 @@ describe("a managed comment this effect may already own", () => {
 // ─── An operation no endpoint realises ───────────────────────────────
 
 describe("an operation the write surface does not have", () => {
+    /** An `unsent` send is closed and unspent: the plan resumes at the same call (D160). */
+    const unsendable = (effectId: string): boolean =>
+        store.ledger.open(FUTURE).length === 0 &&
+        store.ledger.stateOf(effectId, 1).kind === "resumable";
+
     it.each([
         ["unassign", "no confirmed write endpoint unassigns"],
         ["assign", "no confirmed write endpoint assigns"],
     ] as const)(
-        "%s is refused where every call is sent, and its row stays open",
+        "%s is refused where every call is sent, and its send spends no attempt",
         async (operation, said) => {
             const github = fakeGitHub();
             const effect = labelEffect();
@@ -1272,7 +1340,7 @@ describe("an operation the write surface does not have", () => {
             expect(outcome).toMatchObject({ outcome: "refused", code: "writeUnsupported" });
             expect(outcome.detail).toContain(said);
             expect(github.calls).toEqual([]);
-            expect(store.openIntents(FUTURE)).toHaveLength(1);
+            expect(unsendable(keyOf(effect))).toBe(true);
         },
     );
 
@@ -1300,7 +1368,7 @@ describe("an operation the write surface does not have", () => {
             expect(outcome).toMatchObject({ outcome: "refused", code: "writeUnsupported" });
             expect(outcome.detail).toContain(said);
             expect(github.calls).toEqual([]);
-            expect(store.openIntents(FUTURE)).toHaveLength(1);
+            expect(unsendable(keyOf(effect))).toBe(true);
         },
     );
 
@@ -1314,40 +1382,36 @@ describe("an operation the write surface does not have", () => {
         ["assign", { verb: "assign", login: "sophie" }],
         ["lockIssue", { verb: "lockIssue", reason: "triage" }],
         ["unlockIssue", { verb: "unlockIssue", reason: "approved" }],
-    ])("cannot prove a %s either, so its row stays open", async (name, call) => {
+    ])("cannot prove a %s either, so its send stays open", async (name, call) => {
         const github = fakeGitHub();
-        store.intent(
+        sent(
             `${name}-effect`,
-            1,
             serializeCall({ capability: "intake", item: ITEM, call: call as never }),
-            BASE.toISOString(),
-            "rev-1",
+            { verb: (call as { verb: string }).verb },
         );
 
-        await applierOver(github).recover(store.openIntents(FUTURE)[0]!, configFor());
+        await applierOver(github).recover(store.ledger.open(FUTURE)[0]!, configFor());
 
         expect(github.calls).toEqual([]);
-        expect(store.openIntents(FUTURE)).toHaveLength(1);
+        expect(store.ledger.open(FUTURE)).toHaveLength(1);
     });
 
-    it("cannot prove an unassign, so recovery leaves its row where it was", async () => {
+    it("cannot prove an unassign, so recovery leaves its send where it was", async () => {
         const github = fakeGitHub();
-        store.intent(
+        sent(
             "unassign-effect",
-            1,
             serializeCall({
                 capability: "intake",
                 item: ITEM,
                 call: { verb: "unassign", login: "sophie" },
             }),
-            BASE.toISOString(),
-            "rev-1",
+            { verb: "unassign", login: "sophie" },
         );
 
-        await applierOver(github).recover(store.openIntents(FUTURE)[0]!, configFor());
+        await applierOver(github).recover(store.ledger.open(FUTURE)[0]!, configFor());
 
         expect(github.calls).toEqual([]);
-        expect(store.openIntents(FUTURE)).toHaveLength(1);
+        expect(store.ledger.open(FUTURE)).toHaveLength(1);
         expect(logged).toEqual([]);
     });
 });
@@ -1357,8 +1421,8 @@ describe("an operation the write surface does not have", () => {
 /**
  * A permission GitHub denied is a settled fact about the ITEM; an endpoint the
  * platform has no confirmed row for is a fact about the PLATFORM, and it
- * changes when the matrix does. So the row may not close on it: the ledger's
- * idempotence would read a closed row as settled and skip the act for good.
+ * changes when the matrix does. So the effect may not settle on it: a `refused`
+ * fact would be read as settled and skip the act for good.
  */
 describe("a write no confirmed endpoint carries yet", () => {
     const SAID = "the endpoint matrix confirms no write at PATCH https://api.github.com/nothing";
@@ -1366,7 +1430,7 @@ describe("a write no confirmed endpoint carries yet", () => {
         github.faults.scripted = [{ outcome: "unsupported", detail: SAID }];
     };
 
-    it("refuses with `writeUnsupported` and leaves the row open", async () => {
+    it("refuses with `writeUnsupported`, closing the send without settling the effect", async () => {
         const github = fakeGitHub();
         refuses(github);
         const effect = labelEffect({ meaning: "ready" });
@@ -1379,32 +1443,38 @@ describe("a write no confirmed endpoint carries yet", () => {
             detail: SAID,
         });
         expect(github.world.labels).toEqual([]);
-        expect(store.openIntents(FUTURE)).toHaveLength(1);
+        expect(store.ledger.factsOf(keyOf(effect))).toMatchObject([
+            { kind: "sent", seq: 1 },
+            { kind: "unsent", seq: 1, code: "writeUnsupported", detail: SAID },
+        ]);
+        expect(store.ledger.stateOf(keyOf(effect), 1)).toEqual({ kind: "resumable", nextSeq: 1 });
+        expect(store.ledger.open(FUTURE)).toEqual([]);
     });
 
     /**
      * The 8.3 rehearsal, in order: the write is refused by construction, the
-     * matrix confirms the endpoint hours later, and the sweep that meets the
-     * row again sends it. Nothing here spends a retry on the first pass.
+     * matrix confirms the endpoint hours later, and the next pass over the same
+     * effect sends it. Nothing here spends a retry on the first pass.
      */
-    it("is sent by the sweep that meets it once a composition can carry it", async () => {
+    it("is sent by the next pass once a composition can carry it", async () => {
         const github = fakeGitHub();
         refuses(github);
         const effect = labelEffect({ meaning: "ready" });
         await applierOver(github).applyAll([effect], configFor());
 
-        const open = store.openIntents(FUTURE);
-        await applierOver(github).recover(open[0]!, configFor());
+        const outcome = one(await applierOver(github).applyAll([effect], configFor()));
 
-        expect(open).toHaveLength(1);
+        expect(outcome).toMatchObject({ outcome: "applied" });
         // The refused attempt, then the one that landed — the same call twice.
         expect(callsOf(github, "addLabel")).toEqual([
             `addLabel ${READY_LABEL}`,
             `addLabel ${READY_LABEL}`,
         ]);
         expect(github.world.labels).toEqual([READY_LABEL]);
-        expect(store.openIntents(FUTURE)).toEqual([]);
-        expect(logged).toEqual([{ event: "effectApplied", effectId: keyOf(effect), seq: 1 }]);
+        expect(store.ledger.stateOf(keyOf(effect), 1)).toMatchObject({
+            kind: "settled",
+            how: "landed",
+        });
     });
 
     it("spends no attempt, so the cap never abandons it", async () => {
@@ -1414,15 +1484,13 @@ describe("a write no confirmed endpoint carries yet", () => {
             detail: SAID,
         }));
         const effect = labelEffect({ meaning: "ready" });
-        await applierOver(github).applyAll([effect], configFor());
-        for (let sweep = 0; sweep < EFFECT_ATTEMPT_CAP + 1; sweep += 1) {
-            await applierOver(github).recover(store.openIntents(FUTURE)[0]!, configFor());
+        for (let pass = 0; pass < EFFECT_ATTEMPT_CAP + 1; pass += 1) {
+            await applierOver(github).applyAll([effect], configFor());
         }
 
-        expect(store.effectState(keyOf(effect), 1)).toMatchObject({
-            state: "sentUnknown",
-            attempt: 1,
-        });
+        // Every send was given back, so the sweep has nothing it could abandon.
+        expect(store.ledger.stateOf(keyOf(effect), 1)).toEqual({ kind: "resumable", nextSeq: 1 });
+        expect(store.ledger.open(FUTURE)).toEqual([]);
         expect(logged.map((entry) => entry.event)).not.toContain("effectAbandoned");
     });
 });
@@ -1447,7 +1515,7 @@ describe("the effect lease", () => {
             detail: "a live worker holds this effect's lease",
         });
         expect(github.calls).toEqual([]);
-        expect(store.effectState(keyOf(effect), 1)).toEqual({ state: "neverStarted" });
+        expect(store.ledger.stateOf(keyOf(effect), 1)).toEqual({ kind: "neverStarted" });
     });
 
     it("is taken over once the holder is a full window stale", async () => {
@@ -1520,8 +1588,8 @@ describe("a warning effect's comment, once it lands", () => {
 
         expect(outcome).toMatchObject({ outcome: "applied", operation: "postManagedComment" });
         // Keyed by the ACT, not by the comment that published it.
-        expect(store.warning(effect.intent.idempotencyKey)).toBeNull();
-        expect(store.warning(ACT_EFFECT_ID)).toEqual({
+        expect(store.ledger.warningFor(effect.intent.idempotencyKey)).toBeNull();
+        expect(store.ledger.warningFor(ACT_EFFECT_ID)).toEqual({
             effectId: ACT_EFFECT_ID,
             warnedAt: BASE.toISOString(),
             gracePeriodHours: 7 * 24,
@@ -1538,22 +1606,24 @@ describe("a warning effect's comment, once it lands", () => {
     });
 
     /**
-     * A resend that finds the comment already there is still a warning that
-     * stands, so the record is written on `already` too — one row either way,
-     * because the promise is one promise.
+     * A pass that finds the comment already there is still a warning that
+     * stands, so the record is written on `already` too — and one fact either
+     * way, because the promise is one promise (D162).
      */
-    it("records on `already` as well, and keeps one row", async () => {
-        const github = fakeGitHub();
+    it("records on `already` as well, and keeps one fact", async () => {
         const effect = warningEffect();
-        await applierOver(github).applyAll([effect], configFor());
+        const github = fakeGitHub({
+            comments: [appComment(7, `${markerOf(effect)}\n\n${WARNING_BODY}`)],
+        });
 
-        // A second decision, a second pass: the journal is cleared so the
-        // effect is fresh again, and GitHub already holds the comment.
-        store.pruneDoneJournal(FUTURE);
         const outcome = one(await applierOver(github).applyAll([effect], configFor()));
 
         expect(outcome).toMatchObject({ outcome: "already" });
-        expect(store.warning(ACT_EFFECT_ID)).toMatchObject({ warnedAt: BASE.toISOString() });
+        expect(github.calls).toEqual([]);
+        expect(store.ledger.warningFor(ACT_EFFECT_ID)).toMatchObject({
+            warnedAt: BASE.toISOString(),
+        });
+        expect(store.ledger.factsOf(ACT_EFFECT_ID)).toMatchObject([{ kind: "warned", seq: 0 }]);
     });
 
     /** An effect that records nothing writes nothing — every other effect. */
@@ -1563,8 +1633,8 @@ describe("a warning effect's comment, once it lands", () => {
 
         await applierOver(github).applyAll([effect], configFor());
 
-        expect(store.warning(effect.intent.idempotencyKey)).toBeNull();
-        expect(store.warning(ACT_EFFECT_ID)).toBeNull();
+        expect(store.ledger.warningFor(effect.intent.idempotencyKey)).toBeNull();
+        expect(store.ledger.warningFor(ACT_EFFECT_ID)).toBeNull();
     });
 
     /** A refused send is not a promise, so there is nothing to remember. */
@@ -1575,7 +1645,7 @@ describe("a warning effect's comment, once it lands", () => {
         const outcome = one(await applierOver(github).applyAll([warningEffect()], configFor()));
 
         expect(outcome).toMatchObject({ outcome: "refused", code: "writeForbidden" });
-        expect(store.warning(ACT_EFFECT_ID)).toBeNull();
+        expect(store.ledger.warningFor(ACT_EFFECT_ID)).toBeNull();
     });
 });
 
@@ -1606,8 +1676,7 @@ describe("a close that claimed a native pull-request mode", () => {
      */
     const recordWarning = (mode: "draft" | "changesRequested"): void => {
         const request = writeRequestFor(closeEffect(mode).intent);
-        store.recordWarning({
-            effectId: CLOSE_EFFECT_ID,
+        warn(CLOSE_EFFECT_ID, PULL, {
             warnedAt: BASE.toISOString(),
             gracePeriodHours: 7 * 24,
             earliestActionAt: later(7).toISOString(),
@@ -1774,8 +1843,7 @@ describe("a graced act at the apply-time re-gate", () => {
      * warning: one that predates its observation is not a promise about it.
      */
     const recordWarning = (): void => {
-        store.recordWarning({
-            effectId: ACT_EFFECT_ID,
+        warn(ACT_EFFECT_ID, ITEM, {
             warnedAt: BASE.toISOString(),
             gracePeriodHours: 7 * 24,
             earliestActionAt: later(7).toISOString(),
@@ -1876,6 +1944,121 @@ describe("a graced act at the apply-time re-gate", () => {
         const { outcome, github } = await applyAt(later(8), active);
 
         expect(outcome).toMatchObject({ outcome: "refused", code: "activityCancelled" });
+        expect(github.calls).toEqual([]);
+    });
+});
+
+/**
+ * The three sequences rehearsal 8.3 produced, as the fold now answers them: a
+ * refusal and an abandonment each SETTLE the effect, so no later pass carries
+ * on to the notice; and a history no applier could have written is refused
+ * rather than acted on (D161).
+ */
+describe("the three sequences of rehearsal 8.3", () => {
+    const DAY = 24 * 60 * 60_000;
+    const later = (days: number) => new Date(BASE.getTime() + days * DAY);
+
+    /** The installation that may actually close a pull request. */
+    const granted: EffectExternalsSource = () =>
+        stubbedExternals({ installationGrants: ["issues:write", "pull_requests:write"] });
+
+    /** The close's own warning, so the destructive door is not what refuses below. */
+    const warnTheClose = (): void => {
+        const request = writeRequestFor(closeEffect("draft").intent);
+        warn(CLOSE_EFFECT_ID, PULL, {
+            warnedAt: BASE.toISOString(),
+            gracePeriodHours: 7 * 24,
+            earliestActionAt: later(7).toISOString(),
+            cancelledBy: "a commit or a /working comment",
+            reversesWith: "re-assign / reopen",
+            actionClass: request.actionClass,
+            capability: request.capability,
+            causeObservedAt: request.causeObservedAt.toISOString(),
+            cause: request.cause,
+            item: request.target.item,
+            change: request.target.change,
+        });
+    };
+
+    const closing = (github: FakeGitHub): Applier =>
+        applierOver(github, { clock: () => later(8), externals: granted });
+
+    it("answers `already` after a close GitHub forbade, and posts no notice", async () => {
+        warnTheClose();
+        const github = fakeGitHub({ draft: true });
+        github.faults.scripted = [{ outcome: "forbidden", detail: "denied" }];
+
+        const first = one(await closing(github).applyAll([closeEffect("draft")], configFor()));
+        const second = one(await closing(github).applyAll([closeEffect("draft")], configFor()));
+
+        expect(first).toMatchObject({ outcome: "refused", code: "writeForbidden" });
+        expect(second).toEqual({
+            effectId: CLOSE_EFFECT_ID,
+            capability: "intake",
+            operation: "closePullRequest",
+            item: PULL,
+            outcome: "already",
+            code: null,
+            detail: "this effect settled as refused; nothing more is sent",
+        });
+        expect(callsOf(github, "createComment")).toEqual([]);
+        expect(store.ledger.stateOf(CLOSE_EFFECT_ID, 2)).toEqual({
+            kind: "settled",
+            how: "refused",
+            seq: 1,
+        });
+    });
+
+    it("abandons a close sent to the cap, and posts no notice after it", async () => {
+        warnTheClose();
+        const github = fakeGitHub({ draft: true });
+        const row = serializeCall({
+            capability: "intake",
+            item: PULL,
+            call: { verb: "closePullRequest", reason: "closed after 60 days of inactivity." },
+        });
+        for (let attempt = 0; attempt < EFFECT_ATTEMPT_CAP; attempt += 1) {
+            sent(CLOSE_EFFECT_ID, row, { item: PULL, verb: "closePullRequest" });
+        }
+
+        await closing(github).recover(store.ledger.open(FUTURE)[0]!, configFor());
+        const outcome = one(await closing(github).applyAll([closeEffect("draft")], configFor()));
+
+        expect(logged).toEqual([
+            {
+                event: "effectAbandoned",
+                effectId: CLOSE_EFFECT_ID,
+                seq: 1,
+                attempts: EFFECT_ATTEMPT_CAP,
+            },
+        ]);
+        expect(outcome).toMatchObject({
+            outcome: "already",
+            detail: "this effect settled as abandoned; nothing more is sent",
+        });
+        expect(github.calls).toEqual([]);
+        expect(store.ledger.stateOf(CLOSE_EFFECT_ID, 2)).toEqual({
+            kind: "settled",
+            how: "abandoned",
+            seq: 1,
+        });
+    });
+
+    /** A landing at seq 2 with seq 1 never sent: nothing may be resent over it. */
+    it("refuses a history no applier could have written, and sends nothing", async () => {
+        const github = fakeGitHub({ labels: [TRIAGE_LABEL] });
+        const swap = labelEffect({ meaning: "ready", displacing: "awaitingTriage" });
+        const second = { seq: 2, verb: "removeLabel" };
+        sent(keyOf(swap), "{}", second);
+        landed(keyOf(swap), second);
+
+        const outcome = one(await applierOver(github).applyAll([swap], configFor()));
+
+        expect(outcome).toMatchObject({
+            outcome: "refused",
+            code: "ledgerInconsistent",
+            detail: "seq 2 sent with seq 1 unlanded",
+        });
         expect(github.calls).toEqual([]);
     });
 });

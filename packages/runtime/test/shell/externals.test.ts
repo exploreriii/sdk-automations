@@ -12,7 +12,7 @@ import {
     recordedWarningsIn,
     stubbedExternals,
 } from "../../src/shell/externals.js";
-import { Store, type StoredWarning } from "../../src/store/index.js";
+import { Store, type Fact, type StoredWarning } from "../../src/store/index.js";
 
 describe("first-slice external facts", () => {
     it("defaults to the documented sandbox facts", () => {
@@ -98,12 +98,28 @@ describe("the recorded warning a decision reads", () => {
         change: "release alice",
     };
 
+    /** The fact the applier appends when the warning comment lands: seq 0, the snapshot as bytes. */
+    const warned = ({ effectId, ...snapshot }: StoredWarning): Fact => ({
+        effectId,
+        seq: 0,
+        kind: "warned",
+        at: "2026-09-01T00:00:00.000Z",
+        revision: "rev-1",
+        capability: "inactivity",
+        item: { kind: "issue", number: 40 },
+        verb: null,
+        login: null,
+        code: null,
+        detail: null,
+        payload: JSON.stringify(snapshot),
+    });
+
     it("answers null for an act nobody warned, and the promise for one warned", () => {
         const store = new Store(temp.file("store.sqlite"));
-        const warningFor = recordedWarningsIn(store);
+        const warningFor = recordedWarningsIn(store.ledger);
 
         expect(warningFor("act-1")).toBeNull();
-        store.recordWarning(stored);
+        store.ledger.record(warned(stored));
 
         const warning = warningFor("act-1");
         expect(warning).toMatchObject({
@@ -131,12 +147,9 @@ describe("the recorded warning a decision reads", () => {
      */
     it("re-mints an unreadable instant as one the door refuses", () => {
         const store = new Store(temp.file("broken.sqlite"));
-        store.recordWarning(stored);
-        (store as unknown as { db: { exec(sql: string): void } }).db.exec(
-            "UPDATE destructive_warning SET warned_at = 'whenever'",
-        );
+        store.ledger.record(warned({ ...stored, warnedAt: "whenever" }));
 
-        expect(recordedWarningsIn(store)("act-1")?.warnedAtMs).toBeNaN();
+        expect(recordedWarningsIn(store.ledger)("act-1")?.warnedAtMs).toBeNaN();
         store.close();
     });
 });

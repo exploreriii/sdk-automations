@@ -64,26 +64,30 @@ together under a single write lock (D110).
 | [`schema.ts`](schema.ts) | Which owned database format is this, and how does it reach the current version safely? |
 | [`store.ts`](store.ts) | Which operational state transition may commit now? The one class, plus the timestamp contract every call validates. |
 | [`deliveries.ts`](deliveries.ts) | What is a delivery, and what comes back from operating on one? |
-| [`effects.ts`](effects.ts) | What is an effect, and what state does its journal say it is in? |
+| [`facts.ts`](facts.ts) | What does the ledger record, and what does reading those records answer? |
+| [`fold.ts`](fold.ts) | Where does an effect stand, given its facts, and is that history possible? |
+| [`ledger.ts`](ledger.ts) | Which fact may be appended, and what do the appended facts add up to? |
 | [`schedules.ts`](schedules.ts) | What is a scheduled row, before and after a firing is claimed? |
 | [`index.ts`](index.ts) | The barrel, so consumers name the concern rather than the file. |
 
-## The six tables
+## The tables
 
 | Table | Role | Evidence status |
 |---|---|---|
 | `seen_delivery` | atomic webhook acceptance and work queue: opaque GUID, event name, exact payload bytes, SHA-256 digest, receipt/terminal times, claim state, and the failed-attempt count with its retry deadline | GUID dedup was decided in 6.5; durable intake semantics are exercised by this package's restart and two-thread contention tests |
-| `effect_journal` | intent/done write-ahead rows with revision, durable attempt counter, and completion timestamp | the runnable applier recovers open calls through GitHub read-back and refuses stale configuration revisions |
+| `effect_fact` | one appended row per fact of an effect — `sent`, `unsent`, `landed`, `refused`, `abandoned`, `warned`, `reversed` — each carrying item, verb and login | the runnable applier folds them to decide every pass, recovers open sends through GitHub read-back, and refuses stale configuration revisions (D161) |
+| `decision` | one row per item per capability per pass, webhook and sweep alike, with verdict, code, detail and the effect it minted | written by the lane that decides; retention is the done-deliveries window (D163) |
+| `effect_journal` | the superseded write-ahead journal: intent/done rows with revision and attempt counter | retained by schema version 7 and read by nothing; the migration keeps it until the conversion is decided (D164) |
 | `effect_claim` | one-winner LEASE per effect: atomic stale takeover, released on completion | the runnable applier claims every effect and its recovery pass; store contention tests cover the D41 mechanics |
 | `schedule` | clock-triggered work; `pending → running → done`, with claim age and a per-firing completion token | decided in 6.5; restart/requeue mechanics are pre-covered here; `claimed_at` and claim tokens prevent stale completion under D43 |
 | `delivery_report` | the canonical serialized shell record and the claim token that committed it, one row per delivery | report persistence plus delivery completion is crash-atomic; worker-thread fault injection covers both uncommitted steps and the committed boundary (D110) |
-| `destructive_warning` | one row per ACT effect: when the App warned, the grace it announced, the date it named, and the immutable snapshot of the request that warning authorises | written only after a warning comment is proved landed, so a warning that never posted authorises nothing; the round trip, the upsert and retention are covered by `test/store/warnings.test.ts` |
+| `destructive_warning` | the superseded warning row: one per ACT effect, with the snapshot the act must stand on | retained by schema version 7 and read by nothing; a `warned` fact carries the promise now, and the first one binds (D162) |
 
 Design rules (from the evidence, not preference): state transitions are
 synchronous SQLite writes, and delivery acceptance commits before it
 returns; tables have no foreign keys, while delivery finalization deliberately
 updates `delivery_report` and `seen_delivery` in one transaction;
-`sentUnknown` is deliberately unresolvable from the journal
+an open send is deliberately unresolvable from the facts
 alone. The applier resolves it against GitHub state before retrying.
 
 Three store findings, argued in full in their register rows:
@@ -92,22 +96,21 @@ Three store findings, argued in full in their register rows:
   stale takeover, `release` frees only the holder's own row. These mechanics
   do not fence a GitHub request already in flight, so live takeover remains
   open.
-- `FINDING(store-journal-attempts)` → **D42** — `done` rows are
-  immutable to `intent`; retries increment a durable `attempt` counter,
-  so retry bounds survive restart. Completion refreshes the retention
-  timestamp so an old open attempt is not immediately pruned when resolved.
+- `FINDING(store-journal-attempts)` → **D42**, revised by **D161** — a fact is
+  never rewritten, and an open send's attempts are its `sent` facts less its
+  `unsent` ones, so retry bounds survive restart. Retention takes whole
+  settled effects, never single facts.
 - `FINDING(store-sweep-api)` → **D43** — `requeueStuck(claimedBefore)`
   returns stuck `running` schedules to `pending` (stuckness = claim
-  age); `openIntents(before)` exposes unresolved effect rows; requeued
-  work re-enters `claimDue`. `pruneCompletedDeliveries` and
-  `pruneDoneJournal` accept caller-supplied retention cutoffs, and
-  `pruneWarnings` joins them on the same terms;
-  pending/processing deliveries and open `sent` journal rows are never pruned.
+  age); `ledger.open(before)` exposes unresolved sends; requeued
+  work re-enters `claimDue`. `pruneCompletedDeliveries`, `ledger.prune` and
+  `ledger.pruneDecisions` accept caller-supplied retention cutoffs;
+  pending/processing deliveries and effects with an open send are never pruned.
 
 ## Version contract and migration
 
 `PRAGMA user_version` is the explicit SQLite-native schema marker; the current
-version is `6`. A declared version above `6` is refused before the store changes
+version is `7`. A declared version above `7` is refused before the store changes
 the database. Version-zero files are accepted only when every owned SQLite
 object matches one of the three unversioned schemas this repository created. The fingerprint
 includes exact table and index definitions, so column types, nullability,
@@ -132,7 +135,9 @@ version 5 start with zero failed attempts and no retry deadline: an attempt no
 schema counted cannot be reconstructed, and inventing one would spend a
 delivery's retry budget on history nobody recorded. Version 6 adds an empty
 table and backfills nothing: no earlier row has a warning to recover, and
-inventing one would authorise an act nobody was told about.
+inventing one would authorise an act nobody was told about. Version 7 adds the
+two append-only tables empty and converts nothing: a journal row read back as a
+fact would be fiction under a live App (D164).
 
 ## Durable webhook intake boundary
 

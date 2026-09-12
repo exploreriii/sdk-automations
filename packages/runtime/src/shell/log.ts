@@ -139,7 +139,7 @@ export type Log = (event: ShellEvent) => void;
 
 /**
  * The events an operator is meant to notice; everything else goes to stdout.
- * Each is a repository change this platform decided on, journalled, then did not make.
+ * Each is a repository change this platform decided on, recorded, then did not make.
  */
 const PROBLEM_EVENTS: ReadonlySet<ShellEvent["event"]> = new Set([
     "legacyStoreFound",

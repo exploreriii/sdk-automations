@@ -1,0 +1,66 @@
+name: conformance
+
+# Era 3's cadence: re-verify every confirmed read's observed shape against the
+# personal sandbox (P8, D22) and print what drifted. Reads only, one request per
+# read. `workflow_dispatch`, deliberately not `pull_request` in any form: fork
+# code must never run in a job that holds the sandbox App's key.
+#
+# It ships inert. With no secrets set, `pnpm lab:probe` prints
+# `skipped: no credentials` and exits 0, so adding the secrets stays a separate
+# organisation decision.
+on:
+  workflow_dispatch:
+  schedule:
+    # Monthly, well inside the 45-day window `conformance.test.ts` locks.
+    - cron: "0 9 1 * *"
+
+# Nothing here writes to the repository, and that is the design: a drift is a
+# human's decision — fix the reader, or amend the matrix row and the shape
+# record in one commit — so this job never commits `probe-results.json`.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: conformance probe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The runner takes a PATH to the App's key and never a key value, so the
+      # secret becomes a mode-600 file under RUNNER_TEMP. The absent-secret
+      # branch leaves PRIVATE_KEY_PATH unset, which is what makes the skip
+      # below a skip rather than a failure.
+      - name: place the sandbox app key
+        env:
+          SANDBOX_APP_PRIVATE_KEY: ${{ secrets.SANDBOX_APP_PRIVATE_KEY }}
+        run: |
+          if [ -z "${SANDBOX_APP_PRIVATE_KEY}" ]; then
+            echo "no sandbox app key secret: the probe will skip"
+            exit 0
+          fi
+          KEY_PATH="${RUNNER_TEMP}/sandbox-app.pem"
+          install -m 600 /dev/null "${KEY_PATH}"
+          printf '%s' "${SANDBOX_APP_PRIVATE_KEY}" > "${KEY_PATH}"
+          echo "PRIVATE_KEY_PATH=${KEY_PATH}" >> "${GITHUB_ENV}"
+      # `lab:probe` is the lab package's own script, so the lab is the working
+      # directory. A non-zero exit is a drift or an unreadable request, both of
+      # which are for a person to read, not for CI to absorb.
+      - name: probe the confirmed reads
+        working-directory: packages/dev/lab
+        env:
+          APP_ID: ${{ secrets.SANDBOX_APP_ID }}
+          INSTALLATION_ID: ${{ secrets.SANDBOX_INSTALLATION_ID }}
+          SANDBOX_REPO: ${{ secrets.SANDBOX_REPO }}
+        run: pnpm lab:probe

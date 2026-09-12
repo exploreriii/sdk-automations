@@ -33,6 +33,9 @@ row chooses it.
 | Redeliver | `POST /app/hook/deliveries/{id}/attempts` | App (JWT) | 202 | — | confirmed; redelivery carries `redelivery: true`. Also confirmed on a second contributor's events a day after original delivery: a **private-fork-sourced PR** (head repo a private fork of the sandbox) delivered `pull_request.opened`/`.closed` + `push`, signature-verified on redelivery, close-on-merge linkage intact (`merge_commit_sha` = push head). The ledger recorded `OK` for the originals although no receiver ran — the P9/6.2 loss window reproduced on unprompted real traffic | `2026-07-23T19-04-37-138Z#1`; `2026-07-25T20-03-36-091Z#1`, `…T20-04-04-509Z#1`, `…T20-04-05-654Z#1` (deliveries `3833075546093256704`, `…594313728`, `…955032064`) |
 | Mint installation token | `POST /app/installations/{id}/access_tokens` | App (JWT) | n/a | — | confirmed (201, 1h TTL) | `2026-07-23T18-34-51-975Z#1` |
 
+Each confirmed read's checkable shape is `packages/dev/lab/src/probes/reads.ts`; `pnpm lab:probe`
+compares it monthly.
+
 ## The ceiling
 
 **The proposed baseline** (from the stage-four packet, retired 2026-08-17; ratification still

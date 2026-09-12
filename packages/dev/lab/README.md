@@ -18,14 +18,23 @@ Three eras (D87, D88):
    payloads for the `events.ts` normalizer.
    `src/scrub.ts` is the rules, `src/capture.ts` the receiver, and nothing unscrubbed can reach a
    tracked path by construction.
-3. **Conformance (when the adapter ships)** — scheduled probes re-verify the perishable facts in
-   `packages/core/src/github/` and stamp a tracked result file a `checks/` lock reads.
+3. **Conformance (open)** — `src/probes/` is the instrument, and unlike era 1's it is tracked.
+   `reads.ts` holds one shape record per confirmed read — the matrix row it cites, the one request
+   that answers it, and the properties its reader depends on; `fixtures.ts` pins the sandbox items
+   by number and the run refuses, naming the item, if one has changed state; `run.ts` sends each
+   read once, two seconds apart, replays it with `If-None-Match`, compares property by property
+   and stamps `probe-results.json`. `packages/dev/checks/test/conformance.test.ts` is the lock:
+   every confirmed read needs a result, no result may carry a drift or an unreadable request, and
+   a stamp older than 45 days is a red check naming the command to run. Nothing adapts to what it
+   sees — a drift is a human's decision: fix the reader, or amend the matrix row and the shape
+   record in the same commit.
 
-Tracked: `protocols/`, `src/`, `test/`. Never tracked: `harness/` (era 1's private evidence
-archive, and the retired runner where a machine still has one), `evidence/` (capture staging),
-`.env` — enforced by `packages/dev/checks/test/never-tracked.test.ts`, not just `.gitignore`. The
-lab tracks no evidence: reviewed captures go straight into the testkit as fixtures, conclusions go
-to the register, and everything else stays local.
+Tracked: `protocols/`, `src/`, `test/`, `probe-results.json` (shapes only, so nothing private is
+in it). Never tracked: `harness/` (era 1's private evidence archive, and the retired runner where a
+machine still has one), `evidence/` (capture staging, and era 3's raw responses), `.env` — enforced
+by `packages/dev/checks/test/never-tracked.test.ts`, not just `.gitignore`. The lab tracks no
+evidence: reviewed captures go straight into the testkit as fixtures, conclusions go to the
+register, and everything else stays local.
 
 ## The road ahead
 
@@ -33,10 +42,12 @@ to the register, and everything else stays local.
 flowchart LR
     subgraph lab ["lab/"]
         capture["src/capture.ts — scrub, then write"] --> pending["evidence/pending/ (untracked)"]
-        probes["era-3 probes (adapter era)"] --> results["probe-results.json"]
+        records["src/probes/reads.ts — one shape record per confirmed read"] --> probes["src/probes/run.ts — one request each, then a conditional replay"]
+        probes --> results["probe-results.json (tracked)"]
+        probes --> raw["evidence/ (untracked): the raw responses"]
     end
     pending -->|"a human reads every file"| fixtures["packages/dev/testkit/fixtures/ — for events.ts"]
-    results -.->|"lock reads"| checks["checks/: probedAt matches latest run"]
+    results -.->|"lock reads"| checks["checks/: every read probed, no drift, under 45 days"]
     conclusions["every era's conclusions"] --> register["design/history/decisions.md"]
 ```
 
@@ -47,8 +58,12 @@ Next, in order, each on its trigger:
 - [x] **Reviewed captures land directly in `packages/dev/testkit/fixtures/`** — no waypoint: the
       capture trigger IS the normalizer trigger, and fixtures reach the packages that need them
       through the testkit's export, so they travel into every mutation sandbox that consumes them.
-- [ ] **Era-3 conformance probes + schedule** — when the adapter ships. Re-verify `BODY_PATTERNS`
-      and rate-limit semantics; stamp `probe-results.json`; add the `checks/` lock that reads it.
+- [ ] **Era-3 conformance probes + schedule** — the instrument, the lock and the cadence exist:
+      `src/probes/`, `packages/dev/checks/test/conformance.test.ts`, and
+      `.github/workflows/conformance.yml` (`workflow_dispatch` plus `0 9 1 * *`, shipping inert
+      until the sandbox App's secrets are set, and never committing the result). What remains is
+      the first live run: `pnpm lab:probe` on a machine with the sandbox credentials, monthly,
+      before the 45-day window closes, with `probe-results.json` committed alongside it.
 
 ---
 

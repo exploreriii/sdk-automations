@@ -24,6 +24,12 @@ export function sweptItemId(scheduleId: string, item: ItemRef): string {
     return `${scheduleId}:${item.kind}#${String(item.number)}`;
 }
 
+/** The row a swept item's id was minted from: `sweptItemId` read backwards. */
+export function scheduleOfSweptId(sweptId: string): string {
+    const item = sweptId.lastIndexOf(":");
+    return item === -1 ? sweptId : sweptId.slice(0, item);
+}
+
 /** Does this repository enable a capability that runs on a clock? */
 export function wantsSweeping(
     config: RepositoryConfig,

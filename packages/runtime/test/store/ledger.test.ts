@@ -185,6 +185,22 @@ describe("the writes the platform made on one item", () => {
     });
 });
 
+describe("the effects with a fact on one item", () => {
+    it("names each effect once, oldest first, and nothing another item's", () => {
+        const store = new Store(path);
+
+        store.ledger.record(fact({ effectId: "effect-b" }));
+        store.ledger.record(closed("landed", "2026-09-12T09:00:01.000Z", { effectId: "effect-b" }));
+        store.ledger.record(fact({ effectId: "effect-a", at: "2026-09-12T09:00:02.000Z" }));
+        store.ledger.record(fact({ effectId: "effect-c", item: OTHER }));
+
+        expect(store.ledger.effectsOn(ITEM)).toEqual(["effect-b", "effect-a"]);
+        expect(store.ledger.effectsOn(OTHER)).toEqual(["effect-c"]);
+        expect(store.ledger.effectsOn({ kind: "issue", number: 99 })).toEqual([]);
+        store.close();
+    });
+});
+
 describe("the warning that binds", () => {
     it("keeps the first, ignores a second, and answers null for an unwarned effect", () => {
         const store = new Store(path);

@@ -192,6 +192,21 @@ export class Ledger {
         }));
     }
 
+    /** Every effect with a fact on one item, oldest first — where an explanation starts (D163). */
+    effectsOn(item: ItemRef): string[] {
+        const rows = this.db
+            .prepare(
+                `
+                SELECT effect_id FROM effect_fact
+                WHERE item_kind = ? AND item_number = ?
+                GROUP BY effect_id
+                ORDER BY MIN(fact_id)
+            `,
+            )
+            .all(item.kind, item.number) as unknown as { effect_id: string }[];
+        return rows.map((row) => row.effect_id);
+    }
+
     /** Every completed call the platform made on one item — what GitHub's actor cannot say (D159). */
     landedOn(item: ItemRef): LandedWrite[] {
         const rows = this.db

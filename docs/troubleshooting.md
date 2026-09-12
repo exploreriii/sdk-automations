@@ -42,6 +42,9 @@ change out. It keeps asking on every sweep, so the act lands once a release can 
 |---|---|
 | `writeUnsupported` | The platform has no confirmed endpoint for this write yet; the intent stands and is re-tried each sweep |
 
+`pnpm shell:explain <effect-id>` prints one effect's whole history and where it stands, and
+`pnpm shell:explain --item issue#40` prints an item's effects and its decisions; both read only.
+
 One code here is not waiting on a release: `ledgerInconsistent` means the ledger holds a history the
 App cannot read as one effect, `pnpm shell:explain` prints it, and clearing it is a person's job.
 

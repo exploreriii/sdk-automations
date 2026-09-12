@@ -33,6 +33,7 @@ import type { Applier } from "../../src/shell/apply.js";
 import { stubbedExternals } from "../../src/shell/externals.js";
 import type { ConfigSource } from "../../src/shell/config.js";
 import type { Log, ShellEvent } from "../../src/shell/log.js";
+import { sweepScheduleId, sweptItemId } from "../../src/shell/schedule.js";
 
 /**
  * Every processor here logs into one list, cleared per test. The event
@@ -70,6 +71,26 @@ const configSource: ConfigSource = {
 };
 
 const BASE = new Date("2026-08-07T10:00:00.000Z");
+
+/** One fact record as the sweep hands it over: the fixture's item, read rather than announced. */
+const RECORD = {
+    kind: "issue",
+    repository: REPOSITORY,
+    item: { kind: "issue", number: 164 },
+    observedAt: BASE,
+    trigger: { kind: "sweep" },
+    author: "opener",
+    actor: null,
+    position: {
+        kind: "position",
+        state: { meaning: null, blocked: false, closedBy: null },
+        ignored: [],
+    },
+    alerts: { carried: [], arrived: [] },
+    assignees: [],
+    links: { openPullRequests: [] },
+    command: UNREAD,
+} as const;
 
 const temp = useTempDir("shell-processor-");
 let store: Store;
@@ -771,25 +792,6 @@ capabilities:
  * because a swept item has no durable delivery of its own to claim.
  */
 describe("one fact record decided outside the queue", () => {
-    const RECORD = {
-        kind: "issue",
-        repository: REPOSITORY,
-        item: { kind: "issue", number: 164 },
-        observedAt: BASE,
-        trigger: { kind: "sweep" },
-        author: "opener",
-        actor: null,
-        position: {
-            kind: "position",
-            state: { meaning: null, blocked: false, closedBy: null },
-            ignored: [],
-        },
-        alerts: { carried: [], arrived: [] },
-        assignees: [],
-        links: { openPullRequests: [] },
-        command: UNREAD,
-    } as const;
-
     const deciding = (mode: string) =>
         createProcessor({
             store,
@@ -845,5 +847,128 @@ describe("one fact record decided outside the queue", () => {
             kind: "modeUnsupported",
             reason: "active mode is unsupported by the runnable shell",
         });
+    });
+});
+
+/**
+ * Every decision is a row (D163). Both callers write them from one place, so a
+ * delivery's rows and a swept item's differ only in what they name as the source.
+ */
+describe("the decision rows one pass writes", () => {
+    const ITEM = { kind: "issue", number: 164 } as const;
+    const FOREVER = "2999-01-01T00:00:00.000Z";
+    const rows = () => store.ledger.decisionsOn(ITEM);
+
+    /** One outcome per approved effect, so a row has an effect id to carry. */
+    const applying: Applier = {
+        applyAll: (effects: readonly Effect[]) =>
+            Promise.resolve(
+                effects.map((effect) => ({
+                    effectId: effect.intent.idempotencyKey,
+                    capability: effect.intent.capability,
+                    operation: effect.intent.operation,
+                    item: effect.intent.item,
+                    outcome: "applied" as const,
+                    code: null,
+                    detail: null,
+                })),
+            ),
+        recover: () => Promise.resolve(),
+    };
+
+    const laneFor = (text: string, applier?: Applier) =>
+        createProcessor({
+            store,
+            capabilities: [toEngine(intake)],
+            configSource: {
+                load: async () => ({ ok: true, document: { revision: "rev-test-1", text } }),
+            },
+            externals: () => stubbedExternals(),
+            repository: REPOSITORY,
+            worker: "test-worker",
+            log,
+            clock: () => new Date(BASE.getTime() + 1000),
+            ...(applier === undefined ? {} : { applier }),
+        });
+
+    it("writes one row per item finding, sourced at the delivery that caused them", async () => {
+        expect(await processor(toEngine(intake)).processOnce()).toBe(true);
+
+        expect(rows().map(({ verdict, code, effectId }) => [verdict, code, effectId])).toEqual([
+            ["info", "capabilityExplained", null],
+            ["notice", "modeRecordsOnly", null],
+            ["info", "wouldApply", null],
+        ]);
+        expect(rows()[0]).toMatchObject({
+            passId: GUID as string,
+            source: "webhook",
+            sourceId: GUID as string,
+            at: records()[0]?.["decidedAt"],
+            item: ITEM,
+            capability: "intake",
+            detail: "New issue placed in triage.",
+        });
+    });
+
+    it("names the sweep and the schedule row the swept id was minted from", async () => {
+        const lane = processor(toEngine(intake));
+        const config = await lane.configuration();
+        expect(config, "the suite's configuration parses").not.toBeNull();
+        const scheduleId = sweepScheduleId(REPOSITORY);
+
+        await lane.processFacts({
+            facts: RECORD,
+            deliveryId: sweptItemId(scheduleId, ITEM),
+            receivedAt: BASE.toISOString(),
+            config: config!,
+        });
+
+        expect(rows()).toContainEqual(
+            expect.objectContaining({
+                passId: sweptItemId(scheduleId, ITEM),
+                source: "sweep",
+                sourceId: scheduleId,
+                capability: "intake",
+            }),
+        );
+    });
+
+    it("carries the effect id on the row an outcome writes", async () => {
+        const active = CONFIG_TEXT.replace("mode: dry-run", "mode: active");
+
+        expect(await laneFor(active, applying).processOnce()).toBe(true);
+
+        expect(rows().filter(({ effectId }) => effectId !== null)).toEqual([
+            expect.objectContaining({
+                capability: "intake",
+                verdict: "applied",
+                code: null,
+                detail: null,
+            }),
+        ]);
+    });
+
+    /** `pruneDecisions` counts what it deleted, which is the only read of the whole table. */
+    it("writes nothing for a record whose findings name no item", async () => {
+        store.acceptDelivery({
+            deliveryId: SECOND_GUID,
+            eventName: "issues",
+            payload: Buffer.from('{"action":"opened"}'),
+            receivedAt: new Date(BASE.getTime() + 500).toISOString(),
+        });
+
+        await laneFor(CONFIG_TEXT.replace("enabled: true", "enabled: false")).drain();
+
+        expect(records()[1]).toMatchObject({
+            report: {
+                findings: [
+                    expect.objectContaining({
+                        code: "repositoryUnreadable",
+                        subject: { kind: "repository" },
+                    }),
+                ],
+            },
+        });
+        expect(store.ledger.pruneDecisions(FOREVER)).toBe(0);
     });
 });

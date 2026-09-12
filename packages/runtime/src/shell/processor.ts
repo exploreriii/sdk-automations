@@ -24,6 +24,7 @@ import {
 import type { ClaimedDelivery, ReleaseDeliveryAfterFailureResult, Store } from "../store/index.js";
 import type { Applier } from "./apply.js";
 import type { ConfigSource } from "./config.js";
+import { decisionsOf } from "./decisions.js";
 import type { EffectOutcome } from "./effects.js";
 import { recordedWarningsIn, type ExternalsForDelivery } from "./externals.js";
 import { detailOf, type Log } from "./log.js";
@@ -325,6 +326,16 @@ export function createProcessor(options: ProcessorOptions): Processor {
             active && applier !== undefined
                 ? await applier.applyAll(decision.approved, config)
                 : [];
+        const rows = decisionsOf({
+            passId: identity.deliveryId,
+            event: identity.event,
+            at: identity.decidedAt,
+            report: decision.report,
+            effects,
+        });
+        // One statement each and no transaction: a crash between rows loses only rows.
+
+        for (const row of rows) store.ledger.decide(row);
         return { kind: "decision", ...identity, report: decision.report, effects };
     };
 

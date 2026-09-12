@@ -208,6 +208,78 @@ function createVersion4Schema(path: string): void {
     db.close();
 }
 
+/** Version 6 = version 4 plus the retry columns and the warning table, declared as 6. */
+function createVersion6Schema(path: string): void {
+    createVersion4Schema(path);
+    const db = new DatabaseSync(path);
+    db.exec(`
+        DROP INDEX delivery_work;
+        ALTER TABLE seen_delivery RENAME TO seen_delivery_v4;
+        CREATE TABLE seen_delivery (
+            delivery_id   TEXT PRIMARY KEY,
+            event_name    TEXT NOT NULL,
+            payload       BLOB,
+            payload_digest TEXT NOT NULL,
+            received_at   TEXT NOT NULL,
+            state         TEXT NOT NULL
+                CHECK (state IN ('pending', 'processing', 'done', 'failed')),
+            claim_worker  TEXT,
+            claim_token   TEXT,
+            claimed_at    TEXT,
+            completed_at  TEXT,
+            attempts      INTEGER NOT NULL CHECK (attempts >= 0),
+            retry_not_before TEXT,
+            CHECK (
+                (state = 'pending' AND payload IS NOT NULL
+                    AND claim_worker IS NULL AND claim_token IS NULL
+                    AND claimed_at IS NULL AND completed_at IS NULL)
+                OR
+                (state = 'processing' AND payload IS NOT NULL
+                    AND claim_worker IS NOT NULL AND claim_token IS NOT NULL
+                    AND claimed_at IS NOT NULL AND completed_at IS NULL
+                    AND retry_not_before IS NULL)
+                OR
+                (state = 'done' AND payload IS NULL
+                    AND claim_worker IS NULL AND claim_token IS NULL
+                    AND claimed_at IS NULL AND completed_at IS NOT NULL
+                    AND retry_not_before IS NULL)
+                OR
+                (state = 'failed' AND payload IS NOT NULL
+                    AND claim_worker IS NULL AND claim_token IS NULL
+                    AND claimed_at IS NULL AND completed_at IS NOT NULL
+                    AND retry_not_before IS NULL AND attempts > 0)
+            )
+        );
+        INSERT INTO seen_delivery (
+            delivery_id, event_name, payload, payload_digest, received_at,
+            state, claim_worker, claim_token, claimed_at, completed_at,
+            attempts, retry_not_before
+        )
+        SELECT delivery_id, event_name, payload, payload_digest, received_at,
+               state, claim_worker, claim_token, claimed_at, completed_at, 0, NULL
+        FROM seen_delivery_v4;
+        DROP TABLE seen_delivery_v4;
+        CREATE INDEX delivery_work
+            ON seen_delivery(state, received_at, delivery_id);
+        CREATE TABLE destructive_warning (
+            effect_id          TEXT PRIMARY KEY,
+            warned_at          TEXT NOT NULL,
+            grace_hours        INTEGER NOT NULL,
+            earliest_action_at TEXT NOT NULL,
+            cancelled_by       TEXT NOT NULL,
+            reverses_with      TEXT NOT NULL,
+            action_class       TEXT NOT NULL,
+            capability         TEXT NOT NULL,
+            cause_observed_at  TEXT NOT NULL,
+            cause              TEXT NOT NULL,
+            item               TEXT NOT NULL,
+            change             TEXT NOT NULL
+        );
+        PRAGMA user_version = 6;
+    `);
+    db.close();
+}
+
 function replaceVersion3DeliveryDefinition(definition: string, declaredVersion: 0 | 3): void {
     createVersion3Schema(databasePath);
     const db = new DatabaseSync(databasePath);
@@ -283,13 +355,16 @@ describe("storage schema versions", () => {
             "migration:4",
             "migration:5",
             "migration:6",
+            "migration:7",
         ]);
         expect(schemaState(databasePath)).toEqual({
             version: CURRENT_STORAGE_SCHEMA_VERSION,
             tables: [
+                "decision",
                 "delivery_report",
                 "destructive_warning",
                 "effect_claim",
+                "effect_fact",
                 "effect_journal",
                 "schedule",
                 "seen_delivery",
@@ -412,6 +487,19 @@ describe("storage schema versions", () => {
         expect(schemaState(databasePath).version).toBe(CURRENT_STORAGE_SCHEMA_VERSION);
     });
 
+    it("migrates the warning-bearing schema into a ledger with nothing in it", () => {
+        createVersion6Schema(databasePath);
+        const store = new Store(databasePath);
+
+        // The journal's rows are left where they are, so a v6 effect is still
+        // readable there while its ledger starts empty (D164).
+        expect(store.ledger.factsOf("effect-old")).toEqual([]);
+        expect(store.ledger.stateOf("effect-old", 1)).toEqual({ kind: "neverStarted" });
+        expect(store.ledger.open(AT)).toEqual([]);
+        store.close();
+        expect(schemaState(databasePath).version).toBe(CURRENT_STORAGE_SCHEMA_VERSION);
+    });
+
     it("upgrades every old version into the schema a fresh database creates", () => {
         const fresh = temp.file("fresh.sqlite");
         new Store(fresh).close();
@@ -423,8 +511,16 @@ describe("storage schema versions", () => {
         // v6's whole content: a table no earlier version has, so every upgrade
         // below is also the v5 → v6 step arriving (grace.md §4).
         expect(expected["destructive_warning"]).toContain("earliest_action_at");
+        // v7's, on the same terms: the ledger of facts and the decision rows (D161, D163).
+        expect(expected["effect_fact"]).toContain("'abandoned'");
+        expect(expected["decision"]).toContain("verdict");
 
-        for (const create of [createVersion1Schema, createVersion2Schema, createVersion3Schema]) {
+        for (const create of [
+            createVersion1Schema,
+            createVersion2Schema,
+            createVersion3Schema,
+            createVersion6Schema,
+        ]) {
             const upgraded = temp.file(`${create.name}.sqlite`);
             create(upgraded);
             new Store(upgraded).close();
@@ -437,14 +533,14 @@ describe("storage schema versions", () => {
 
     it("refuses newer versions without rewriting their database", () => {
         const db = new DatabaseSync(databasePath);
-        db.exec("CREATE TABLE future_marker (value TEXT); PRAGMA user_version = 7;");
+        db.exec("CREATE TABLE future_marker (value TEXT); PRAGMA user_version = 8;");
         db.close();
 
         expect(() => new Store(databasePath)).toThrow(
-            "storage schema version 7 is newer than supported version 6",
+            "storage schema version 8 is newer than supported version 7",
         );
         expect(schemaState(databasePath)).toEqual({
-            version: 7,
+            version: 8,
             tables: ["future_marker"],
         });
     });
@@ -576,25 +672,30 @@ describe("migration interruption", () => {
         expect(schemaState(databasePath).version).toBe(CURRENT_STORAGE_SCHEMA_VERSION);
     });
 
-    it.each(["migration:1", "migration:2", "migration:3", "migration:4", "migration:5"] as const)(
-        "rolls back %s and repeats cleanly on reopen",
-        (faultPoint) => {
-            if (faultPoint !== "migration:1") createVersion1Schema(databasePath);
-            const before = schemaState(databasePath);
+    it.each([
+        "migration:1",
+        "migration:2",
+        "migration:3",
+        "migration:4",
+        "migration:5",
+        "migration:6",
+        "migration:7",
+    ] as const)("rolls back %s and repeats cleanly on reopen", (faultPoint) => {
+        if (faultPoint !== "migration:1") createVersion1Schema(databasePath);
+        const before = schemaState(databasePath);
 
-            expect(
-                () =>
-                    new Store(databasePath, {
-                        injectFault: (point) => {
-                            if (point === faultPoint) throw new Error(`interrupt ${point}`);
-                        },
-                    }),
-            ).toThrow(`interrupt ${faultPoint}`);
-            expect(schemaState(databasePath)).toEqual(before);
+        expect(
+            () =>
+                new Store(databasePath, {
+                    injectFault: (point) => {
+                        if (point === faultPoint) throw new Error(`interrupt ${point}`);
+                    },
+                }),
+        ).toThrow(`interrupt ${faultPoint}`);
+        expect(schemaState(databasePath)).toEqual(before);
 
-            const restarted = new Store(databasePath);
-            restarted.close();
-            expect(schemaState(databasePath).version).toBe(CURRENT_STORAGE_SCHEMA_VERSION);
-        },
-    );
+        const restarted = new Store(databasePath);
+        restarted.close();
+        expect(schemaState(databasePath).version).toBe(CURRENT_STORAGE_SCHEMA_VERSION);
+    });
 });

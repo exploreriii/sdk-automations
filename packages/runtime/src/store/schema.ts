@@ -7,11 +7,17 @@ import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 
 /** The newest storage schema this package can safely read and write. */
-export const CURRENT_STORAGE_SCHEMA_VERSION = 6;
+export const CURRENT_STORAGE_SCHEMA_VERSION = 7;
 
 /** A deliberate interruption point after one migration step. */
 export type MigrationFaultPoint =
-    "migration:1" | "migration:2" | "migration:3" | "migration:4" | "migration:5" | "migration:6";
+    | "migration:1"
+    | "migration:2"
+    | "migration:3"
+    | "migration:4"
+    | "migration:5"
+    | "migration:6"
+    | "migration:7";
 
 type FaultInjector = (point: MigrationFaultPoint) => void;
 
@@ -171,6 +177,59 @@ const SCHEDULE_V2 = `
         claim_token TEXT
     )`;
 
+/**
+ * Version 7 makes an effect's history append-only: one row per fact, folded to a state (D161).
+ * `fact_id` is the ledger's order, so a fact never has to be found by its timestamp.
+ */
+const EFFECT_FACT_V7 = `
+    CREATE TABLE effect_fact (
+        fact_id     INTEGER PRIMARY KEY,
+        effect_id   TEXT NOT NULL,
+        seq         INTEGER NOT NULL,
+        kind        TEXT NOT NULL CHECK (kind IN ('sent','unsent','landed','refused','abandoned','warned','reversed')),
+        at          TEXT NOT NULL,
+        revision    TEXT NOT NULL,
+        capability  TEXT NOT NULL,
+        item_kind   TEXT NOT NULL,
+        item_number INTEGER NOT NULL,
+        verb        TEXT,
+        login       TEXT,
+        code        TEXT,
+        detail      TEXT,
+        payload     TEXT
+    )`;
+
+const FACT_BY_EFFECT = `
+    CREATE INDEX fact_by_effect ON effect_fact(effect_id, seq, fact_id)`;
+
+const FACT_BY_ITEM = `
+    CREATE INDEX fact_by_item   ON effect_fact(item_kind, item_number, kind, at)`;
+
+const OPEN_SENDS = `
+    CREATE INDEX open_sends     ON effect_fact(at) WHERE kind = 'sent'`;
+
+/** One row per item per capability per pass, webhook and sweep alike (D163). */
+const DECISION_V7 = `
+    CREATE TABLE decision (
+        pass_id     TEXT NOT NULL,
+        source      TEXT NOT NULL CHECK (source IN ('webhook','sweep')),
+        source_id   TEXT NOT NULL,
+        at          TEXT NOT NULL,
+        item_kind   TEXT NOT NULL,
+        item_number INTEGER NOT NULL,
+        capability  TEXT NOT NULL,
+        verdict     TEXT NOT NULL,
+        code        TEXT,
+        detail      TEXT,
+        effect_id   TEXT
+    )`;
+
+const DECISION_BY_ITEM = `
+    CREATE INDEX decision_by_item ON decision(item_kind, item_number, at)`;
+
+const DECISION_BY_AT = `
+    CREATE INDEX decision_by_at   ON decision(at)`;
+
 const SCHEMA_BY_VERSION = {
     1: {
         effect_claim: EFFECT_CLAIM,
@@ -221,10 +280,27 @@ const SCHEMA_BY_VERSION = {
         schedule: SCHEDULE_V2,
         seen_delivery: SEEN_DELIVERY_V5,
     },
+    7: {
+        decision: DECISION_V7,
+        decision_by_at: DECISION_BY_AT,
+        decision_by_item: DECISION_BY_ITEM,
+        delivery_report: DELIVERY_REPORT_V4,
+        delivery_work: DELIVERY_WORK,
+        destructive_warning: DESTRUCTIVE_WARNING_V6,
+        effect_claim: EFFECT_CLAIM,
+        effect_fact: EFFECT_FACT_V7,
+        effect_journal: EFFECT_JOURNAL_V2,
+        fact_by_effect: FACT_BY_EFFECT,
+        fact_by_item: FACT_BY_ITEM,
+        open_intents: OPEN_INTENTS,
+        open_sends: OPEN_SENDS,
+        schedule: SCHEDULE_V2,
+        seen_delivery: SEEN_DELIVERY_V5,
+    },
 } as const;
 
 type StorageSchemaVersion = keyof typeof SCHEMA_BY_VERSION;
-type DetectedStorageSchemaVersion = 0 | Exclude<StorageSchemaVersion, 4 | 5 | 6>;
+type DetectedStorageSchemaVersion = 0 | Exclude<StorageSchemaVersion, 4 | 5 | 6 | 7>;
 
 function schemaObjects(
     db: DatabaseSync,
@@ -348,6 +424,19 @@ function addDestructiveWarnings(db: DatabaseSync): void {
     db.exec(`${DESTRUCTIVE_WARNING_V6};`);
 }
 
+/** Two new tables beside the journal, whose rows are left exactly where they are (D164). */
+function addEffectLedger(db: DatabaseSync): void {
+    db.exec(`
+        ${EFFECT_FACT_V7};
+        ${FACT_BY_EFFECT};
+        ${FACT_BY_ITEM};
+        ${OPEN_SENDS};
+        ${DECISION_V7};
+        ${DECISION_BY_ITEM};
+        ${DECISION_BY_AT};
+    `);
+}
+
 const MIGRATIONS: ReadonlyArray<{
     readonly version: StorageSchemaVersion;
     readonly apply: (db: DatabaseSync) => void;
@@ -358,6 +447,7 @@ const MIGRATIONS: ReadonlyArray<{
     { version: 4, apply: addCanonicalDeliveryReports },
     { version: 5, apply: addBoundedDeliveryRetries },
     { version: 6, apply: addDestructiveWarnings },
+    { version: 7, apply: addEffectLedger },
 ];
 
 /** Read SQLite's native application schema version. */

@@ -24,25 +24,6 @@ export type EffectState =
           readonly revision: string;
       };
 
-/**
- * One recorded destructive warning, as the row holds it (grace.md §4).
- * Deliberately NOT a `DestructiveWarning`: the shell re-mints one through `createDestructiveWarning`, so bytes become authority only by passing back through it.
- */
-export interface StoredWarning {
-    readonly effectId: string;
-    readonly warnedAt: string;
-    readonly gracePeriodHours: number;
-    readonly earliestActionAt: string;
-    readonly cancelledBy: string;
-    readonly reversesWith: string;
-    readonly actionClass: string;
-    readonly capability: string;
-    readonly causeObservedAt: string;
-    readonly cause: string;
-    readonly item: string;
-    readonly change: string;
-}
-
 /** One unresolved `sent` journal row — the sweep's unit of work. */
 export interface OpenIntent {
     readonly effectId: string;
@@ -53,11 +34,9 @@ export interface OpenIntent {
     readonly revision: string;
 }
 
-/**
- * One `done` journal row, as a write the platform made on an item (D159).
- * `operation` is the row's call VERB, which only a release shares with its operation's name.
- */
+/** One `done` journal row, as a write the platform made on an item (D159). */
 export interface StoredOwnWrite {
+    /** The row's call VERB, which only a release shares with its operation's name. */
     readonly operation: string;
     /** The login a release names; absent on every call that names none. */
     readonly login?: string;

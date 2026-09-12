@@ -18,6 +18,17 @@ export type {
     ReleaseDeliveryAfterFailureResult,
     ReleaseDeliveryResult,
 } from "./deliveries.js";
-export type { EffectState, OpenIntent, StoredOwnWrite, StoredWarning } from "./effects.js";
+export type { EffectState, OpenIntent, StoredOwnWrite } from "./effects.js";
+export type {
+    Decision,
+    Fact,
+    FactKind,
+    LandedWrite,
+    LedgerState,
+    OpenSend,
+    StoredWarning,
+} from "./facts.js";
+export { fold } from "./fold.js";
+export { Ledger } from "./ledger.js";
 export type { ClaimedScheduleRow, ScheduleRow } from "./schedules.js";
 export * from "./store.js";

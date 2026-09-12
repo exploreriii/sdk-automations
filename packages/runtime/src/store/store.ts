@@ -29,7 +29,9 @@ import type {
     ReleaseDeliveryAfterFailureResult,
     ReleaseDeliveryResult,
 } from "./deliveries.js";
-import type { EffectState, OpenIntent, StoredOwnWrite, StoredWarning } from "./effects.js";
+import type { EffectState, OpenIntent, StoredOwnWrite } from "./effects.js";
+import type { StoredWarning } from "./facts.js";
+import { Ledger } from "./ledger.js";
 import type { ClaimedScheduleRow, ScheduleRow } from "./schedules.js";
 
 /** A deliberate interruption point in schema or delivery durability work. */
@@ -179,6 +181,8 @@ interface CanonicalDeliveryReportRow {
 export class Store {
     private readonly db: DatabaseSync;
     private readonly injectFault: (point: StoreFaultPoint) => void;
+    /** The append-only half of the same file, over the same connection (D164). */
+    readonly ledger: Ledger;
 
     constructor(path: string, options: StoreOptions = {}) {
         this.db = new DatabaseSync(path);
@@ -205,6 +209,7 @@ export class Store {
             }
             throw error;
         }
+        this.ledger = new Ledger(this.db);
     }
 
     // ── Durable webhook intake ─────────────────────────────────────

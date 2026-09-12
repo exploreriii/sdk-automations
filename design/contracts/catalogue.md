@@ -129,7 +129,7 @@ its topic on `grace` instead, and its warning and notice both stand under it.
 `mention` is the other optional field, and it is NOT part of identity: it names a PRINCIPAL, by the
 name the repository's `principals:` block declares, and the platform resolves it into the handle
 behind it where identity is minted (`addressManagedComment`, run before the effect so the verdict,
-the dry-run rehearsal and the journal row all read the same bytes). A capability that wants to ping
+the dry-run rehearsal and the recorded call all read the same bytes). A capability that wants to ping
 someone therefore never learns who it pinged, for the reason `desired.meaning` is a meaning and
 never a label. The same purpose addressed to two different principals is still one standing comment
 on the item.
@@ -138,10 +138,10 @@ on the item.
 three operations on purpose (D63, D141). `assign` and `unassign` are the reversible pair a
 contributor asks for on their own behalf; `releaseAssignment` is the clock's, so it is destructive
 and reaches GitHub only through the warning-and-grace gates. `lockIssue` and `unlockIssue` are the
-two directions of one moderation, kept apart for the same reason: a journal row should name the
+two directions of one moderation, kept apart for the same reason: a recorded call should name the
 direction it went rather than carry a boolean an operator has to decode. `closePullRequest` is the
 catalogue's first close, and its `reason` is the sentence its close notice states — carried on the
-desired outcome so the journal row names it, as `lockIssue`'s and `unlockIssue`'s are.
+desired outcome so the recorded call names it, as `lockIssue`'s and `unlockIssue`'s are.
 
 Four of these operations have no confirmed write endpoint — `assign`, `unassign`, `lockIssue`,
 `unlockIssue` — and each is nonetheless a whole registered operation in all three layers, refusing

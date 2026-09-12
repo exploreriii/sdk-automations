@@ -56,7 +56,7 @@ export interface DestructiveGrace {
 }
 
 /**
- * One request from a capability. `idempotencyKey` becomes the journal's
+ * One request from a capability. `idempotencyKey` becomes the ledger's
  * `effect_id`, so two intents sharing a key ARE one effect to the store (D65).
  */
 export interface Intent<K extends IntentOperation = IntentOperation> {

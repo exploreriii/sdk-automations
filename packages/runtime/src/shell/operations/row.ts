@@ -1,4 +1,4 @@
-/** The total readers of a journal row's untrusted bytes; none of them throws. */
+/** The total readers of a recorded call's untrusted bytes; none of them throws. */
 
 import type { ItemRef } from "@hiero-hackers/automation-core";
 

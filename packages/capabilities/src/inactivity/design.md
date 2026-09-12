@@ -155,8 +155,8 @@ state change between sweep and write refuses the act.
 All three reasons act. Each one CLAIMS the evidence it read — the label reason its meaning, the
 two native reasons their mode — and the platform re-reads that evidence before it closes anything:
 a pull request marked ready for review, or a change request a later review lifted, refuses the
-close the same way a label somebody removed does. **No armed rehearsal has run on the close path**,
-so protocol 8.2 owes it a run before it acts anywhere.
+close the same way a label somebody removed does. Protocol 8.3 ran the close path armed on
+2026-09-12: warning, grace, close on a draft claim, notice, and a human reopen left alone.
 
 | Declaration | Value |
 |---|---|

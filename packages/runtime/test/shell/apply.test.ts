@@ -2061,4 +2061,26 @@ describe("the three sequences of rehearsal 8.3", () => {
         });
         expect(github.calls).toEqual([]);
     });
+
+    it("closes a send whose bytes are gone, on a pass and on recovery alike", async () => {
+        const github = fakeGitHub();
+        const effect = labelEffect({ meaning: "ready" });
+        sent(keyOf(effect), "", { payload: null });
+
+        const outcome = one(await applierOver(github).applyAll([effect], configFor()));
+        expect(outcome).toMatchObject({ outcome: "refused", code: "rowUnreadable" });
+        expect(store.ledger.stateOf(keyOf(effect), 1)).toMatchObject({
+            kind: "settled",
+            how: "refused",
+        });
+
+        sent("orphan", "", { payload: null });
+        await applierOver(github).recover(store.ledger.open(FUTURE)[0]!, configFor());
+        expect(store.ledger.stateOf("orphan", 1)).toMatchObject({
+            kind: "settled",
+            how: "refused",
+        });
+        expect(logged.at(-1)).toMatchObject({ event: "effectRefused", code: "rowUnreadable" });
+        expect(github.calls).toEqual([]);
+    });
 });

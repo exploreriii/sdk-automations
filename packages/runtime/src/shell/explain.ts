@@ -5,7 +5,6 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { ItemRef } from "@hiero-hackers/automation-core";
 import { fold, Store, type Decision, type Fact, type LedgerState } from "../store/index.js";
 import { defaultDataDir } from "./paths.js";
@@ -141,10 +140,4 @@ export function explain(
     } finally {
         store.close();
     }
-}
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    const answer = explain(process.argv.slice(2));
-    for (const line of answer.lines) process.stdout.write(`${line}\n`);
-    process.exit(answer.found ? 0 : 1);
 }

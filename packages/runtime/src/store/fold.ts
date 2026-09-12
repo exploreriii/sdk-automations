@@ -66,7 +66,7 @@ export function fold(facts: readonly Fact[], planLength: number): LedgerState {
             continue;
         }
         if (fact.kind === "unsent") {
-            attempts.set(fact.seq, (attempts.get(fact.seq) ?? 1) - 1);
+            attempts.set(fact.seq, attempts.get(fact.seq)! - 1);
         } else {
             settled = { kind: "settled", how: fact.kind, seq: fact.seq };
         }
@@ -74,7 +74,7 @@ export function fold(facts: readonly Fact[], planLength: number): LedgerState {
 
     if (settled !== null) return settled;
     if (open !== null) {
-        const spent = attempts.get(open.seq) ?? 0;
+        const spent = attempts.get(open.seq)!;
         return { kind: "open", seq: open.seq, payload: open.payload, attempts: spent };
     }
     if (calls === 0) return { kind: "neverStarted" };

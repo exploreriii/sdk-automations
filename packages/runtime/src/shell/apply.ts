@@ -454,9 +454,9 @@ export function createApplier(options: ApplierOptions): Applier {
     };
 
     /** The newest send of an effect — the identity and revision a closing fact repeats. */
-    const sendOf = (effectId: string): Fact | null => {
+    const sendOf = (effectId: string): Fact => {
         const sends = ledger.factsOf(effectId).filter((fact) => fact.kind === "sent");
-        return sends[sends.length - 1] ?? null;
+        return sends[sends.length - 1]!;
     };
 
     const HOUR_MS = 60 * 60 * 1000;
@@ -612,7 +612,7 @@ export function createApplier(options: ApplierOptions): Applier {
         pass: Pass,
         seq: number,
         payload: string | null,
-        revision: string | null,
+        revision: string,
         calls: readonly Call[],
     ): Promise<PassResult> => {
         // Nothing can be resent from bytes nobody can read, and leaving the send open
@@ -656,17 +656,11 @@ export function createApplier(options: ApplierOptions): Applier {
             return { outcome: "refused", code: "ledgerInconsistent", detail: state.detail };
         }
         if (state.kind === "open") {
-            const sent = sendOf(pass.effectId);
-            return await continueOpen(
-                pass,
-                state.seq,
-                state.payload,
-                sent?.revision ?? null,
-                calls,
-            );
+            const { revision } = sendOf(pass.effectId);
+            return await continueOpen(pass, state.seq, state.payload, revision, calls);
         }
         if (state.kind === "resumable") {
-            if (sendOf(pass.effectId)?.revision !== pass.config.revision) {
+            if (sendOf(pass.effectId).revision !== pass.config.revision) {
                 return {
                     outcome: "refused",
                     code: "configurationChanged",
@@ -739,16 +733,14 @@ export function createApplier(options: ApplierOptions): Applier {
                     "the ledger's bytes could not be read; it is closed and nothing was resent";
                 // Only the send it closes can say which item and capability this was.
 
-                if (sent !== null) {
-                    ledger.record({
-                        ...sent,
-                        kind: "refused",
-                        at: now(),
-                        code: "rowUnreadable",
-                        detail,
-                        payload: null,
-                    });
-                }
+                ledger.record({
+                    ...sent,
+                    kind: "refused",
+                    at: now(),
+                    code: "rowUnreadable",
+                    detail,
+                    payload: null,
+                });
                 log({
                     event: "effectRefused",
                     effectId: open.effectId,

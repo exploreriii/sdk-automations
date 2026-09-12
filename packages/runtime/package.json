@@ -18,7 +18,7 @@
         "test:coverage": "tsc --noEmit && vitest run --coverage --testTimeout=15000",
         "test:watch": "vitest",
         "start": "tsx src/shell/main.ts",
-        "explain": "tsx src/shell/explain.ts"
+        "explain": "tsx src/shell/explain-cli.ts"
     },
     "dependencies": {
         "@hiero-hackers/automation-capabilities": "workspace:*",

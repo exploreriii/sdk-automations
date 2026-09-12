@@ -145,6 +145,23 @@ describe("the verbs name their endpoints", () => {
     });
 });
 
+describe("a seam that broke before the send", () => {
+    it("is unsupported without blaming the matrix", async () => {
+        const { verbs, scripted } = harness([success("[]")], {
+            clock: () => {
+                throw new Error("clock failed");
+            },
+        });
+
+        const result = await verbs.addLabel(ITEM, "status: stale");
+
+        expect(result.outcome).toBe("unsupported");
+        expect("detail" in result ? result.detail : "").toContain("nothing was sent");
+        expect("detail" in result ? result.detail : "").not.toContain("endpoint matrix");
+        expect(scripted.calls).toHaveLength(0);
+    });
+});
+
 describe("the ambiguous 404", () => {
     it("reads a removal of an absent label as already", async () => {
         const { verbs } = harness([failure(404, '{"message":"Label does not exist"}')]);

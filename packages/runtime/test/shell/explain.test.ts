@@ -175,5 +175,13 @@ describe("the command around the two reads", () => {
             found: false,
             lines: [usage],
         });
+        expect(explain(["--item"], { STORE_PATH: path })).toEqual({ found: false, lines: [usage] });
+    });
+
+    it("opens the store main.ts would, when STORE_PATH is unset", () => {
+        const answer = explain(["effect-a"], { XDG_STATE_HOME: temp.file("state") });
+
+        expect(answer.found).toBe(false);
+        expect(answer.lines[0]).toMatch(/^no store at .*shell\.sqlite$/);
     });
 });

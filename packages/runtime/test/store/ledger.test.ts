@@ -221,6 +221,13 @@ describe("the warning that binds", () => {
         expect(store.ledger.warningFor("effect-b")).toBeNull();
         store.close();
     });
+
+    it("answers null for a warned fact that carries no payload", () => {
+        const store = new Store(path);
+        store.ledger.record(closed("warned", AT, { seq: 0, verb: null, payload: null }));
+        expect(store.ledger.warningFor("effect-a")).toBeNull();
+        store.close();
+    });
 });
 
 describe("the decisions a pass records", () => {

@@ -5,20 +5,19 @@ name: conformance
 # read. `workflow_dispatch`, deliberately not `pull_request` in any form: fork
 # code must never run in a job that holds the sandbox App's key.
 #
-# It ships inert. With no secrets set, `pnpm lab:probe` prints
-# `skipped: no credentials` and exits 0, so adding the secrets stays a separate
-# organisation decision.
+# With no secrets set, `pnpm lab:probe` prints `skipped: no credentials` and
+# exits 0. With them, a clean run proposes its stamp by pull request.
 on:
   workflow_dispatch:
   schedule:
     # Monthly, well inside the 45-day window `conformance.test.ts` locks.
     - cron: "0 9 1 * *"
 
-# Nothing here writes to the repository, and that is the design: a drift is a
-# human's decision — fix the reader, or amend the matrix row and the shape
-# record in one commit — so this job never commits `probe-results.json`.
+# Never a push to main: the stamp travels by pull request, and a drift fails
+# before any commit is made — that decision stays a person's.
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 concurrency:
   group: ${{ github.workflow }}
@@ -64,3 +63,26 @@ jobs:
           INSTALLATION_ID: ${{ secrets.SANDBOX_INSTALLATION_ID }}
           SANDBOX_REPO: ${{ secrets.SANDBOX_REPO }}
         run: pnpm lab:probe
+      # The commit goes through the contents API, which GitHub signs (main
+      # requires signatures); a person reviews and squash-merges the result.
+      - name: propose the stamp
+        if: env.PRIVATE_KEY_PATH != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FILE: packages/dev/lab/probe-results.json
+          BRANCH: conformance/stamp
+        run: |
+          if git diff --quiet -- "${FILE}"; then echo "stamp unchanged"; exit 0; fi
+          REPO="repos/${GITHUB_REPOSITORY}"
+          TITLE="chore(lab): conformance stamp $(date -u +%Y-%m-%d)"
+          MAIN=$(gh api "${REPO}/git/ref/heads/main" --jq .object.sha)
+          gh api -X PATCH "${REPO}/git/refs/heads/${BRANCH}" -f sha="${MAIN}" -F force=true >/dev/null \
+            || gh api -X POST "${REPO}/git/refs" -f ref="refs/heads/${BRANCH}" -f sha="${MAIN}" >/dev/null
+          BLOB=$(gh api "${REPO}/contents/${FILE}?ref=${BRANCH}" --jq .sha)
+          gh api -X PUT "${REPO}/contents/${FILE}" -f branch="${BRANCH}" -f sha="${BLOB}" \
+            -f message="$(printf '%s\n\nSigned-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>' "${TITLE}")" \
+            -f content="$(base64 -w0 "${FILE}")" >/dev/null
+          if [ -z "$(gh pr list --head "${BRANCH}" --state open --json number --jq '.[0].number')" ]; then
+            gh pr create --base main --head "${BRANCH}" --title "${TITLE}" \
+              --body "Monthly probe: every confirmed read answered in its recorded shape. Merging refreshes the 45-day lock."
+          fi

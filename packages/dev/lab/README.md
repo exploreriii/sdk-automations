@@ -58,12 +58,11 @@ Next, in order, each on its trigger:
 - [x] **Reviewed captures land directly in `packages/dev/testkit/fixtures/`** — no waypoint: the
       capture trigger IS the normalizer trigger, and fixtures reach the packages that need them
       through the testkit's export, so they travel into every mutation sandbox that consumes them.
-- [ ] **Era-3 conformance probes + schedule** — the instrument, the lock and the cadence exist:
-      `src/probes/`, `packages/dev/checks/test/conformance.test.ts`, and
-      `.github/workflows/conformance.yml` (`workflow_dispatch` plus `0 9 1 * *`, shipping inert
-      until the sandbox App's secrets are set, and never committing the result). What remains is
-      the first live run: `pnpm lab:probe` on a machine with the sandbox credentials, monthly,
-      before the 45-day window closes, with `probe-results.json` committed alongside it.
+- [x] **Era-3 conformance probes + schedule** — `src/probes/`,
+      `packages/dev/checks/test/conformance.test.ts`, and `.github/workflows/conformance.yml`
+      (`workflow_dispatch` plus `0 9 1 * *`). First live run 2026-09-12, 15 of 15 clean. With the
+      sandbox App's secrets set, a clean monthly run opens a pull request carrying the new
+      `probe-results.json`; a drift fails the run and opens nothing.
 
 ---
 

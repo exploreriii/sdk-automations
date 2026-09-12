@@ -129,10 +129,14 @@ export function assigneeClock(assignee: AssigneeClock, observedAt: Date): Clock 
     return clockFrom(startedAt(assignee.assignedAt, [assignee.lastWorkingAt]), observedAt);
 }
 
-/** A pull request's one clock: the mode it is in, reset by a commit or any `/working` on it. */
-export function pullRequestClock(facts: PullRequestClockFacts, observedAt: Date): Clock {
+/** A pull request's one clock: the reason's start, reset by a commit or any `/working` on it. */
+export function pullRequestClock(
+    facts: PullRequestClockFacts,
+    reason: keyof PullRequestClockFacts["review"]["reapableSince"],
+    observedAt: Date,
+): Clock {
     return clockFrom(
-        startedAt(facts.review.reapableSince, [
+        startedAt(facts.review.reapableSince[reason], [
             facts.review.lastCommitAt,
             ...facts.assignees.map((assignee) => assignee.lastWorkingAt),
         ]),

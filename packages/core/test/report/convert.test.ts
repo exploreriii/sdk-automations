@@ -129,7 +129,7 @@ describe("configuration findings", () => {
     it("a valid configuration reports its mode", () => {
         const result = parseConfig(
             {
-                schemaVersion: 1,
+                schemaVersion: 2,
                 mode: "dry-run",
                 capabilities: {},
                 mappings: { labels: {} },
@@ -154,7 +154,7 @@ describe("configuration findings", () => {
      */
     it("each kind of configuration error reports its own code and path", () => {
         const result = parseConfig(
-            { schemaVersion: 2, mode: "sideways", nope: 1 },
+            { schemaVersion: 3, mode: "sideways", nope: 1 },
             { revision: "rev-test", knownCapabilities: known },
         );
         const found = configFindings(result);

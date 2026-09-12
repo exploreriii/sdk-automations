@@ -74,6 +74,7 @@ export function parseConfig(raw: unknown, options: ParseConfigOptions): ConfigRe
         };
     }
 
+    const schemaVersion = raw.schemaVersion === 2 ? 2 : 1;
     const mode = readMode(raw);
     const mappings = readMappings(raw);
     const principals = readPrincipals(raw);
@@ -81,6 +82,7 @@ export function parseConfig(raw: unknown, options: ParseConfigOptions): ConfigRe
         raw,
         options.knownCapabilities,
         namesIn(mappings, principals),
+        schemaVersion,
     );
 
     // §2.6 — fail closed: any error anywhere yields no configuration, whole-file (D38).
@@ -116,7 +118,7 @@ export function parseConfig(raw: unknown, options: ParseConfigOptions): ConfigRe
         ok: true,
         config: {
             revision: options.revision,
-            schemaVersion: 1,
+            schemaVersion,
             mode: mode.value,
             capabilities: cleanRecord(capabilities.value),
             mappings: mappings.value,

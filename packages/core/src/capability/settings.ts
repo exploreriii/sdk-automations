@@ -505,6 +505,9 @@ export function block<const F extends Spec>(
             if (!Object.hasOwn(scope.raw, key)) return parked;
             const raw = scope.raw[key];
             if (!isRecord(raw)) return problem(path, "must be a mapping");
+            if (Object.hasOwn(raw, "enabled") && typeof raw.enabled !== "boolean") {
+                return problem(dot(path, "enabled"), "must be true or false");
+            }
             if (raw.enabled !== true) return parked;
 
             // `enabled` is consent, not a field, so it joins the sweep's keys only.

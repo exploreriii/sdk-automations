@@ -102,15 +102,13 @@ const validConfig = fc
     .chain((labels) =>
         fc.record(
             {
-                schemaVersion: fc.constant(1 as const),
+                schemaVersion: fc.constant(2 as const),
                 mode: fc.constantFrom(...REPOSITORY_MODES),
                 capabilities: fc.dictionary(camelName, capabilityBlock, { maxKeys: 5 }),
                 mappings: fc.constant({ labels }),
                 principals: fc.dictionary(camelName, principalHandle, { maxKeys: 5 }),
             },
-            // No required key: `schemaVersion` is optional like the rest, and a
-            // generator that always emitted it could not reach the absent half.
-            { requiredKeys: [] },
+            { requiredKeys: ["schemaVersion"] },
         ),
     );
 
@@ -262,7 +260,7 @@ describe("parseConfig acceptances (design/contracts/config-schema.md)", () => {
     it("accepts the documented candidate shape (§3)", () => {
         const result = parseConfig(
             {
-                schemaVersion: 1,
+                schemaVersion: 2,
                 mode: "observe",
                 capabilities: {
                     prQuality: {
@@ -298,6 +296,49 @@ describe("parseConfig acceptances (design/contracts/config-schema.md)", () => {
             expect(result.config.capabilities.assignment?.enabled).toBe(false);
             expect(result.config.mappings.labels.ready).toBe("status: ready for dev");
         }
+    });
+
+    it("keeps version 1 repositories on the settings wrapper", () => {
+        const result = parseConfig(
+            {
+                schemaVersion: 1,
+                capabilities: {
+                    intake: { enabled: true, settings: { announce: true } },
+                },
+            },
+            {
+                revision: "rev-test",
+                knownCapabilities: admitting(["intake"], {
+                    intake: spec({ announce: flag({ default: false }) }),
+                }),
+            },
+        );
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.config.capabilities.intake?.settings).toEqual({ announce: true });
+        }
+    });
+
+    it("rejects a block that mixes the version 1 wrapper with version 2 fields", () => {
+        const result = parseConfig(
+            {
+                schemaVersion: 1,
+                capabilities: {
+                    intake: { enabled: true, settings: { announce: true }, announce: false },
+                },
+            },
+            {
+                revision: "rev-test",
+                knownCapabilities: admitting(["intake"], {
+                    intake: spec({ announce: flag({ default: false }) }),
+                }),
+            },
+        );
+        expect(result.ok).toBe(false);
+        if (!result.ok)
+            expect(result.errors.map((error) => error.path)).toContain(
+                "capabilities.intake.announce",
+            );
     });
 
     /**

@@ -96,28 +96,46 @@ function sentence(doc: string): string {
  * editor may refuse a stranger at the depth the parser would.
  */
 function groupSchema(fields: Described): Subschema {
+    const required = Object.entries(fields)
+        .filter(([, field]) => field.absent === "problem")
+        .map(([key]) => key);
     return {
         type: "object",
         additionalProperties: false,
         properties: Object.fromEntries(
             Object.entries(fields).map(([key, field]) => [key, fieldSchema(field)]),
         ),
+        ...(required.length === 0 ? {} : { required }),
     };
 }
 
 /** A block: its spec's fields, plus the consent key that is not one of them. */
 function blockSchema(fields: Described): Subschema {
-    const group = groupSchema(fields);
+    const running = groupSchema(fields);
     return {
-        ...group,
-        properties: {
-            enabled: {
-                type: "boolean",
-                description: "Consent, literally true. Anything else parks this block unread.",
-                default: false,
+        oneOf: [
+            {
+                ...running,
+                properties: {
+                    enabled: { const: true, description: "Run this block." },
+                    ...(running.properties as Subschema),
+                },
+                required: [
+                    "enabled",
+                    ...((running.required as readonly string[] | undefined) ?? []),
+                ],
             },
-            ...(group.properties as Subschema),
-        },
+            {
+                type: "object",
+                properties: {
+                    enabled: {
+                        const: false,
+                        description: "Leave this block parked and unread.",
+                        default: false,
+                    },
+                },
+            },
+        ],
     };
 }
 
@@ -227,7 +245,7 @@ const DISCLAIMER = [
 /** One sentence per top-level key, for the maintainer hovering over it. */
 const TOP_LEVEL_NOTES: { readonly [K in TopLevelKey]: string } = {
     schemaVersion:
-        "The configuration format's version. Optional: absent means 1, and any other stated value is rejected.",
+        "The configuration format's version. Absent means 1; the flattened capability shape is version 2.",
     mode: "How far the App may go. Each step does what the one before it does, and more.",
     capabilities:
         "One block per automation. A capability this App does not ship is rejected whether it is enabled or not.",
@@ -288,21 +306,34 @@ function mappingsSchema(): Subschema {
  * `enabled` and the spec's own keys beside it — so the editor refuses a file
  * written against the old `settings:` wrapper at the wrapper's own line.
  */
-function capabilitiesSchema(): Subschema {
-    // `blockSchema`, with the consent sentence named for the capability.
-    // `enabled` is already that schema's first property, so respelling it
-    // replaces the sentence and leaves the order alone.
+function capabilitiesSchema(schemaVersion: 1 | 2): Subschema {
     const one = (name: string, fields: Described): Subschema => {
-        const shape = blockSchema(fields);
+        const settings = groupSchema(fields);
+        const requiredSettings = (settings.required as readonly string[] | undefined) ?? [];
+        if (schemaVersion === 1) {
+            return {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    enabled: {
+                        type: "boolean",
+                        description: `Run ${name}. Consent is literally true; absent leaves it off.`,
+                        default: false,
+                    },
+                    settings,
+                },
+                ...(requiredSettings.length === 0 ? {} : { required: ["settings"] }),
+            };
+        }
         return {
-            ...shape,
+            ...settings,
             properties: {
-                ...(shape.properties as Subschema),
                 enabled: {
                     type: "boolean",
                     description: `Run ${name}. Consent is literally true; absent leaves it off.`,
                     default: false,
                 },
+                ...(settings.properties as Subschema),
             },
         };
     };
@@ -323,11 +354,11 @@ function capabilitiesSchema(): Subschema {
  * The whole document, keyed off `TOP_LEVEL_KEYS` so the property order is the
  * order a maintainer meets the keys in and a new one fails to compile here.
  */
-function schemaDocument(): Subschema {
+function documentShape(schemaVersion: 1 | 2): Subschema {
     const sections: { readonly [K in TopLevelKey]: () => Subschema } = {
         schemaVersion: () => ({
-            const: 1,
-            default: 1,
+            const: schemaVersion,
+            ...(schemaVersion === 1 ? { default: 1 } : {}),
             description: TOP_LEVEL_NOTES.schemaVersion,
         }),
         mode: () => ({
@@ -335,24 +366,30 @@ function schemaDocument(): Subschema {
             description: TOP_LEVEL_NOTES.mode,
             default: "observe",
         }),
-        capabilities: capabilitiesSchema,
+        capabilities: () => capabilitiesSchema(schemaVersion),
         mappings: mappingsSchema,
         principals: () => ({
             type: "object",
             description: TOP_LEVEL_NOTES.principals,
+            propertyNames: { pattern: CAPABILITY_NAME_PATTERN.source },
             additionalProperties: { type: "string" },
         }),
     };
+    return {
+        type: "object",
+        additionalProperties: false,
+        properties: Object.fromEntries(TOP_LEVEL_KEYS.map((key) => [key, sections[key]()])),
+        ...(schemaVersion === 1 ? {} : { required: ["schemaVersion"] }),
+    };
+}
+
+function schemaDocument(): Subschema {
     return {
         $schema: "https://json-schema.org/draft/2020-12/schema",
         $id: SCHEMA_URL,
         title: "Hiero SDK automations configuration",
         description: DISCLAIMER,
-        type: "object",
-        additionalProperties: false,
-        // No `required`: every top-level key is optional, `schemaVersion`
-        // included — an absent one is version 1, so the empty document is whole.
-        properties: Object.fromEntries(TOP_LEVEL_KEYS.map((key) => [key, sections[key]()])),
+        oneOf: [documentShape(1), documentShape(2)],
     };
 }
 

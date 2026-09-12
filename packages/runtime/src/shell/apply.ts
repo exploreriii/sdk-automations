@@ -194,8 +194,12 @@ export function createApplier(options: ApplierOptions): Applier {
      * Did the affected person act after they were warned?
      * The instant is the DECISION's reading; this narrows rather than carries the claim.
      */
-    const activityCancels = (intent: AnyIntent): boolean => {
-        const at = intent.grace?.activityAt ?? null;
+    const activityCancels = (intent: AnyIntent, live: Date | null): boolean => {
+        const decided = intent.grace?.activityAt ?? null;
+        const at =
+            decided === null || (live !== null && live.getTime() > decided.getTime())
+                ? live
+                : decided;
         const warning = warningFor(intent.idempotencyKey);
         return at !== null && warning !== null && at.getTime() > warning.warnedAtMs;
     };
@@ -325,6 +329,23 @@ export function createApplier(options: ApplierOptions): Applier {
             };
         }
         const request = writeRequestFor(intent);
+        const activity =
+            intent.grace !== null && intent.operation === "closePullRequest"
+                ? await reader.pullRequestActivity(
+                      intent.item,
+                      pass.config.mappings.commands.working,
+                  )
+                : { ok: true as const, value: null };
+        if (!activity.ok) {
+            return {
+                ok: false,
+                result: {
+                    outcome: "retryLater",
+                    code: "itemUnreadable",
+                    detail: `the pull request's activity could not be read at apply time: ${activity.detail}`,
+                },
+            };
+        }
         const context = {
             killSwitchActive: facts.value.killSwitchActive,
             installationGrants: facts.value.installationGrants,
@@ -345,7 +366,7 @@ export function createApplier(options: ApplierOptions): Applier {
                       {
                           request,
                           warning: warningFor(intent.idempotencyKey),
-                          qualifyingActivitySinceWarning: activityCancels(intent),
+                          qualifyingActivitySinceWarning: activityCancels(intent, activity.value),
                       },
                       pass.config,
                       context,
@@ -456,6 +477,7 @@ export function createApplier(options: ApplierOptions): Applier {
         seq: number,
         call: Call,
         revision: string,
+        intent: AnyIntent | null,
     ): Promise<CallResult> => {
         const proof = await confirm(pass, call);
         if (proof === "held") {
@@ -478,7 +500,23 @@ export function createApplier(options: ApplierOptions): Applier {
                 "the configuration changed after this call was journalled; nothing was resent",
             );
         }
-        const gate = await resumeGate(pass, operationOf(call));
+        const operation = operationOf(call);
+        const destructive =
+            INTENT_OPERATIONS[operation].actionClassFloor === "clockTriggeredDestructive";
+        let gate: GateVerdict;
+        if (seq === 1 && destructive) {
+            if (intent === null) {
+                store.done(pass.effectId, seq, now());
+                return stop(
+                    "refused",
+                    "preconditionStale",
+                    "the destructive call cannot be safely rebuilt from this recovery row; nothing was resent",
+                );
+            }
+            gate = await freshGate(pass, intent);
+        } else {
+            gate = await resumeGate(pass, operation);
+        }
         if (!gate.ok) {
             if (gate.result.outcome === "refused") store.done(pass.effectId, seq, now());
             return { kind: "stop", result: gate.result };
@@ -510,6 +548,7 @@ export function createApplier(options: ApplierOptions): Applier {
         seq: number,
         row: string,
         revision: string,
+        intent: AnyIntent,
         calls: readonly Call[],
     ): Promise<PassResult> => {
         // Nothing can be resent from bytes nobody can read, and leaving the row open
@@ -524,7 +563,7 @@ export function createApplier(options: ApplierOptions): Applier {
                 detail: "the journal row for this call could not be read; it is closed and nothing was resent",
             };
         }
-        const resolved = await resolveOpen(pass, seq, journaled.call, revision);
+        const resolved = await resolveOpen(pass, seq, journaled.call, revision, intent);
         if (resolved.kind === "stop") return resolved.result;
         if (seq >= calls.length) {
             return { outcome: "applied", code: null, detail: null };
@@ -556,7 +595,7 @@ export function createApplier(options: ApplierOptions): Applier {
             };
         }
         if (state.state === "sentUnknown") {
-            return await continueOpen(pass, state.seq, state.intent, state.revision, calls);
+            return await continueOpen(pass, state.seq, state.intent, state.revision, intent, calls);
         }
         if (state.state === "midSequence") {
             if (state.revision !== pass.config.revision) {
@@ -652,7 +691,13 @@ export function createApplier(options: ApplierOptions): Applier {
             };
             if (!claim(open.effectId)) return;
             try {
-                const resolved = await resolveOpen(pass, open.seq, journaled.call, open.revision);
+                const resolved = await resolveOpen(
+                    pass,
+                    open.seq,
+                    journaled.call,
+                    open.revision,
+                    null,
+                );
                 if (resolved.kind === "done") {
                     log({ event: "effectApplied", effectId: open.effectId, seq: open.seq });
                 } else if (resolved.result.outcome === "refused") {

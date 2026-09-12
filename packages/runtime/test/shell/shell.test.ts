@@ -41,7 +41,7 @@ const GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a69";
 const SECOND_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6a";
 const FIXTURE = capture("issues.opened.json").bytes();
 
-const CONFIG = `schemaVersion: 1
+const CONFIG = `schemaVersion: 2
 mode: dry-run
 capabilities:
   intake:
@@ -646,7 +646,7 @@ describe("the first slice, end to end", () => {
  * write path.
  */
 describe("recovering effects on the clock, with no delivery to wake anything", () => {
-    const ACTIVE_CONFIG = `schemaVersion: 1
+    const ACTIVE_CONFIG = `schemaVersion: 2
 mode: active
 capabilities:
   intake:

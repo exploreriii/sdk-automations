@@ -14,7 +14,7 @@ import {
     repoPath,
     type GitHubHttpClient,
 } from "./contract.js";
-import { readChangesRequested } from "./facts.js";
+import { readChangesRequested, readPullRequestActivity } from "./facts.js";
 import { field, jsonArrayOf, jsonRecordOf } from "./untrusted.js";
 
 // ─── The chosen bounds ───────────────────────────────────────────────
@@ -77,6 +77,10 @@ export interface ReadBack {
     item(item: ItemRef): Promise<ReadBackOutcome<ItemFacts>>;
     /** Its own read because it is its own call: the reviews list, not the item's body. */
     changesRequested(item: ItemRef): Promise<ReadBackOutcome<boolean>>;
+    pullRequestActivity(
+        item: ItemRef,
+        working: string | undefined,
+    ): Promise<ReadBackOutcome<Date | null>>;
     /** Is a comment matching `matches` there? Absence obeys the gap above. */
     commentPresence(item: ItemRef, matches: (comment: CommentFact) => boolean): Promise<Presence>;
     /** Is this exact label name there? Absence obeys the gap above. */
@@ -303,6 +307,10 @@ export function createReadBack({
         labels,
         item: readItem,
         changesRequested: changesRequestedOn,
+        pullRequestActivity: (item, working) =>
+            item.kind === "pullRequest"
+                ? readPullRequestActivity({ http, repository }, item.number, working)
+                : Promise.resolve({ ok: true, value: null }),
         commentPresence: (item, matches) => presenceOf(() => comments(item), matches),
         // Exact names: this asks about the managed name the platform itself wrote (D4).
 

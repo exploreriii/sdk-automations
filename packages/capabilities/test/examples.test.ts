@@ -90,7 +90,7 @@ function documentEnabling(names: readonly string[]): string {
                 : smallestValidSettings(registered.declaration.settings, offered)),
         };
     }
-    return JSON.stringify({ schemaVersion: 1, capabilities, mappings, principals: PRINCIPALS });
+    return JSON.stringify({ schemaVersion: 2, capabilities, mappings, principals: PRINCIPALS });
 }
 
 describe("the shipped examples are readable by the capabilities they configure", () => {
@@ -134,7 +134,7 @@ describe("the shipped examples are readable by the capabilities they configure",
      */
     it("proves the check can fail", () => {
         const reapsFirst = [
-            "schemaVersion: 1",
+            "schemaVersion: 2",
             "capabilities:",
             "  inactivity:",
             "    enabled: false",

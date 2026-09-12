@@ -46,6 +46,13 @@ const HUMAN_CHANGE_EVENTS: ReadonlySet<string> = new Set([
     "unassigned",
     "closed",
     "reopened",
+    "commented",
+    "committed",
+    "convert_to_draft",
+    "ready_for_review",
+    "reviewed",
+    "review_dismissed",
+    "review_requested",
 ]);
 
 /** Timeline calls per item per delivery; past this the answer is `"unknown"`. */

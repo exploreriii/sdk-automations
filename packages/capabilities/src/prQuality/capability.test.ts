@@ -152,7 +152,7 @@ describe("prQuality", () => {
     it("refuses a configuration that still supplies a marker", () => {
         const result = parseConfig(
             {
-                schemaVersion: 1,
+                schemaVersion: 2,
                 capabilities: { prQuality: { enabled: false, marker: "<!-- x -->" } },
             },
             { revision: "rev-marker", knownCapabilities: [prQuality.declaration] },
@@ -206,7 +206,7 @@ describe("prQuality", () => {
     it("refuses a check the App does not run", () => {
         const result = parseConfig(
             {
-                schemaVersion: 1,
+                schemaVersion: 2,
                 capabilities: {
                     prQuality: { enabled: true, checks: { dcoSignoff: { enabled: true } } },
                 },
@@ -222,7 +222,7 @@ describe("prQuality", () => {
     it("refuses a sub-check written beside its parent rather than inside it", () => {
         const result = parseConfig(
             {
-                schemaVersion: 1,
+                schemaVersion: 2,
                 capabilities: {
                     prQuality: {
                         enabled: true,

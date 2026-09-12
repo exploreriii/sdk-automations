@@ -51,11 +51,17 @@ export function checkTopLevelKeys(raw: Record<string, unknown>): readonly Config
  * whole; an absent key is version 1, and a present null is stated (D56).
  */
 export function checkSchemaVersion(raw: Record<string, unknown>): readonly ConfigError[] {
-    if (!Object.hasOwn(raw, "schemaVersion") || raw.schemaVersion === 1) return [];
+    if (
+        !Object.hasOwn(raw, "schemaVersion") ||
+        raw.schemaVersion === 1 ||
+        raw.schemaVersion === 2
+    ) {
+        return [];
+    }
     return [
         err(
             "schemaVersionUnsupported",
-            `schemaVersion, when stated, must be the number 1, got ${JSON.stringify(raw.schemaVersion)}`,
+            `schemaVersion, when stated, must be the number 1 or 2, got ${JSON.stringify(raw.schemaVersion)}`,
             "schemaVersion",
         ),
     ];
@@ -101,8 +107,9 @@ function readCapabilitySettings(
     admitted: AdmittedCapability,
     names: SettingsView | null,
     stated: Readonly<Record<string, unknown>>,
+    base: string,
 ): Checked<Readonly<Record<string, unknown>>> {
-    const at = (path: string): string => `capabilities.${capability}.${path}`;
+    const at = (path: string): string => `${base}.${path}`;
     const declares = Object.keys(admitted.settings);
     const errors: ConfigError[] = Object.keys(stated)
         .filter((key) => !declares.includes(key))
@@ -137,6 +144,7 @@ export function readCapabilities(
     raw: Record<string, unknown>,
     knownCapabilities: readonly AdmittedCapability[],
     names: SettingsView | null,
+    schemaVersion: 1 | 2,
 ): Checked<[string, CapabilityConfig][]> {
     const entries: [string, CapabilityConfig][] = [];
     const errors: ConfigError[] = [];
@@ -183,9 +191,6 @@ export function readCapabilities(
                 ),
             );
         }
-        const settings = Object.fromEntries(
-            Object.entries(value).filter(([key]) => key !== "enabled"),
-        );
         const enabled = value.enabled === true;
         if (!admitted.has(name)) {
             errors.push(
@@ -199,10 +204,36 @@ export function readCapabilities(
         }
         /** An unadmitted name has no spec to read against, and was reported above. */
         const declared = admitted.get(name);
+        let stated: Readonly<Record<string, unknown>> = {};
+        let base = `capabilities.${name}`;
+        let shapeOk = true;
+        if (schemaVersion === 1 && declared !== undefined) {
+            for (const key of Object.keys(value)) {
+                if (key === "enabled" || key === "settings") continue;
+                errors.push(
+                    err(
+                        "unknownKey",
+                        `capability "${name}": unknown key "${key}" in a version 1 block`,
+                        `${base}.${key}`,
+                    ),
+                );
+            }
+            base = `${base}.settings`;
+            if (value.settings !== undefined && !isPlainObject(value.settings)) {
+                errors.push(err("notAMapping", `${base} must be a mapping`, base));
+                shapeOk = false;
+            } else {
+                stated = value.settings ?? {};
+            }
+        } else if (schemaVersion === 2) {
+            stated = Object.fromEntries(Object.entries(value).filter(([key]) => key !== "enabled"));
+        }
         const read =
-            declared === undefined ? null : readCapabilitySettings(name, declared, names, settings);
+            declared === undefined || !shapeOk
+                ? null
+                : readCapabilitySettings(name, declared, names, stated, base);
         if (read !== null && !read.ok) errors.push(...read.errors);
-        entries.push([name, { enabled, settings: read?.ok === true ? read.value : settings }]);
+        entries.push([name, { enabled, settings: read?.ok === true ? read.value : stated }]);
     }
     return checked(entries, errors);
 }

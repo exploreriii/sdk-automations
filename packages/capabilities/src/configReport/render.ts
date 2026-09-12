@@ -21,9 +21,21 @@ const bullet = (depth: number, text: string): string => `${indent(depth)}- ${tex
 /** The heading and the closing line, so the two bodies are recognisably one report. */
 const TITLE = "### `automations.yml` — what this pull request would mean";
 const FOOTER = "Read on the default branch, this changes nothing until it merges.";
+const MAX_COMMENT_CHARS = 12_000;
+const MAX_REPORTED_ERRORS = 100;
+const SHORTENED = "_Report shortened to fit in a GitHub comment._";
 
 /** The lines as one body. Blank entries are markdown's paragraph breaks. */
 const join = (lines: readonly string[]): string => lines.join("\n");
+
+function fitComment(body: string): string {
+    if (body.length <= MAX_COMMENT_CHARS) return body;
+    const ending = `\n\n${SHORTENED}\n\n${FOOTER}`;
+    let end = MAX_COMMENT_CHARS - ending.length;
+    if (body.charCodeAt(end - 1) >= 0xd800 && body.charCodeAt(end - 1) <= 0xdbff) end -= 1;
+    while (body[end - 1] === "\\") end -= 1;
+    return `${body.slice(0, end)}${ending}`;
+}
 
 /** One settings value as text. `null` is a written absence, shown as `unset`. */
 function scalar(value: unknown): string {
@@ -103,20 +115,22 @@ function principals(config: RepositoryConfig): readonly string[] {
 
 /** What the App would read from this file, if it merged. */
 export function renderConfiguration(revision: string, config: RepositoryConfig): string {
-    return join([
-        TITLE,
-        "",
-        `The file at \`${revision}\` parses. This is what the App would read from it.`,
-        "",
-        `**Mode** — ${config.mode}`,
-        "",
-        ...capabilities(config),
-        "",
-        ...mappings(config),
-        ...principals(config),
-        "",
-        FOOTER,
-    ]);
+    return fitComment(
+        join([
+            TITLE,
+            "",
+            `The file at \`${revision}\` parses. This is what the App would read from it.`,
+            "",
+            `**Mode** — ${config.mode}`,
+            "",
+            ...capabilities(config),
+            "",
+            ...mappings(config),
+            ...principals(config),
+            "",
+            FOOTER,
+        ]),
+    );
 }
 
 const lastSegment = (path: string): string => path.slice(path.lastIndexOf(".") + 1);
@@ -172,7 +186,8 @@ function causeOf(error: ConfigError, causes: readonly ConfigError[]): ConfigErro
 
 /** Why the file was rejected, one line each, with the cascade folded up. */
 export function renderRejection(revision: string, errors: readonly ConfigError[]): string {
-    const ordered = documentOrder(errors);
+    const omitted = Math.max(0, errors.length - MAX_REPORTED_ERRORS);
+    const ordered = documentOrder(errors.slice(0, MAX_REPORTED_ERRORS));
     const causes = ordered.filter((error) => !ordered.some((other) => inherits(error, other)));
 
     const lines = causes.flatMap((cause) => {
@@ -182,16 +197,19 @@ export function renderRejection(revision: string, errors: readonly ConfigError[]
             : [line(cause), bullet(1, `and ${String(followers.length)} places that inherit it`)];
     });
 
-    return join([
-        TITLE,
-        "",
-        `The file at \`${revision}\` is rejected, so the App would read no configuration from it ` +
-            "at all — one error anywhere rejects the whole document.",
-        "",
-        ...lines,
-        "",
-        FOOTER,
-    ]);
+    return fitComment(
+        join([
+            TITLE,
+            "",
+            `The file at \`${revision}\` is rejected, so the App would read no configuration from it ` +
+                "at all — one error anywhere rejects the whole document.",
+            "",
+            ...(omitted === 0 ? [] : [bullet(0, `${String(omitted)} more errors not shown`), ""]),
+            ...lines,
+            "",
+            FOOTER,
+        ]),
+    );
 }
 
 /** The body for whichever half of the result came back. */

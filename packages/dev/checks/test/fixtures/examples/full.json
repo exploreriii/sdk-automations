@@ -1,6 +1,6 @@
 {
     "revision": "full.yml",
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "mode": "dry-run",
     "capabilities": {
         "intake": {

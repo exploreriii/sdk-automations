@@ -151,7 +151,7 @@ interface Travelled {
 /** A design's block as a whole document: an excerpt states no `schemaVersion`. */
 function documentOf(name: string): string {
     const verbatim = fixture(name);
-    return verbatim.startsWith("schemaVersion") ? verbatim : `schemaVersion: 1\n${verbatim}`;
+    return verbatim.startsWith("schemaVersion") ? verbatim : `schemaVersion: 2\n${verbatim}`;
 }
 
 /** `code @ path` for every error one document draws against one declaration. */
@@ -200,7 +200,7 @@ function withSettings(
 ): ConfigResult {
     return parseConfig(
         {
-            schemaVersion: 1,
+            schemaVersion: 2,
             mode: config.mode,
             capabilities: { [declaration.name]: { enabled: true, ...settings } },
             mappings: config.mappings,
@@ -938,7 +938,6 @@ describe("block", () => {
     it.each([
         ["absent", undefined],
         ["off", { enabled: false, skillTier: "nonsense" }],
-        ["consented to with something that is not true", { enabled: "yes", skillTier: 7 }],
         ["kept without consent at all", { skillTier: 7 }],
     ])("reads a block %s as parked, and never reads its fields", (_why, checklist) => {
         // The malformed inner field is the proof: a parked block is not read,
@@ -947,6 +946,12 @@ describe("block", () => {
             ok: true,
             value: { checklist: { enabled: false } },
         });
+    });
+
+    it("rejects malformed consent instead of silently parking it", () => {
+        expect(
+            problemsOf(readFrom(fields, view({ checklist: { enabled: "yes", skillTier: 7 } }))),
+        ).toEqual(["checklist.enabled: must be true or false"]);
     });
 
     /** The parser hands on records built without a prototype (`__proto__` as data). */
@@ -1293,7 +1298,7 @@ describe("problems as the parser reports them (§3.2)", () => {
     const rejected = (declaration: TypedDeclaration, settings: Readonly<Record<string, unknown>>) =>
         parseConfig(
             {
-                schemaVersion: 1,
+                schemaVersion: 2,
                 capabilities: { [declaration.name]: { enabled: true, ...settings } },
             },
             { revision: "rev-problems", knownCapabilities: [declaration] },
@@ -1784,7 +1789,7 @@ describe("prQuality — packages/capabilities/src/prQuality/design.md", () => {
     it("reports assignedIssues outside linkedIssues as an unknown key, at parse time", () => {
         const result = parseConfigDocument(
             [
-                "schemaVersion: 1",
+                "schemaVersion: 2",
                 "capabilities:",
                 "  prQuality:",
                 "    enabled: true",
@@ -2258,7 +2263,7 @@ describe("notifications — design/guides/capabilities/notifications.md", () => 
 
     it("refuses the native field form — an alert is spelled by a label", () => {
         const native = parseConfigDocument(
-            `schemaVersion: 1\n${fixture("notifications.1").replace(
+            `schemaVersion: 2\n${fixture("notifications.1").replace(
                 `critical: "priority: critical"`,
                 "critical: { field: Priority, value: Critical }",
             )}`,

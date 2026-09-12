@@ -94,7 +94,7 @@ const staleIssue = (): Facts => sweptIssue({ assignees: CONTRIBUTOR });
 function readBlock(block: Readonly<Record<string, unknown>>): ConfigResultOf {
     const result = parseConfig(
         {
-            schemaVersion: 1,
+            schemaVersion: 2,
             mode: "active",
             capabilities: { inactivity: { enabled: true, ...block } },
             mappings: MAPPINGS,
@@ -253,7 +253,7 @@ describe("the forms a clock can be written in", () => {
      */
     const parseWritten = (written: string) =>
         parseConfigDocument(
-            `schemaVersion: 1\nmode: observe\ncapabilities:\n  inactivity:\n` +
+            `schemaVersion: 2\nmode: observe\ncapabilities:\n  inactivity:\n` +
                 `    enabled: true\n    remindAfter: ${written}\n    reap:\n      after: 2000d\n`,
             { revision: "rev-extremes", knownCapabilities: DECLARATIONS },
         );
@@ -589,7 +589,11 @@ describe("two capabilities on one item", () => {
             readiness: { draft: false },
             review: {
                 changesRequested: true,
-                reapableSince: new Date("2026-07-01T00:00:00.000Z"),
+                reapableSince: {
+                    needsRevision: new Date("2026-07-01T00:00:00.000Z"),
+                    changesRequested: new Date("2026-07-01T00:00:00.000Z"),
+                    draft: new Date("2026-07-01T00:00:00.000Z"),
+                },
                 lastCommitAt: null,
             },
             position: {

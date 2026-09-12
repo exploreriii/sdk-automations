@@ -104,7 +104,7 @@ async function bodyFor(text: string): Promise<string> {
     return desired.body;
 }
 
-const CLEAN = `schemaVersion: 1
+const CLEAN = `schemaVersion: 2
 mode: active
 
 capabilities:
@@ -125,7 +125,7 @@ principals:
 `;
 
 /** One capability on, its spec empty, and no neighbour written beside it. */
-const SPARSE = `schemaVersion: 1
+const SPARSE = `schemaVersion: 2
 mode: dry-run
 
 capabilities:
@@ -134,7 +134,7 @@ capabilities:
 `;
 
 /** The five-error case D147 recorded, plus an unrelated misspelling. */
-const CASCADE = `schemaVersion: 1
+const CASCADE = `schemaVersion: 2
 mode: active
 
 capabilities:
@@ -313,7 +313,7 @@ describe("configReport", () => {
 
     /** Every capability the file switched off, on one line, in the file's own order. */
     it("names each switched-off capability, separated for a reader", async () => {
-        const body = await bodyFor(`schemaVersion: 1
+        const body = await bodyFor(`schemaVersion: 2
 mode: active
 
 capabilities:
@@ -348,7 +348,7 @@ capabilities:
     });
 
     it("renders every file-derived string inert", async () => {
-        const hostile = `schemaVersion: 1
+        const hostile = `schemaVersion: 2
 mode: observe
 
 mappings:
@@ -368,6 +368,28 @@ principals:
         );
         expect(body).toContain("  - p0: \\[click\\]\\(http://evil\\)");
         expect(body).toContain("- maintainerTeam: @\u200bhere");
+        expect(body).not.toMatch(/@[a-z]/);
+        expect(body).not.toContain("<!--");
+    });
+
+    it("renders a hostile capability setting inert", () => {
+        const body = renderConfiguration("sha256:hostile", {
+            revision: "sha256:hostile",
+            schemaVersion: 1,
+            mode: "observe",
+            capabilities: {
+                sample: {
+                    enabled: true,
+                    settings: { guide: "@everyone [click](http://evil) <!-- marker -->" },
+                },
+            },
+            mappings: { labels: {}, commands: {}, skills: {}, alerts: {} },
+            principals: {},
+        });
+
+        expect(body).toContain(
+            "guide: @\u200beveryone \\[click\\]\\(http://evil\\) \\<\\!-- marker --\\>",
+        );
         expect(body).not.toMatch(/@[a-z]/);
         expect(body).not.toContain("<!--");
     });
@@ -574,6 +596,51 @@ mappings:
             "- line 3 — capabilities.x.remindAfter: must be set to a duration",
             "  - and 2 places that inherit it",
         ]);
+    });
+
+    it("bounds a large rejection and reports how many errors it left out", () => {
+        const errors = Array.from({ length: 250 }, (_, index): ConfigError => ({
+            code: "settingInvalid",
+            message: `${"x".repeat(1_000)} @everyone <!-- marker -->`,
+            path: `capabilities.sample.value${String(index)}`,
+            line: index + 1,
+        }));
+
+        const body = renderRejection("sha256:many", errors);
+
+        expect(body.length).toBeLessThanOrEqual(12_000);
+        expect(new TextEncoder().encode(body).length).toBeLessThan(65_536);
+        expect(body).toContain("150 more errors not shown");
+        expect(body).toContain("Report shortened to fit in a GitHub comment");
+        expect(
+            body.endsWith("Read on the default branch, this changes nothing until it merges."),
+        ).toBe(true);
+        expect(body).not.toMatch(/@[a-z]/);
+        expect(body).not.toContain("<!--");
+    });
+
+    it("bounds a large accepted configuration", () => {
+        const alerts = Object.fromEntries(
+            Array.from({ length: 200 }, (_, index) => [
+                `alert${String(index)}`,
+                `${"漢".repeat(100)}${String(index)}`,
+            ]),
+        );
+        const body = renderConfiguration("sha256:large", {
+            revision: "sha256:large",
+            schemaVersion: 1,
+            mode: "observe",
+            capabilities: {},
+            mappings: { labels: {}, commands: {}, skills: {}, alerts },
+            principals: {},
+        });
+
+        expect(body.length).toBeLessThanOrEqual(12_000);
+        expect(new TextEncoder().encode(body).length).toBeLessThan(65_536);
+        expect(body).toContain("Report shortened to fit in a GitHub comment");
+        expect(
+            body.endsWith("Read on the default branch, this changes nothing until it merges."),
+        ).toBe(true);
     });
 
     /** The narrow shape again, needing no schedule, state or delivery. */

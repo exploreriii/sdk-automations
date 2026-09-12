@@ -45,7 +45,7 @@ const viewFor = <D extends TypedDeclaration>(
 const parsed = (declaration: TypedDeclaration, settings: Readonly<Record<string, unknown>>) =>
     parseConfig(
         {
-            schemaVersion: 1,
+            schemaVersion: 2,
             capabilities: { [declaration.name]: { enabled: true, ...settings } },
             mappings: { labels: { awaitingTriage: "status: triage" } },
         },

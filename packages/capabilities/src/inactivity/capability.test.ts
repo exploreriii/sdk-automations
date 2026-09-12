@@ -116,7 +116,11 @@ const issueRecord = (over: Partial<IssueLadderFacts> = {}): IssueLadderFacts =>
 /** A stale draft, seventy days idle — the pull-request ladder's starting point. */
 const REVIEW = {
     changesRequested: false,
-    reapableSince: ago(70),
+    reapableSince: {
+        needsRevision: ago(70),
+        changesRequested: ago(70),
+        draft: ago(70),
+    },
     lastCommitAt: null,
 } as const;
 
@@ -271,7 +275,14 @@ describe("the pull-request ladder judges the contributor's wait", () => {
     it("PR stale for a year in `needsReview`", async () => {
         const record = pullRecord(
             { position: position({ meaning: "needsReview" }) },
-            { draft: false, reapableSince: ago(365) },
+            {
+                draft: false,
+                reapableSince: {
+                    needsRevision: ago(365),
+                    changesRequested: ago(365),
+                    draft: ago(365),
+                },
+            },
         );
 
         expect(await decide(record)).toEqual([]);
@@ -305,14 +316,29 @@ describe("the pull-request ladder judges the contributor's wait", () => {
     it("`needsRevision` override of 2d/5d", async () => {
         const quality = pullRecord(
             { position: position({ meaning: "needsRevision" }) },
-            { draft: false, reapableSince: ago(3) },
+            {
+                draft: false,
+                reapableSince: {
+                    needsRevision: ago(3),
+                    changesRequested: ago(3),
+                    draft: ago(3),
+                },
+            },
         );
         // One record, one decision, so the ordinary pull request is its own
         // call: three days is nothing against the sixty-day ladder, and only
         // the label reason's own 2/5 override puts one on the ladder.
         const ordinary = pullRecord(
             { item: { kind: "pullRequest", number: 42 } },
-            { draft: false, changesRequested: true, reapableSince: ago(3) },
+            {
+                draft: false,
+                changesRequested: true,
+                reapableSince: {
+                    needsRevision: ago(3),
+                    changesRequested: ago(3),
+                    draft: ago(3),
+                },
+            },
         );
 
         expect(await decide(ordinary)).toEqual([]);
@@ -356,7 +382,14 @@ describe("the pull-request ladder judges the contributor's wait", () => {
         const flipped = (daysAgo: number) =>
             pullRecord(
                 { position: position({ meaning: "needsRevision" }) },
-                { draft: false, reapableSince: ago(daysAgo) },
+                {
+                    draft: false,
+                    reapableSince: {
+                        needsRevision: ago(daysAgo),
+                        changesRequested: ago(daysAgo),
+                        draft: ago(daysAgo),
+                    },
+                },
             );
 
         // The clock starts at the flip, so the reason's own two days must pass.
@@ -369,7 +402,14 @@ describe("the pull-request ladder judges the contributor's wait", () => {
             await decide(
                 pullRecord(
                     { position: position({ meaning: "needsReview" }) },
-                    { draft: false, reapableSince: ago(365) },
+                    {
+                        draft: false,
+                        reapableSince: {
+                            needsRevision: ago(365),
+                            changesRequested: ago(365),
+                            draft: ago(365),
+                        },
+                    },
                 ),
             ),
         ).toEqual([]);

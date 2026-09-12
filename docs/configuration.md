@@ -17,7 +17,7 @@ New here? Start with the [Quickstart](quickstart.md). Want a file to copy?
 capability writes inside its own block is deliberately capability-owned and may be deeper:
 
 ```yaml
-schemaVersion: 1              # ── top level. Optional, default: 1
+schemaVersion: 2              # ── top level. Required for the flat capability shape
 mode: dry-run                 # ── top level. Optional, default: observe
 
 capabilities:                 # ── top level. Optional, default: nothing enabled
@@ -45,8 +45,7 @@ Two things that prevent most mistakes:
 - In headings below, dots mean **nesting**, not key names: `capabilities.<name>.enabled` is the
   `enabled` line inside one capability's block, three levels deep.
 - Any shared key not on this tree is an error. Inside a capability's block the names beside
-  `enabled` are checked against the capability's own declaration; the values are not, and stay the
-  capability's business.
+  `enabled` and their values are checked against the capability's own declaration.
 
 Nothing is required. Every default is non-writing—an empty file is valid and produces an `observe`
 decision rather than an active effect.
@@ -60,12 +59,11 @@ decision rather than an active effect.
 | Type | integer |
 | Required | no |
 | Default | `1` |
-| Allowed | `1` |
+| Allowed | `1`, `2` |
 
-Leave it out and the file is version 1. State it and it must be the unquoted number `1`: `"1"` is a
-string and is rejected, and so is `schemaVersion:` with nothing after it. A future format will have
-to say `schemaVersion: 2`, so no file can drift into a newer version by accident. There is no version
-2 yet, and the migration/deprecation policy for any future version remains deliberately undecided.
+Leave it out and the file is version 1. Version 1 keeps capability options inside `settings:`.
+Version 2 puts those options beside `enabled` and must state `schemaVersion: 2`. Quoted numbers and
+an empty `schemaVersion:` are rejected.
 
 ### `mode`
 
@@ -132,10 +130,10 @@ consent, and consent is not inferred from anything that merely looks true.
 | Required | no |
 | Default | the capability's documented value for that key |
 
-A capability's own options sit beside its `enabled`, on the same level; there is no wrapper between
-them. Every capability declares which setting names it reads, and a name outside
+A version 2 capability's options sit beside its `enabled`, on the same level. Version 1 keeps the
+same options inside `settings:`. Every capability declares which setting names it reads, and a name outside
 that list is an `unknownKey` error naming the exact path — so `annouce:` fails instead of configuring
-nothing, and so does a `settings:` line left over from the older shape. Disabled blocks are checked
+nothing. Using one version's shape with the other version is also rejected. Disabled blocks are checked
 too: a typo that waits for the day you flip `enabled` is the surprise this rule exists to end.
 
 Names AND values, in one pass. The same declaration says what each setting may hold, so a number where a
@@ -320,7 +318,7 @@ The exact codes the App reports, and what to fix.
 | `duplicateKey` | The same key appears twice; delete one |
 | `notAMapping` | Something is a list or a bare value where `key: value` pairs belong |
 | `unknownKey` | A key the schema does not have — usually a typo. Includes a setting name the capability never declared |
-| `schemaVersionUnsupported` | A stated `schemaVersion` is not the unquoted number `1` — omit the key and it is `1` |
+| `schemaVersionUnsupported` | A stated `schemaVersion` is not the unquoted number `1` or `2` — omit the key and it is `1` |
 | `modeInvalid` | `mode` is not one of the four modes (check case and quoting) |
 | `capabilityNameInvalid` | Capability names are camelCase, like `prQuality` |
 | `capabilityEnabledNotBoolean` | `enabled` must be literally `true` or `false` — not `"true"`, not `1` |

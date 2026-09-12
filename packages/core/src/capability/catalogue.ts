@@ -117,8 +117,9 @@ export interface PullRequestFacts {
     readonly review:
         | {
               readonly changesRequested: boolean;
-              /** When the pull request entered its current reapable mode, or was opened. */
-              readonly reapableSince: Date;
+              readonly reapableSince: Readonly<
+                  Record<"needsRevision" | "changesRequested" | "draft", Date>
+              >;
               readonly lastCommitAt: Date | null;
           }
         | Unread;

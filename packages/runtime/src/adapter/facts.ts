@@ -7,6 +7,7 @@
 
 import {
     alertsOfLabels,
+    labelKey,
     meaningsOfLabels,
     producerReads,
     projectIssue,
@@ -349,7 +350,7 @@ function firstToken(body: unknown): string | null {
  * The FIRST token only, folded for case the way the label mapping's is.
  */
 export async function readLastWorkingAt(
-    context: ReadContext,
+    context: RepositoryReads,
     number: number,
     spelling: string,
 ): Promise<Read<ReadonlyMap<string, Date>>> {
@@ -423,18 +424,14 @@ export async function readChangesRequested(
     return { ok: true, value: [...latest.values()].includes("CHANGES_REQUESTED") };
 }
 
-/** The timeline events that put a pull request into a contributor-side mode. */
-const MODE_EVENTS: ReadonlySet<string> = new Set([
-    "convert_to_draft",
-    "ready_for_review",
-    "review_requested",
-]);
-
 /**
- * When the pull request entered the mode it is in now, or the moment it was opened.
+ * When the pull request entered each reapable mode, or the moment it was opened.
  * The item timeline answers a PULL REQUEST number (`2026-09-12T06-31-36-229Z#15`).
  */
-export async function readReapableSince(context: ReadContext, number: number): Promise<Read<Date>> {
+export async function readReapableSince(
+    context: ReadContext,
+    number: number,
+): Promise<Read<Exclude<PullRequestFacts["review"], Unread>["reapableSince"]>> {
     const opened = await readRecord(
         context.http,
         pullPath(context, number),
@@ -452,17 +449,32 @@ export async function readReapableSince(context: ReadContext, number: number): P
     );
     if (!read.ok) return read;
 
-    let entered = createdAt;
+    const entered = {
+        needsRevision: createdAt,
+        changesRequested: createdAt,
+        draft: createdAt,
+    };
+    const revisionLabel = context.config.mappings.labels.needsRevision;
     for (const entry of read.value) {
         const kind = field(entry, "event");
-        const changesRequested =
-            kind === "reviewed" && field(entry, "state") === "changes_requested";
-        if (typeof kind !== "string" || !(MODE_EVENTS.has(kind) || changesRequested)) continue;
+        const label = field(field(entry, "label"), "name");
+        const reason =
+            kind === "convert_to_draft"
+                ? "draft"
+                : kind === "reviewed" && field(entry, "state") === "changes_requested"
+                  ? "changesRequested"
+                  : kind === "labeled" &&
+                      typeof label === "string" &&
+                      revisionLabel !== undefined &&
+                      labelKey(label) === labelKey(revisionLabel)
+                    ? "needsRevision"
+                    : null;
+        if (reason === null) continue;
         const at = instant(field(entry, "created_at") ?? field(entry, "submitted_at"));
         if (at === null) {
             return unreadable(`#${String(number)} timeline: a mode event was undated`);
         }
-        entered = newer(entered, at);
+        entered[reason] = newer(entered[reason], at);
     }
     return { ok: true, value: entered };
 }
@@ -472,7 +484,7 @@ export async function readReapableSince(context: ReadContext, number: number): P
  * `null` is a real answer here, not an unread one.
  */
 export async function readLastCommitAt(
-    context: ReadContext,
+    context: RepositoryReads,
     number: number,
 ): Promise<Read<Date | null>> {
     const read = await allPages(
@@ -488,6 +500,23 @@ export async function readLastCommitAt(
         const at = instant(committed);
         if (at === null) return unreadable(`#${String(number)} commits: a commit was undated`);
         newest = newest === null ? at : newer(newest, at);
+    }
+    return { ok: true, value: newest };
+}
+
+export async function readPullRequestActivity(
+    context: RepositoryReads,
+    number: number,
+    working: string | undefined,
+): Promise<Read<Date | null>> {
+    const commit = await readLastCommitAt(context, number);
+    if (!commit.ok) return commit;
+    if (working === undefined) return commit;
+    const comments = await readLastWorkingAt(context, number, working);
+    if (!comments.ok) return comments;
+    let newest = commit.value;
+    for (const at of comments.value.values()) {
+        if (newest === null || at.getTime() > newest.getTime()) newest = at;
     }
     return { ok: true, value: newest };
 }

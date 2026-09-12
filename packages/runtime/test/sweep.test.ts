@@ -58,7 +58,7 @@ const DAY_MS = 24 * 60 * 60_000;
 const ISSUE: ItemRef = { kind: "issue", number: 12 };
 const PULL: ItemRef = { kind: "pullRequest", number: 34 };
 
-const CONFIG_TEXT = `schemaVersion: 1
+const CONFIG_TEXT = `schemaVersion: 2
 mode: dry-run
 capabilities:
   inactivity:

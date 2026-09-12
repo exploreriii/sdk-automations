@@ -69,7 +69,7 @@ export const MERGE_LABEL = "status: ready to merge";
  */
 export function configFor(mode: RepositoryMode = "active", revision = "rev-1"): RepositoryConfig {
     const result = parseConfigDocument(
-        `schemaVersion: 1
+        `schemaVersion: 2
 mode: ${mode}
 capabilities:
   intake:
@@ -92,7 +92,7 @@ mappings:
 /** The same document with `intake` disabled, which is its own refusal. */
 export function configWithCapabilityOff(): RepositoryConfig {
     const result = parseConfigDocument(
-        `schemaVersion: 1
+        `schemaVersion: 2
 mode: active
 capabilities:
   intake:
@@ -370,6 +370,7 @@ export interface FakeWorld {
     /** The two native pull-request modes an apply-time claim is judged against. */
     draft: boolean;
     changesRequested: boolean;
+    activityAt: Date | null;
 }
 
 /** Where a test bends the fake, and how. */
@@ -421,6 +422,7 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
         merged: initial.merged ?? false,
         draft: initial.draft ?? false,
         changesRequested: initial.changesRequested ?? false,
+        activityAt: initial.activityAt ?? null,
     };
     const calls: string[] = [];
     const faults: Faults = {
@@ -520,6 +522,7 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
                     ? { ok: false, detail: "GitHub refused the read" }
                     : { ok: true, value: world.changesRequested },
             ),
+        pullRequestActivity: () => Promise.resolve({ ok: true, value: world.activityAt }),
         commentPresence: (_item, matches) =>
             Promise.resolve(presenceOf(world.comments.some(matches))),
         labelPresence: (_item, label) => Promise.resolve(presenceOf(world.labels.includes(label))),

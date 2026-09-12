@@ -255,7 +255,7 @@ describe("a rejection with a path carries the line that path sits on", () => {
 
     it("every error of a document with three mistakes is placed", () => {
         const errors = errorsOf(
-            `schemaVersion: 2\nmode: sideways\ncapabilties: {}\ncapabilities: {}\n`,
+            `schemaVersion: 3\nmode: sideways\ncapabilties: {}\ncapabilities: {}\n`,
         );
         expect(errors.map((e) => [e.path, e.line])).toEqual([
             ["capabilties", 3],

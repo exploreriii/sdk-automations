@@ -55,6 +55,10 @@ export interface EffectReader {
     item(item: ItemRef): Promise<ReadAnswer<ItemSeen>>;
     /** The other native mode, which is its own call: the reviews list, folded. */
     changesRequested(item: ItemRef): Promise<ReadAnswer<boolean>>;
+    pullRequestActivity(
+        item: ItemRef,
+        working: string | undefined,
+    ): Promise<ReadAnswer<Date | null>>;
     commentPresence(item: ItemRef, matches: (comment: CommentSeen) => boolean): Promise<SeenState>;
     labelPresence(item: ItemRef, label: string): Promise<SeenState>;
 }

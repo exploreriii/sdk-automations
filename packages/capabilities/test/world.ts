@@ -253,7 +253,7 @@ export function configEnabling(
     }
     const result = parseConfig(
         {
-            schemaVersion: 1,
+            schemaVersion: 2,
             mode: "active",
             capabilities,
             mappings,
@@ -322,7 +322,11 @@ const READ: { readonly [K in FactKind]: { readonly [G in FactGroup]?: unknown } 
         links: { issues: [] },
         review: {
             changesRequested: false,
-            reapableSince: new Date("2026-07-01T00:00:00.000Z"),
+            reapableSince: {
+                needsRevision: new Date("2026-07-01T00:00:00.000Z"),
+                changesRequested: new Date("2026-07-01T00:00:00.000Z"),
+                draft: new Date("2026-07-01T00:00:00.000Z"),
+            },
             lastCommitAt: null,
         },
         readiness: { draft: true },

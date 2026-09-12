@@ -82,7 +82,7 @@ export type MappingSectionKey = (typeof MAPPING_SECTION_KEYS)[number];
  */
 export interface RepositoryConfig {
     readonly revision: string;
-    readonly schemaVersion: 1;
+    readonly schemaVersion: 1 | 2;
     readonly mode: RepositoryMode;
     readonly capabilities: Readonly<Record<string, CapabilityConfig>>;
     readonly mappings: Mappings;

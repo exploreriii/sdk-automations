@@ -10,7 +10,7 @@
 # `dry-run` is the rehearsal: the report names each change the App would make,
 # and nothing is written.
 
-schemaVersion: 1 # optional — an absent version is 1. Stated here because this file is the catalogue
+schemaVersion: 2 # the flat capability shape used by this catalogue
 mode: dry-run
 
 capabilities:

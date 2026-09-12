@@ -90,7 +90,7 @@ const contents = (text: string) =>
  */
 const pullRequest = () => success(JSON.stringify({ number: 34, head: { sha: HEAD } }));
 
-const PROPOSED = `schemaVersion: 1
+const PROPOSED = `schemaVersion: 2
 mode: active
 capabilities:
   intake:
@@ -236,7 +236,7 @@ describe("configAtHead", () => {
         const { resolve } = source([
             success(JSON.stringify([fileEntry()])),
             pullRequest(),
-            contents("schemaVersion: 1\ncapabilities:\n  intake:\n    enabled: yes please\n"),
+            contents("schemaVersion: 2\ncapabilities:\n  intake:\n    enabled: yes please\n"),
         ]);
 
         const answer = await ask(resolve);

@@ -165,7 +165,11 @@ describe("what a record read of the native modes", () => {
 
     const reviewRead = {
         changesRequested: true,
-        reapableSince: ago(10),
+        reapableSince: {
+            needsRevision: ago(10),
+            changesRequested: ago(10),
+            draft: ago(10),
+        },
         lastCommitAt: null,
     } as const;
 
@@ -273,16 +277,37 @@ describe("the clocks", () => {
         over: Partial<Exclude<PullRequestFacts["review"], "unread">> = {},
     ): Exclude<PullRequestFacts["review"], "unread"> => ({
         changesRequested: false,
-        reapableSince: ago(70),
+        reapableSince: {
+            needsRevision: ago(70),
+            changesRequested: ago(70),
+            draft: ago(70),
+        },
         lastCommitAt: null,
         ...over,
     });
 
     it("starts a pull request's clock at the mode it is in", () => {
-        expect(pullRequestClock({ assignees: [], review: review() }, AT)).toEqual({
+        expect(pullRequestClock({ assignees: [], review: review() }, "draft", AT)).toEqual({
             idleSince: ago(70),
             idleHours: 70 * 24,
         });
+    });
+
+    it("starts each pull request reason from its own entry", () => {
+        const facts = {
+            assignees: [],
+            review: review({
+                reapableSince: {
+                    needsRevision: ago(2),
+                    changesRequested: ago(5),
+                    draft: ago(8),
+                },
+            }),
+        };
+
+        expect(pullRequestClock(facts, "needsRevision", AT).idleSince).toEqual(ago(2));
+        expect(pullRequestClock(facts, "changesRequested", AT).idleSince).toEqual(ago(5));
+        expect(pullRequestClock(facts, "draft", AT).idleSince).toEqual(ago(8));
     });
 
     it("resets a pull request's clock from a commit or from anyone on it", () => {
@@ -295,11 +320,16 @@ describe("the clocks", () => {
                     assignees: [assignee("alice", 80, ago(20)), assignee("bob", 80, ago(40))],
                     review: review({ lastCommitAt: ago(30) }),
                 },
+                "draft",
                 AT,
             ),
         ).toEqual({ idleSince: ago(20), idleHours: 20 * 24 });
         expect(
-            pullRequestClock({ assignees: [], review: review({ lastCommitAt: ago(30) }) }, AT),
+            pullRequestClock(
+                { assignees: [], review: review({ lastCommitAt: ago(30) }) },
+                "draft",
+                AT,
+            ),
         ).toEqual({ idleSince: ago(30), idleHours: 30 * 24 });
     });
 

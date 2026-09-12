@@ -1563,6 +1563,16 @@ describe("a close that claimed a native pull-request mode", () => {
         expect(github.calls).toEqual([]);
     });
 
+    it("cancels when a push happened after the decision was made", async () => {
+        recordWarning("draft");
+        const github = fakeGitHub({ draft: true, activityAt: later(3) });
+
+        const outcome = await applyAt(github, closeEffect("draft"));
+
+        expect(outcome).toMatchObject({ outcome: "refused", code: "activityCancelled" });
+        expect(github.calls).toEqual([]);
+    });
+
     it("asks again rather than closing on a mode it could not read", async () => {
         recordWarning("changesRequested");
         const github = fakeGitHub({ changesRequested: true });

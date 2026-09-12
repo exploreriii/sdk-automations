@@ -1,6 +1,6 @@
 {
     "revision": "active.yml",
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "mode": "active",
     "capabilities": {
         "intake": {

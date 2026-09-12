@@ -109,7 +109,7 @@ export function configWith({
 }: ConfigOptions = {}): RepositoryConfig {
     const result = parseConfig(
         {
-            schemaVersion: 1,
+            schemaVersion: 2,
             mode,
             // The document is flat: a block is `enabled` and the capability's
             // own keys beside it, so the settings spread in rather than nest.

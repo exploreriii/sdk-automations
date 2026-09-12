@@ -1,4 +1,4 @@
-schemaVersion: 1
+schemaVersion: 2
 mode: dry-run # disabled | observe | dry-run | active — rehearse, then arm
 
 capabilities:

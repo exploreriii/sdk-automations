@@ -93,7 +93,7 @@ async function onLadder(
     context: LadderContext,
 ): Promise<readonly IntentFor<InactivityDeclaration>[]> {
     const { observedAt } = context;
-    const clock = pullRequestClock(facts, observedAt);
+    const clock = pullRequestClock(facts, reapable.reason, observedAt);
     if (clock.idleHours < reapable.remindAfter) return [];
 
     const logins = (await people(context.platform, facts.assignees)).map(

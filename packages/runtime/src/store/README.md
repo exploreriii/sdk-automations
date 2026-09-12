@@ -108,7 +108,7 @@ Three store findings, argued in full in their register rows:
   age); `ledger.open(before)` exposes unresolved sends; requeued
   work re-enters `claimDue`. `inbox.pruneCompletedDeliveries`, `ledger.prune`
   and `ledger.pruneDecisions` accept caller-supplied retention cutoffs;
-  pending/processing deliveries and effects with an open send are never pruned.
+  pending/processing deliveries, effects with an open send, and warned effects whose promised action is still ahead are never pruned.
 
 ## Version contract and migration
 

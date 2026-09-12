@@ -21,8 +21,10 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+    asDeliveryGuid,
     parseConfigDocument,
     UNREAD,
+    type DeliveryGuid,
     type EngineCapability,
     type IssueFacts,
     type ItemRef,
@@ -47,7 +49,7 @@ import {
     type SweptItem,
     type SweptItems,
 } from "../src/shell/index.js";
-import { Store } from "../src/store/index.js";
+import { Store, type Fact } from "../src/store/index.js";
 import { httpHarness, installationToken, success, type ResponseStep } from "./adapter/harness.js";
 
 const REPOSITORY = { owner: "hiero-hackers", repo: "sdk-automations" } as const;
@@ -484,6 +486,171 @@ describe("the claim", () => {
         await first;
         expect(sweep.settled()).resolves.toBeUndefined();
         expect(events("sweepClaimed")).toHaveLength(1);
+    });
+});
+
+// ─── Retention ───────────────────────────────────────────────────────
+
+const OLD_DELIVERY = asDeliveryGuid("00000000-0000-0000-0000-0000000000d1")!;
+const NEW_DELIVERY = asDeliveryGuid("00000000-0000-0000-0000-0000000000d2")!;
+
+/** One delivery carried to `done` at `completedAt`, which is the only state retention reaches. */
+function completed(deliveryId: DeliveryGuid, completedAt: string): void {
+    store.inbox.acceptDelivery({
+        deliveryId,
+        eventName: "issues",
+        payload: Buffer.from(deliveryId),
+        receivedAt: completedAt,
+    });
+    const claim = store.inbox.claimNextDelivery(
+        "worker-a",
+        completedAt,
+        "2026-01-01T00:00:00.000Z",
+    );
+    expect(claim, "the delivery to complete was claimed").not.toBeUndefined();
+    expect(
+        store.inbox.completeDeliveryWithReport({
+            deliveryId: claim!.deliveryId,
+            eventName: claim!.eventName,
+            payloadDigest: claim!.payloadDigest,
+            claimToken: claim!.claimToken,
+            reportJson: "{}",
+            completedAt,
+        }),
+    ).toEqual({ outcome: "completed" });
+}
+
+/** The columns a fact needs that no retention case is about. */
+const FACT = {
+    seq: 1,
+    revision: "rev-sweep-1",
+    capability: "inactivity",
+    item: ISSUE,
+    verb: "postComment",
+    login: null,
+    code: null,
+    detail: null,
+} as const;
+
+/** The columns a decision needs that no retention case is about. */
+const DECISION = {
+    source: "sweep",
+    sourceId: SCHEDULE,
+    item: ISSUE,
+    capability: "inactivity",
+    verdict: "apply",
+    code: null,
+    detail: null,
+    effectId: null,
+} as const;
+
+describe("what one firing prunes", () => {
+    /** Either side of the thirty-day windows, and well past the ninety-day one (D166). */
+    const PAST_30 = "2026-07-01T00:00:00.000Z";
+    const WITHIN_30 = "2026-09-01T00:00:00.000Z";
+    const PAST_90 = "2026-05-01T00:00:00.000Z";
+
+    it("takes a done delivery and its report past the window, and keeps one inside it", async () => {
+        armed();
+        completed(OLD_DELIVERY, PAST_30);
+        completed(NEW_DELIVERY, WITHIN_30);
+
+        await driven().run();
+
+        expect(store.inbox.deliveryReports().map((report) => report.deliveryId)).toEqual([
+            NEW_DELIVERY,
+        ]);
+        expect(events("sweepPruned")).toMatchObject([{ deliveries: 1, effects: 0, decisions: 0 }]);
+    });
+
+    it("takes a settled effect past the window, and keeps an open send however old", async () => {
+        armed();
+        const facts: Fact[] = [
+            { ...FACT, effectId: "settled", kind: "sent", at: PAST_90, payload: "{}" },
+            { ...FACT, effectId: "settled", kind: "landed", at: PAST_90, payload: null },
+            { ...FACT, effectId: "open", kind: "sent", at: PAST_90, payload: "{}" },
+        ];
+        for (const fact of facts) store.ledger.record(fact);
+
+        await driven().run();
+
+        expect(store.ledger.factsOf("settled")).toEqual([]);
+        expect(store.ledger.factsOf("open")).toHaveLength(1);
+        expect(events("sweepPruned")).toMatchObject([{ deliveries: 0, effects: 2, decisions: 0 }]);
+    });
+
+    it("keeps a warned effect whose earliest action is still ahead", async () => {
+        armed();
+        store.ledger.record({
+            ...FACT,
+            effectId: "promised",
+            seq: 0,
+            verb: null,
+            kind: "warned",
+            at: PAST_90,
+            payload: JSON.stringify({ earliestActionAt: "2026-09-20T00:00:00.000Z" }),
+        });
+
+        await driven().run();
+
+        expect(store.ledger.warningFor("promised")).not.toBeNull();
+        expect(events("sweepPruned")).toEqual([]);
+    });
+
+    it("takes decision rows past the window", async () => {
+        armed();
+        store.ledger.decide({ ...DECISION, passId: "pass-old", at: PAST_30 });
+        store.ledger.decide({ ...DECISION, passId: "pass-new", at: WITHIN_30 });
+
+        await driven().run();
+
+        expect(store.ledger.decisionsOn(ISSUE).map((row) => row.passId)).toEqual(["pass-new"]);
+        expect(events("sweepPruned")).toMatchObject([{ deliveries: 0, effects: 0, decisions: 1 }]);
+    });
+
+    it("says nothing about retention when a firing took nothing away", async () => {
+        armed();
+        completed(NEW_DELIVERY, WITHIN_30);
+
+        await driven().run();
+
+        expect(events("sweepPruned")).toEqual([]);
+        expect(events("sweepFinished")).toHaveLength(1);
+    });
+
+    it("prunes nothing outside a firing", async () => {
+        completed(OLD_DELIVERY, PAST_30);
+
+        await driven().run();
+
+        expect(store.inbox.deliveryReports()).toHaveLength(1);
+        expect(logged).toEqual([]);
+    });
+
+    it("says so when the store closed under the prune", async () => {
+        armed();
+        const reader = scriptedReader();
+        const { processor } = scriptedProcessor(configFrom(CONFIG_TEXT, CAPABILITIES));
+        const sweep = createSweep({
+            store,
+            capabilities: CAPABILITIES,
+            processor,
+            // Closed as the list is read; the prune is the next thing to touch the file.
+            facts: (config) => {
+                store.close();
+                return reader.facts(config);
+            },
+            clock: () => NOW,
+            cadenceMs: DAY_MS,
+            log,
+        });
+
+        await sweep.runDue();
+
+        // Twice: the prune's own line, then the re-arm's. One would mean the prune's
+        // throw took the re-arm with it.
+        expect(events("sweepFailed")).toHaveLength(2);
+        expect(events("sweepFinished")).toEqual([]);
     });
 });
 

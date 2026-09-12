@@ -36,6 +36,16 @@ const ATTEMPTS_AT = `
      FROM effect_fact spent
      WHERE spent.effect_id = sent.effect_id AND spent.seq = sent.seq)`;
 
+/**
+ * An effect whose warning promises an action still ahead of `$before` (D166).
+ * The `CASE` is the guard: `json_extract` raises on bytes that are not JSON, and either side of an `AND` may be evaluated first.
+ */
+const PROMISE_AHEAD = `
+    SELECT warned.effect_id FROM effect_fact warned
+    WHERE warned.kind = 'warned'
+      AND CASE WHEN json_valid(warned.payload)
+               THEN json_extract(warned.payload, '$.earliestActionAt') END > $before`;
+
 /** One `effect_fact` row, as SQLite hands it back. */
 interface FactRow {
     readonly effect_id: string;
@@ -421,7 +431,7 @@ export class Ledger {
 
     /**
      * Delete whole effects settled at or before `before` — never single facts (D161).
-     * An effect with an open send is kept however old, as an open journal row is.
+     * An effect with an open send is kept however old, and so is one whose warning promises an action still ahead (D166).
      */
     prune(before: string): number {
         assertUtcInstant(before, "before");
@@ -431,15 +441,16 @@ export class Ledger {
                 DELETE FROM effect_fact
                 WHERE effect_id IN (
                         SELECT effect_id FROM effect_fact
-                        GROUP BY effect_id HAVING MAX(at) <= ?
+                        GROUP BY effect_id HAVING MAX(at) <= $before
                     )
                   AND effect_id NOT IN (
                         SELECT sent.effect_id FROM effect_fact sent
                         WHERE sent.kind = 'sent' AND ${STILL_OPEN}
                     )
+                  AND effect_id NOT IN (${PROMISE_AHEAD})
             `,
             )
-            .run(before).changes as number;
+            .run({ $before: before }).changes as number;
     }
 
     /** Delete decision rows taken at or before `before`, on the deliveries window (D163). */

@@ -22,13 +22,19 @@ Whoever takes the operator role must be able to:
 
 The records that role owns: the canonical delivery report (what was decided and why) and the effect
 ledger (what reached GitHub). Neither carries a secret or repository content it does not need, and
-**repository comments are user-facing output, never the operational audit record.** How long either
-is kept, who may read it, and how it is deleted are open (Q17) — ninety days was proposed under D43
-and never ratified. The store offers three prunes, each on a caller-supplied cutoff —
-`ledger.prune` by whole settled effect and never by single fact (D161), `ledger.pruneDecisions` on
-the done-deliveries window (D163), and `inbox.pruneCompletedDeliveries` by completed delivery
-together with its report — and nothing in the shell calls any of them, so the store still grows
-without a policy.
+**repository comments are user-facing output, never the operational audit record.** Who may read
+either, and how a record is deleted on request, are open (Q17). How long each is kept is D166's, and
+every sweep firing runs all three windows:
+
+| Window | Kept | Prune |
+|---|---|---|
+| Done deliveries, each with its report | 30 days | `inbox.pruneCompletedDeliveries` |
+| Decision rows (D163) | 30 days | `ledger.pruneDecisions` |
+| Settled effects, whole and never by row (D161) | 90 days | `ledger.prune` |
+
+An effect with an open send is kept however old, and so is one whose warning promised an action
+still ahead: the promise outlives the window. Nothing prunes outside a firing, and a firing says
+`sweepPruned` only when something went.
 
 ## 2. Intake
 

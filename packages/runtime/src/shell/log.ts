@@ -117,6 +117,13 @@ export type ShellEvent =
           readonly detail: string;
       }
     | {
+          /** A firing's retention pass removed something; it says nothing when it removed nothing. */
+          readonly event: "sweepPruned";
+          readonly deliveries: number;
+          readonly effects: number;
+          readonly decisions: number;
+      }
+    | {
           /** A firing ended and the next one is armed. */
           readonly event: "sweepFinished";
           readonly scheduleId: string;

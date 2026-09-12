@@ -83,7 +83,7 @@ describe("one line per event", () => {
  * name the events they happen to use.
  *
  * `ROUTING` is exhaustive by construction: `ShellEvent["event"]` keys it, so
- * a twenty-third event fails to compile here until this table admits it.
+ * a twenty-fourth event fails to compile here until this table admits it.
  */
 const ROUTING: Record<
     ShellEvent["event"],
@@ -199,6 +199,10 @@ const ROUTING: Record<
             detail: "the open-item list page 1: transient",
         },
         problem: true,
+    },
+    sweepPruned: {
+        event: { event: "sweepPruned", deliveries: 1, effects: 2, decisions: 3 },
+        problem: false,
     },
     sweepFinished: {
         event: {

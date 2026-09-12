@@ -118,14 +118,15 @@ describe("the warning a landed comment records", () => {
         store.close();
     });
 
-    /** Retention takes whole effects, so a warned act with no open send goes with it (D161). */
-    it("prunes an act warned at or before the boundary, and keeps a later one", () => {
+    /** Retention takes whole effects, so a warned act whose promise has run goes with it (D161, D166). */
+    it("prunes an act whose promise has passed the boundary, and keeps a later one", () => {
         const store = new Store(path);
         store.ledger.record(warned());
         store.ledger.record(warned({ effectId: "newer", at: "2026-09-20T00:00:00.000Z" }));
 
         expect(store.ledger.prune("2026-08-31T23:59:59.999Z")).toBe(0);
-        expect(store.ledger.prune("2026-09-01T00:00:00.000Z")).toBe(1);
+        expect(store.ledger.prune("2026-09-07T23:59:59.999Z")).toBe(0);
+        expect(store.ledger.prune("2026-09-08T00:00:00.000Z")).toBe(1);
         expect(store.ledger.warningFor(ACT)).toBeNull();
         expect(store.ledger.warningFor("newer")).not.toBeNull();
         store.close();

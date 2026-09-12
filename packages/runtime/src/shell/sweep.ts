@@ -1,6 +1,7 @@
 /**
  * The sweep driver: a due schedule row becomes one fact record per open item, and
  * each becomes one decision (sweep.md §2). This lane exists because nobody told us.
+ * A firing is also the only thing that prunes: the three retention windows (D166).
  */
 
 import type {
@@ -74,6 +75,17 @@ export interface SweepOptions {
  * A clock the sweep cannot see is a promise the App cannot keep: the smallest reap a `duration` may state is two hours.
  */
 export const DEFAULT_SWEEP_CADENCE_MS = 60 * 60_000;
+
+const DAY_MS = 24 * 60 * 60_000;
+
+/** How long a done delivery and its report are kept — the deliveries API's own window (D166). */
+export const DONE_DELIVERY_RETENTION_DAYS = 30;
+
+/** How long a decision row is kept (D166). */
+export const DECISION_RETENTION_DAYS = 30;
+
+/** How long a settled effect's facts are kept (D166). */
+export const SETTLED_EFFECT_RETENTION_DAYS = 90;
 
 /** What the composition root holds: one tick, run whenever the clock says. */
 export interface Sweep {
@@ -164,6 +176,24 @@ export function createSweep(options: SweepOptions): Sweep {
         return { items: listed.items.length, decided, unread };
     };
 
+    /** The three retention windows, run once per firing and contained on their own (D166). */
+    const pruneRetained = (): void => {
+        try {
+            const now = clock().getTime();
+            const before = (days: number): string => new Date(now - days * DAY_MS).toISOString();
+            const deliveries = store.inbox.pruneCompletedDeliveries(
+                before(DONE_DELIVERY_RETENTION_DAYS),
+            );
+            const effects = store.ledger.prune(before(SETTLED_EFFECT_RETENTION_DAYS));
+            const decisions = store.ledger.pruneDecisions(before(DECISION_RETENTION_DAYS));
+            if (deliveries > 0 || effects > 0 || decisions > 0) {
+                log({ event: "sweepPruned", deliveries, effects, decisions });
+            }
+        } catch (error) {
+            log({ event: "sweepFailed", detail: detailOf(error) });
+        }
+    };
+
     /**
      * One firing, from claim to re-arm.
      * The re-arm happens whatever the reading came to: a row left `running` is one only a stale-claim redrive could free.
@@ -182,6 +212,7 @@ export function createSweep(options: SweepOptions): Sweep {
         } catch (error) {
             log({ event: "sweepFailed", detail: detailOf(error) });
         }
+        pruneRetained();
         const nextDueAt = nextDue();
         if (!store.ledger.scheduleAgain(row.scheduleId, row.claimToken, nextDueAt)) {
             // A redrive took the claim over while this firing ran; whoever holds it now

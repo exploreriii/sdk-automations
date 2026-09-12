@@ -279,6 +279,33 @@ describe("retention", () => {
         store.close();
     });
 
+    /** D166: the promise made to a person outlives the window, so the effect holding it stays. */
+    it("keeps a settled effect whose warning promises an action still ahead", () => {
+        const store = new Store(path);
+        const promise = (effectId: string, earliestActionAt: string): Fact =>
+            closed("warned", AT, {
+                effectId,
+                seq: 0,
+                verb: null,
+                payload: JSON.stringify({ ...snapshot, earliestActionAt }),
+            });
+
+        store.ledger.record(promise("ahead", "2026-09-19T09:00:00.000Z"));
+        store.ledger.record(promise("elapsed", AT));
+        // Bytes nobody can read are no promise, and `json_extract` raises on them.
+        store.ledger.record(
+            closed("warned", AT, { effectId: "unreadable", seq: 0, verb: null, payload: "{" }),
+        );
+
+        expect(store.ledger.prune(AT)).toBe(2);
+        expect(store.ledger.factsOf("ahead")).toHaveLength(1);
+        expect(store.ledger.factsOf("elapsed")).toEqual([]);
+        expect(store.ledger.factsOf("unreadable")).toEqual([]);
+        expect(store.ledger.prune("2026-09-19T09:00:00.000Z")).toBe(1);
+        expect(store.ledger.factsOf("ahead")).toEqual([]);
+        store.close();
+    });
+
     it("prunes decision rows on their own boundary", () => {
         const store = new Store(path);
 

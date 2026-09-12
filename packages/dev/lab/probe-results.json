@@ -1,81 +1,66 @@
 {
-    "probedAt": null,
-    "sandbox": null,
+    "probedAt": "2026-09-12T12:49:04.502Z",
+    "sandbox": "exploreriii/automation-sandbox",
     "results": [
         {
             "name": "openItems",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "assignedAt",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "lastWorkingAt",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "draft",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "linkedIssues",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "changesRequested",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "reapableSince",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "lastCommitAt",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "isAutomationActor",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "mergeability",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "openAssignments",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "configAtHead",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "commitAttestations",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "assigneesOf",
-            "ok": false,
-            "pending": true
+            "ok": true
         },
         {
             "name": "config",
-            "ok": false,
-            "pending": true
+            "ok": true
         }
     ]
 }

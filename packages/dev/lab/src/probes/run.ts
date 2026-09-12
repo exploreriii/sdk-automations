@@ -7,6 +7,7 @@
  *   tsx src/probes/run.ts          the run, with the four environment values set
  */
 
+import { permissionAccepted } from "./compare.js";
 import { createSign } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -353,7 +354,7 @@ function driftOf(shape: Shape, sent: Sent): readonly string[] {
         lines.push(drifted("status", String(shape.status), String(sent.status)));
     }
     const accepted = sent.headers["x-accepted-github-permissions"];
-    if (accepted !== undefined && accepted !== shape.permission) {
+    if (accepted !== undefined && !permissionAccepted(shape.permission, accepted)) {
         lines.push(drifted("permission", shape.permission, accepted));
     }
     for (const name of shape.headers) {

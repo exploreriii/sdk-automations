@@ -63,13 +63,15 @@ mode: dry-run
 capabilities:
   inactivity:
     enabled: true
-    settings:
-      remindAfterDays: 14
-      reapAfterDays: 21
-      issues:
+    remindAfter: 14d
+    reap:
+      after: 21d
+    issues:
+      enabled: true
+      reap:
         enabled: true
-      pullRequests:
-        enabled: true
+    pullRequests:
+      enabled: true
 mappings:
   commands:
     working: "/working"
@@ -602,6 +604,7 @@ describe("the reader and the driver together", () => {
                     http: http.client,
                     repository: REPOSITORY,
                     config,
+                    knownCapabilities: [],
                     clock: () => NOW,
                 }),
             clock: () => NOW,

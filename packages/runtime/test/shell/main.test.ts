@@ -96,8 +96,7 @@ mode: dry-run
 capabilities:
   intake:
     enabled: true
-    settings:
-      announce: true
+    announce: true
 mappings:
   labels:
     awaitingTriage: "status: triage"
@@ -113,9 +112,9 @@ mode: dry-run
 capabilities:
   inactivity:
     enabled: true
-    settings:
-      remindAfterDays: 14
-      reapAfterDays: 21
+    remindAfter: 14d
+    reap:
+      after: 21d
 `;
 
 /**
@@ -130,8 +129,7 @@ mode: active
 capabilities:
   intake:
     enabled: true
-    settings:
-      announce: false
+    announce: false
 mappings:
   labels:
     awaitingTriage: "${TRIAGE_LABEL}"

@@ -74,8 +74,7 @@ mode: ${mode}
 capabilities:
   intake:
     enabled: true
-    settings:
-      announce: false
+    announce: false
 mappings:
   labels:
     awaitingTriage: "${TRIAGE_LABEL}"
@@ -223,7 +222,7 @@ export function commentEffect(
  * failure two suites wide.
  */
 const GRACE = {
-    days: 7,
+    hours: 7 * 24,
     // The person whose clock this is — one release, one warning, one notice
     // per assignee (grace.md §3, D145).
     topic: "alice",
@@ -269,6 +268,57 @@ export function releaseEffect(): Effect {
     };
 }
 
+/**
+ * The pull request a mode-claiming act names — a second item because a mode is
+ * a pull request's and an issue is in neither.
+ */
+export const PULL: ItemRef = { kind: "pullRequest", number: 165 };
+
+/** The close's own effect id — the key its warning is recorded under. */
+export const CLOSE_EFFECT_ID = deriveIdempotencyKey({
+    capability: "intake",
+    repository: REPOSITORY,
+    item: PULL,
+    operation: "closePullRequest",
+    cause: CAUSE,
+});
+
+/**
+ * A graced close claiming a NATIVE MODE — inactivity's two mode reasons in the
+ * shape the applier meets them.
+ *
+ * The claim is the whole point of the fixture: the re-gate re-reads the mode
+ * and refuses the close when it moved, which is what makes an approval to
+ * close a permission to close NOW.
+ */
+export function closeEffect(
+    mode: "draft" | "changesRequested",
+    activityAt: Date | null = null,
+): Effect {
+    const intent: Intent<"closePullRequest"> = {
+        capability: "intake",
+        repository: REPOSITORY,
+        item: PULL,
+        operation: "closePullRequest",
+        claims: { meaningsPresent: [], meaningsAbsent: [], closed: false, pullRequestMode: mode },
+        desired: { reason: "This pull request was closed after 60 days of inactivity." },
+        cause: CAUSE,
+        explanation: EXPLANATION,
+        idempotencyKey: CLOSE_EFFECT_ID,
+        grace: { ...GRACE, topic: mode, activityAt },
+    };
+    return {
+        intent,
+        managedComment: managedCommentOf({
+            capability: "intake",
+            item: PULL,
+            kind: "notice",
+            topic: mode,
+        }),
+        records: null,
+    };
+}
+
 /** The platform's warning for that act, carrying what it records when it lands. */
 export function warningEffect(): Effect {
     const effectId = `${ACT_EFFECT_ID}:warning`;
@@ -295,7 +345,7 @@ export function warningEffect(): Effect {
         records: {
             effectId: ACT_EFFECT_ID,
             request: writeRequestFor(releaseEffect().intent),
-            gracePeriodDays: GRACE.days,
+            gracePeriodHours: GRACE.hours,
             cancelledBy: GRACE.cancelledBy,
             reversesWith: GRACE.reversesWith,
         },
@@ -317,6 +367,9 @@ export interface FakeWorld {
     comments: CommentSeen[];
     closed: boolean;
     merged: boolean;
+    /** The two native pull-request modes an apply-time claim is judged against. */
+    draft: boolean;
+    changesRequested: boolean;
 }
 
 /** Where a test bends the fake, and how. */
@@ -327,6 +380,8 @@ export interface Faults {
     scripted: WriteResult[];
     /** The item read refuses. */
     itemReadFails: boolean;
+    /** The reviews read refuses — the other half of a mode re-gate. */
+    reviewReadFails: boolean;
     /** The item read throws — an uncontained seam, which is a crash. */
     itemReadThrows: boolean;
     /** The comment list read refuses. */
@@ -364,12 +419,15 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
         comments: [...(initial.comments ?? [])],
         closed: initial.closed ?? false,
         merged: initial.merged ?? false,
+        draft: initial.draft ?? false,
+        changesRequested: initial.changesRequested ?? false,
     };
     const calls: string[] = [];
     const faults: Faults = {
         crashOn: null,
         scripted: [],
         itemReadFails: false,
+        reviewReadFails: false,
         itemReadThrows: false,
         commentReadFails: false,
         presence: null,
@@ -451,10 +509,17 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
                               labels: [...world.labels],
                               closed: world.closed,
                               merged: world.merged,
+                              draft: world.draft,
                           },
                       },
             );
         },
+        changesRequested: () =>
+            Promise.resolve(
+                faults.reviewReadFails
+                    ? { ok: false, detail: "GitHub refused the read" }
+                    : { ok: true, value: world.changesRequested },
+            ),
         commentPresence: (_item, matches) =>
             Promise.resolve(presenceOf(world.comments.some(matches))),
         labelPresence: (_item, label) => Promise.resolve(presenceOf(world.labels.includes(label))),

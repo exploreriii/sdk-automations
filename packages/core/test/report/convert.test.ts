@@ -23,6 +23,7 @@ import {
 } from "../../src/report/index.js";
 import { parseConfig } from "../../src/config/index.js";
 import type { SafetyVerdict } from "../../src/safety/index.js";
+import { admitting } from "../config/builders.js";
 
 const item: Subject = {
     kind: "item",
@@ -123,7 +124,7 @@ describe("screens and explanations", () => {
 });
 
 describe("configuration findings", () => {
-    const known = ["intake"];
+    const known = admitting(["intake"]);
 
     it("a valid configuration reports its mode", () => {
         const result = parseConfig(

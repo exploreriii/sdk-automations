@@ -46,8 +46,7 @@ mode: dry-run
 capabilities:
   intake:
     enabled: true
-    settings:
-      announce: true
+    announce: true
 mappings:
   labels:
     awaitingTriage: "status: triage"
@@ -652,8 +651,7 @@ mode: active
 capabilities:
   intake:
     enabled: true
-    settings:
-      announce: true
+    announce: true
 mappings:
   labels:
     awaitingTriage: "status: triage"

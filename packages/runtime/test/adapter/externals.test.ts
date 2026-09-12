@@ -471,6 +471,7 @@ describe("why an ordering came back unknown", () => {
                 http: built.client,
                 repository: REPOSITORY,
                 config: NO_CONFIG,
+                knownCapabilities: [],
                 onUnknownOrdering: (detail) => details.push(detail),
             },
             PAYLOAD,
@@ -557,6 +558,7 @@ describe("live externals for one delivery", () => {
                     http: built.client,
                     repository: REPOSITORY,
                     config: NO_CONFIG,
+                    knownCapabilities: [],
                 },
                 PAYLOAD,
             ),
@@ -574,6 +576,7 @@ describe("live externals for one delivery", () => {
                 http: built.client,
                 repository: REPOSITORY,
                 config: NO_CONFIG,
+                knownCapabilities: [],
             },
             PAYLOAD,
         );
@@ -600,6 +603,7 @@ describe("live externals for one delivery", () => {
                 http: built.client,
                 repository: REPOSITORY,
                 config: NO_CONFIG,
+                knownCapabilities: [],
             },
             {},
         );
@@ -620,6 +624,7 @@ describe("live externals for one delivery", () => {
             http: built.client,
             repository: REPOSITORY,
             config: NO_CONFIG,
+            knownCapabilities: [],
         };
 
         const first = await liveExternalsForDelivery(options, PAYLOAD);

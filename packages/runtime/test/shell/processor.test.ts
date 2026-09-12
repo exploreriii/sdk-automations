@@ -60,8 +60,7 @@ mode: dry-run
 capabilities:
   intake:
     enabled: true
-    settings:
-      announce: false
+    announce: false
 mappings:
   labels:
     awaitingTriage: "status: triage"
@@ -722,9 +721,9 @@ mode: dry-run
 capabilities:
   inactivity:
     enabled: ENABLED
-    settings:
-      remindAfterDays: 14
-      reapAfterDays: 21
+    remindAfter: 14d
+    reap:
+      after: 21d
 `;
 
     const declaring = (enabled: boolean) =>

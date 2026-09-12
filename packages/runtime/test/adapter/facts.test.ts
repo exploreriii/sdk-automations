@@ -172,6 +172,7 @@ function readerOver(
             repository: TEST_REPOSITORY,
             config,
             clock: () => NOW,
+            knownCapabilities: [],
         }),
         urls: () => http.scripted.calls.map((call) => call.url),
     };
@@ -186,15 +187,20 @@ async function listed(reader: FactsReader): Promise<readonly OpenItem[]> {
 }
 
 describe("the confirmed read set", () => {
-    it("names the five reads the matrix confirmed, and none of the three it did not", () => {
+    it("names every read the matrix confirmed, which since 6.9 is all eight", () => {
         expect([...CONFIRMED_SWEEP_READS].sort()).toEqual(
-            ["assignedAt", "draft", "lastWorkingAt", "linkedIssues", "openItems"].sort(),
+            [
+                "assignedAt",
+                "changesRequested",
+                "draft",
+                "lastCommitAt",
+                "lastWorkingAt",
+                "linkedIssues",
+                "openItems",
+                "reapableSince",
+            ].sort(),
         );
-        expect(SWEEP_READS.filter((read) => !CONFIRMED_SWEEP_READS.includes(read))).toEqual([
-            "changesRequested",
-            "reapableSince",
-            "lastCommitAt",
-        ]);
+        expect(SWEEP_READS.filter((read) => !CONFIRMED_SWEEP_READS.includes(read))).toEqual([]);
     });
 });
 
@@ -241,17 +247,37 @@ describe("the open-item list", () => {
         expect(urls()).toHaveLength(2);
     });
 
-    it("refuses a successor page GitHub will not name the end of", async () => {
-        const { reader } = readerOver({
+    it("walks on through a next-only header, the shape cursor pagination sends", async () => {
+        const { reader, urls } = readerOver({
+            "&page=1": json([ISSUE_ROW], {
+                link: '<https://api.github.com/x?after=c1>; rel="next"',
+            }),
+            "&page=2": json([{ ...ISSUE_ROW, number: 98, assignees: [] }], {
+                link: '<https://api.github.com/x?after=c2>; rel="next"',
+            }),
+            "&page=3": json([{ ...ISSUE_ROW, number: 99, assignees: [] }], {
+                link: '<https://api.github.com/x?page=2>; rel="prev"',
+            }),
+        });
+
+        const items = await listed(reader);
+
+        expect(items.map(({ item }) => item.number)).toEqual([12, 98, 99]);
+        expect(urls()).toHaveLength(3);
+    });
+
+    it("is unread when a next-only list runs past the walk's bound", async () => {
+        const { reader, urls } = readerOver({
             "/issues?": json([ISSUE_ROW], {
-                link: '<https://api.github.com/x?page=2>; rel="next"',
+                link: '<https://api.github.com/x?after=c>; rel="next"',
             }),
         });
 
         await expect(reader.openItems()).resolves.toEqual({
             ok: false,
-            detail: "the open-item list: GitHub advertised a next page without naming the last",
+            detail: "the open-item list: the list is longer than 10 pages",
         });
+        expect(urls()).toHaveLength(10);
     });
 
     it.each([
@@ -286,6 +312,7 @@ describe("the open-item list", () => {
             repository: TEST_REPOSITORY,
             config: configWith(),
             clock: () => NOW,
+            knownCapabilities: [],
         });
 
         const first = await listed(reader);
@@ -457,7 +484,7 @@ describe("the links group", () => {
     });
 });
 
-describe("the review group — the three reads no protocol has confirmed", () => {
+describe("the review group — the three reads protocol 6.9 confirmed", () => {
     const REVIEW_ROUTES = {
         "/pulls/34/reviews": json([
             { state: "CHANGES_REQUESTED", user: { login: "linus" } },
@@ -478,15 +505,21 @@ describe("the review group — the three reads no protocol has confirmed", () =>
         http: httpHarness([routed(routes)], { outcomes: SWEEP_GRANTS }).client,
         repository: TEST_REPOSITORY,
         config: NO_CONFIG,
+        knownCapabilities: [],
     });
 
-    it("stays UNREAD on a record, because the group's reads are not all confirmed", async () => {
+    it("is READ on a pull-request record, now that all three reads are confirmed", async () => {
         const { reader } = readerOver({ ...wholeRepository(), ...REVIEW_ROUTES });
         const items = await listed(reader);
 
         const record = await reader.pullRequestFacts(items[1]!, [items[0]!]);
 
-        expect(record.review).toBe(UNREAD);
+        expect(record.review).not.toBe(UNREAD);
+        expect(record.review).toEqual({
+            changesRequested: true,
+            reapableSince: new Date("2026-08-26T00:00:00Z"),
+            lastCommitAt: new Date("2026-08-30T00:00:00Z"),
+        });
     });
 
     it("reads all three facts when asked directly", async () => {

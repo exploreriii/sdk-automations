@@ -61,7 +61,7 @@ export interface ApplierOptions {
     readonly log: Log;
 }
 
-/** The write path, as the processor and the sweep each use it. */
+/** The write path, as the one box both lanes call uses it. */
 export interface Applier {
     /**
      * Every approved effect of one decision, in order, each under its own lease.

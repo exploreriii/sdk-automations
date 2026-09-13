@@ -1,5 +1,5 @@
 /**
- * The facts core cannot know, and how the processor obtains them for one delivery.
+ * The facts core cannot know, and how the shared box obtains them for one item.
  * The live fill is composed only at `main.ts`; the stub below is credential-free.
  */
 
@@ -58,7 +58,7 @@ export function recordedWarningsIn(
 
 /**
  * One delivery's externals, built from its raw payload.
- * A rejection releases the processor's claim, so the delivery retries later.
+ * A rejection releases the delivery lane's claim, so the delivery retries later.
  */
 export type ExternalsForDelivery = (delivery: {
     readonly payload: unknown;

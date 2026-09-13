@@ -59,7 +59,7 @@ const store = new Store(paths.storeFile);
 
 /**
  * The write path, wired or absent — whether `mode: active` is honourable here.
- * With no applier the processor records `modeUnsupported` before `decide()` runs.
+ * With no applier the delivery lane records `modeUnsupported` before `decide()` runs.
  */
 const applier: Applier | undefined =
     writePath === null

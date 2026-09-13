@@ -14,9 +14,9 @@ import type {
 } from "@hiero-hackers/automation-core";
 import type { ClaimedScheduleRow, Store } from "../store/index.js";
 import type { WriteBudget } from "./apply/apply.js";
+import type { DecideItem, Decided } from "./decide/item.js";
 import { detailOf, type Log } from "./log.js";
-import type { FactRecordInput, ShellRecord } from "./processor.js";
-import { SWEEP_EFFECT, sweptItemId, wantsSweeping } from "./schedule.js";
+import { SWEEP_EFFECT, wantsSweeping } from "./schedule.js";
 
 // ─── The seams ───────────────────────────────────────────────────────
 
@@ -54,10 +54,10 @@ export interface SweepFacts {
  */
 export type SweepFactsSource = (config: RepositoryConfig) => SweepFacts;
 
-/** The half of the processor this lane drives; see `processFacts`. */
+/** What this lane decides through: the shared box, and the file both lanes gate on. */
 export interface SweepProcessor {
     configuration(): Promise<RepositoryConfig | null>;
-    processFacts(input: FactRecordInput): Promise<ShellRecord>;
+    decideItem: DecideItem;
 }
 
 export interface SweepOptions {
@@ -149,10 +149,10 @@ const nothingRead = (row: ClaimedScheduleRow, requests = 0): Swept => ({
     requests,
 });
 
-/** How many of one record's effects the write cap turned away. */
-const heldBackIn = (record: ShellRecord): number =>
-    record.kind === "decision"
-        ? record.effects.filter((effect) => effect.code === "sweepWriteCap").length
+/** How many of one item's effects the write cap turned away. */
+const heldBackIn = (decided: Decided): number =>
+    decided.kind === "decided"
+        ? decided.outcomes.filter((outcome) => outcome.code === "sweepWriteCap").length
         : 0;
 
 /**
@@ -262,14 +262,13 @@ export function createSweep(options: SweepOptions): Sweep {
         let heldBack = 0;
         for (const record of records.map(completed)) {
             if (record.links === "unread") unread += 1;
-            const shellRecord = await processor.processFacts({
-                facts: record,
-                deliveryId: sweptItemId(row.scheduleId, record.item),
-                receivedAt: row.dueAt,
+            const answer = await processor.decideItem(
+                { kind: "facts", scheduleId: row.scheduleId, facts: record },
                 config,
+                row.dueAt,
                 budget,
-            });
-            heldBack += heldBackIn(shellRecord);
+            );
+            heldBack += heldBackIn(answer);
             decided += 1;
         }
         if (resumeAfter !== null) {

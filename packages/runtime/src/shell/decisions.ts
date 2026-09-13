@@ -1,18 +1,18 @@
 /**
  * Which rows one decided pass writes down: a verdict per item finding, one per effect (D163).
- * A judgement only — appending them is the processor's, and the store's `decide` is one row each.
+ * A judgement only — appending them is the box's, and the store's `decide` is one row each.
  */
 
 import type { Finding, Report, RepositoryRef, Subject } from "@hiero-hackers/automation-core";
 import type { Decision } from "../store/index.js";
 import type { EffectOutcome } from "./effects.js";
-import { scheduleOfSweptId, SWEEP_EFFECT } from "./schedule.js";
 
-/** One decided pass, as its rows name it. `event` is what makes them a sweep's. */
+/** One decided pass, as its rows name it. */
 export interface DecidedPass {
-    /** The record's delivery id: a GUID, or a swept item's synthetic name. */
     readonly passId: string;
-    readonly event: string;
+    /** Which lane caused the pass, and the delivery or schedule row it names (D173). */
+    readonly source: Decision["source"];
+    readonly sourceId: string;
     /** The repository the process served this pass for (D169). */
     readonly repository: RepositoryRef;
     readonly at: string;
@@ -31,11 +31,10 @@ const aboutAnItem = (finding: Finding): finding is Finding & { readonly subject:
  * A record with no item finding and no effect writes none — a config rejection has no item.
  */
 export function decisionsOf(pass: DecidedPass): Decision[] {
-    const swept = pass.event === SWEEP_EFFECT;
     const common = {
         passId: pass.passId,
-        source: swept ? ("sweep" as const) : ("webhook" as const),
-        sourceId: swept ? scheduleOfSweptId(pass.passId) : pass.passId,
+        source: pass.source,
+        sourceId: pass.sourceId,
         at: pass.at,
         repository: pass.repository,
     };

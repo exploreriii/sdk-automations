@@ -74,7 +74,7 @@ describe("configuration source", () => {
     /**
      * The bug this guards: a misconfigured path used to read as weather, so
      * the delivery released its claim and asked the same broken path forever.
-     * Permanent instead — the processor completes it as a rejection that says
+     * Permanent instead — the delivery lane completes it as a rejection that says
      * what is wrong, which is the only thing that reaches an operator.
      */
     describe("a path no retry can fix is permanent", () => {

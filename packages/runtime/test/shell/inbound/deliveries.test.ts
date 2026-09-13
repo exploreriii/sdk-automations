@@ -1,5 +1,5 @@
 /**
- * The worker's failure honesty: a crash mid-decision COUNTS an attempt —
+ * The lane's failure honesty: a crash mid-decision COUNTS an attempt —
  * the delivery stays durable, waits out a widening backoff, and is
  * eventually dead-lettered rather than retried forever — and a completed
  * delivery never runs twice. The receiver acknowledged long before any of
@@ -7,7 +7,7 @@
  *
  * Failures here are injected through the externals seam, which is the one
  * this worker actually meets (`live externals unavailable`) and the one
- * whose throw the processor sees: a capability that throws is contained by
+ * whose throw the lane sees: a capability that throws is contained by
  * `decide()` and reported, never raised.
  *
  * One case here is not about failure at all: the delivery that is refused
@@ -15,30 +15,33 @@
  * the fourth way a claimed delivery can end, and because what it must NOT
  * do — retry, dead-letter, or read a configuration — is what everything
  * else in this file is about.
+ *
+ * What the shared box decides and writes down is `decide/item.test.ts`;
+ * every case here drives the lane through the real one.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
     asDeliveryGuid,
     toEngine,
-    UNREAD,
     type Effect,
     type EngineCapability,
+    type RepositoryRef,
 } from "@hiero-hackers/automation-core";
-import { Store } from "../../src/store/index.js";
+import { Store } from "../../../src/store/index.js";
 import { inactivity, intake, intakeDeclaration } from "@hiero-hackers/automation-capabilities";
 import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
-import { createProcessor } from "../../src/shell/processor.js";
-import type { Applier } from "../../src/shell/apply/apply.js";
-import { stubbedExternals } from "../../src/shell/externals.js";
-import type { ConfigSource } from "../../src/shell/config.js";
-import type { Log, ShellEvent } from "../../src/shell/log.js";
-import { sweepScheduleId, sweptItemId } from "../../src/shell/schedule.js";
+import { createDeliveries } from "../../../src/shell/inbound/deliveries.js";
+import { createItemDecider } from "../../../src/shell/decide/item.js";
+import type { Applier } from "../../../src/shell/apply/apply.js";
+import { stubbedExternals, type ExternalsForDelivery } from "../../../src/shell/externals.js";
+import type { ConfigSource } from "../../../src/shell/config.js";
+import type { Log, ShellEvent } from "../../../src/shell/log.js";
 
 /**
- * Every processor here logs into one list, cleared per test. The event
- * stream is the operator's only view of a lane GitHub stopped watching at
- * the 202, so several cases below assert on it rather than on the store.
+ * Every lane here logs into one list, cleared per test. The event stream is
+ * the operator's only view of a lane GitHub stopped watching at the 202, so
+ * several cases below assert on it rather than on the store.
  */
 let logged: ShellEvent[] = [];
 const log: Log = (event) => logged.push(event);
@@ -49,7 +52,7 @@ const FIXTURE = capture("issues.opened.json").bytes();
 
 /**
  * The repository the captured fixture names, and therefore the one every
- * processor here is configured to serve: a delivery from anywhere else is
+ * lane here is configured to serve: a delivery from anywhere else is
  * now refused before anything is read, which is its own case below.
  */
 const REPOSITORY = { owner: "scrubbed-1", repo: "scrubbed-2" } as const;
@@ -72,27 +75,7 @@ const configSource: ConfigSource = {
 
 const BASE = new Date("2026-08-07T10:00:00.000Z");
 
-/** One fact record as the sweep hands it over: the fixture's item, read rather than announced. */
-const RECORD = {
-    kind: "issue",
-    repository: REPOSITORY,
-    item: { kind: "issue", number: 164 },
-    observedAt: BASE,
-    trigger: { kind: "sweep" },
-    author: "opener",
-    actor: null,
-    position: {
-        kind: "position",
-        state: { meaning: null, blocked: false, closedBy: null },
-        ignored: [],
-    },
-    alerts: { carried: [], arrived: [] },
-    assignees: [],
-    links: { openPullRequests: [] },
-    command: UNREAD,
-} as const;
-
-const temp = useTempDir("shell-processor-");
+const temp = useTempDir("shell-deliveries-");
 let store: Store;
 beforeEach(() => {
     logged = [];
@@ -108,16 +91,46 @@ afterEach(() => {
     store.close();
 });
 
-function processor(capability: EngineCapability, firstTickMs = 1_000) {
-    let tick = 0;
-    return createProcessor({
+/** Everything a case may vary about the lane and the box beneath it. */
+interface Wiring {
+    readonly capabilities: readonly EngineCapability[];
+    readonly configSource: ConfigSource;
+    readonly clock: () => Date;
+    readonly repository?: RepositoryRef;
+    readonly externals?: ExternalsForDelivery;
+    readonly applier?: Applier;
+    readonly suspended?: boolean;
+}
+
+/** One lane over the REAL box, which is the only thing any case here drives. */
+function laneWith(wiring: Wiring) {
+    const repository = wiring.repository ?? REPOSITORY;
+    const externals = wiring.externals ?? (() => stubbedExternals());
+    return createDeliveries({
         store,
-        capabilities: [capability],
-        configSource,
-        externals: () => stubbedExternals(),
-        repository: REPOSITORY,
+        capabilities: wiring.capabilities,
+        configSource: wiring.configSource,
+        decideItem: createItemDecider({
+            store,
+            capabilities: wiring.capabilities,
+            externals,
+            repository,
+            ...(wiring.applier === undefined ? {} : { applier: wiring.applier }),
+        }),
+        repository,
         worker: "test-worker",
         log,
+        clock: wiring.clock,
+        ...(wiring.suspended === undefined ? {} : { suspended: wiring.suspended }),
+    });
+}
+
+/** The healthy lane most cases want: one capability, and a clock that advances a second a call. */
+function lane(capability: EngineCapability, firstTickMs = 1_000) {
+    let tick = 0;
+    return laneWith({
+        capabilities: [capability],
+        configSource,
         clock: () => new Date(BASE.getTime() + firstTickMs + 1000 * tick++),
     });
 }
@@ -130,14 +143,9 @@ function records(): Record<string, unknown>[] {
 
 describe("a config source that cannot answer", () => {
     const withSource = (load: ConfigSource["load"], atMs = 1000) =>
-        createProcessor({
-            store,
+        laneWith({
             capabilities: [toEngine(intake)],
             configSource: { load },
-            externals: () => stubbedExternals(),
-            repository: REPOSITORY,
-            worker: "test-worker",
-            log,
             clock: () => new Date(BASE.getTime() + atMs),
         });
 
@@ -203,13 +211,12 @@ describe("a config source that cannot answer", () => {
 });
 
 describe("a delivery from another repository", () => {
-    /** One processor serving `serves`, with every config read counted. */
-    function servingProcessor(serves: { owner: string; repo: string }) {
+    /** One lane serving `serves`, with every config read counted. */
+    function servingLane(serves: { owner: string; repo: string }) {
         let reads = 0;
         return {
             reads: () => reads,
-            processor: createProcessor({
-                store,
+            lane: laneWith({
                 capabilities: [toEngine(intake)],
                 configSource: {
                     load: async () => {
@@ -217,19 +224,16 @@ describe("a delivery from another repository", () => {
                         return configSource.load();
                     },
                 },
-                externals: () => stubbedExternals(),
                 repository: serves,
-                worker: "test-worker",
-                log,
                 clock: () => new Date(BASE.getTime() + 1000),
             }),
         };
     }
 
     it("completes as repositoryMismatch, having read nothing about it", async () => {
-        const serving = servingProcessor({ owner: "some-other", repo: "repository" });
+        const serving = servingLane({ owner: "some-other", repo: "repository" });
 
-        expect(await serving.processor.processOnce()).toBe(true);
+        expect(await serving.lane.processOnce()).toBe(true);
         expect(records()).toEqual([
             expect.objectContaining({
                 kind: "repositoryMismatch",
@@ -245,8 +249,8 @@ describe("a delivery from another repository", () => {
     });
 
     it("neither retries nor dead-letters: the queue is empty afterwards", async () => {
-        const serving = servingProcessor({ owner: "some-other", repo: "repository" });
-        await serving.processor.drain();
+        const serving = servingLane({ owner: "some-other", repo: "repository" });
+        await serving.lane.drain();
 
         expect(records()).toHaveLength(1);
         expect(store.inbox.deadLetteredDeliveries()).toEqual([]);
@@ -260,9 +264,9 @@ describe("a delivery from another repository", () => {
     });
 
     it("holds a matching payload to nothing: GitHub's names are case-blind", async () => {
-        const serving = servingProcessor({ owner: "Scrubbed-1", repo: "SCRUBBED-2" });
+        const serving = servingLane({ owner: "Scrubbed-1", repo: "SCRUBBED-2" });
 
-        expect(await serving.processor.processOnce()).toBe(true);
+        expect(await serving.lane.processOnce()).toBe(true);
         expect(records()).toEqual([expect.objectContaining({ kind: "decision" })]);
     });
 
@@ -298,8 +302,8 @@ describe("a delivery from another repository", () => {
             payload: Buffer.from(payload),
             receivedAt: new Date(BASE.getTime() + 500).toISOString(),
         });
-        const serving = servingProcessor({ owner: "some-other", repo: "repository" });
-        await serving.processor.drain();
+        const serving = servingLane({ owner: "some-other", repo: "repository" });
+        await serving.lane.drain();
 
         // The fixture is foreign and refused; this one is merely unreadable.
         const [foreign, unreadable] = records();
@@ -328,14 +332,9 @@ describe("a delivery under a suspended installation", () => {
     };
 
     const suspendedLane = () =>
-        createProcessor({
-            store,
+        laneWith({
             capabilities: [toEngine(intake)],
             configSource: untouchable,
-            externals: () => stubbedExternals(),
-            repository: REPOSITORY,
-            worker: "test-worker",
-            log,
             clock: () => new Date(BASE.getTime() + 1000),
             suspended: true,
         });
@@ -379,17 +378,13 @@ describe("a delivery under a suspended installation", () => {
 });
 
 describe("a crash counts an attempt", () => {
-    it("the delivery survives its processor and is retried once its wait is up", async () => {
-        const failing = createProcessor({
-            store,
+    it("the delivery survives its lane and is retried once its wait is up", async () => {
+        const failing = laneWith({
             capabilities: [toEngine(intake)],
             configSource,
             externals: () => {
                 throw new Error("live externals unavailable");
             },
-            repository: REPOSITORY,
-            worker: "test-worker",
-            log,
             clock: () => new Date(BASE.getTime() + 1000),
         });
         await expect(failing.processOnce()).rejects.toThrow("live externals unavailable");
@@ -397,8 +392,8 @@ describe("a crash counts an attempt", () => {
 
         // Durable but waiting: the attempt bought thirty seconds, and the
         // millisecond before them claims nothing.
-        expect(await processor(toEngine(intake), 30_999).processOnce()).toBe(false);
-        expect(await processor(toEngine(intake), 31_000).processOnce()).toBe(true);
+        expect(await lane(toEngine(intake), 30_999).processOnce()).toBe(false);
+        expect(await lane(toEngine(intake), 31_000).processOnce()).toBe(true);
         expect(records()).toEqual([
             expect.objectContaining({
                 kind: "decision",
@@ -408,31 +403,8 @@ describe("a crash counts an attempt", () => {
         ]);
     });
 
-    it("hands the externals factory the delivery's parsed payload", async () => {
-        // The live path derives its cause fingerprint from this argument;
-        // a processor that stopped passing it would break exclusion quietly.
-        const seen: unknown[] = [];
-        const observing = createProcessor({
-            store,
-            capabilities: [toEngine(intake)],
-            configSource,
-            externals: (delivery) => {
-                seen.push(delivery.payload);
-                return stubbedExternals();
-            },
-            repository: REPOSITORY,
-            worker: "test-worker",
-            log,
-            clock: () => new Date(BASE.getTime() + 1000),
-        });
-
-        expect(await observing.processOnce()).toBe(true);
-        expect(seen).toHaveLength(1);
-        expect(seen[0]).toMatchObject({ action: expect.any(String) });
-    });
-
     it("an empty queue reports itself instead of pretending to work", async () => {
-        const healthy = processor(toEngine(intake));
+        const healthy = lane(toEngine(intake));
         expect(await healthy.processOnce()).toBe(true);
         expect(await healthy.processOnce()).toBe(false);
         expect(records()).toHaveLength(1);
@@ -447,17 +419,17 @@ describe("a crash counts an attempt", () => {
             ),
         ).toBeDefined();
 
-        const fresh = processor(toEngine(intake), 10 * 60_000);
+        const fresh = lane(toEngine(intake), 10 * 60_000);
         expect(await fresh.processOnce()).toBe(false);
         expect(records()).toEqual([]);
 
-        const stale = processor(toEngine(intake), 16 * 60_000);
+        const stale = lane(toEngine(intake), 16 * 60_000);
         expect(await stale.processOnce()).toBe(true);
         expect(records()).toHaveLength(1);
     });
 
     it("starts a new drain after the previous queue became empty", async () => {
-        const healthy = processor(toEngine(intake));
+        const healthy = lane(toEngine(intake));
         await healthy.drain();
         expect(records()).toHaveLength(1);
 
@@ -481,7 +453,7 @@ describe("a crash counts an attempt", () => {
                 return [];
             },
         };
-        const candidate = processor(lostClaim);
+        const candidate = lane(lostClaim);
 
         await expect(candidate.processOnce()).rejects.toThrow(
             "delivery report was not committed: notOwned",
@@ -520,7 +492,7 @@ describe("a crash counts an attempt", () => {
                 return [];
             },
         };
-        await processor(lostClaim).drain();
+        await lane(lostClaim).drain();
 
         expect(records()).toEqual([]);
         expect(
@@ -540,8 +512,7 @@ describe("a poison delivery", () => {
 
     /** One whole drain at one instant, failing everything but HEALTHY. */
     async function drainAt(offsetMs: number): Promise<void> {
-        await createProcessor({
-            store,
+        await laneWith({
             capabilities: [toEngine(intake)],
             configSource,
             externals: ({ payload }) => {
@@ -551,9 +522,6 @@ describe("a poison delivery", () => {
                 }
                 throw new Error("live externals unavailable");
             },
-            repository: REPOSITORY,
-            worker: "test-worker",
-            log,
             clock: () => new Date(BASE.getTime() + offsetMs),
         }).drain();
     }
@@ -653,51 +621,36 @@ describe("a poison delivery", () => {
 });
 
 /**
- * The write path's wiring, and the gate that is deliberately still shut.
- *
- * `main.ts` supplies no applier, so `mode: active` still ends as
- * `modeUnsupported` before a decision is even attempted — that is the shipped
- * behaviour and the first case below is what holds it there. Everything after
- * it is what a composition root that DOES supply one gets, which is how this
- * lane is tested without opening the gate.
+ * What the lane makes of the box's two answers. The gate itself, and what a
+ * wired applier is handed, are `decide/item.test.ts`; here the question is
+ * only which record each answer becomes, and what the completion line names.
  */
-describe("the effects a decision approved", () => {
+describe("the two answers the box gives this lane", () => {
     const ACTIVE_CONFIG = CONFIG_TEXT.replace("mode: dry-run", "mode: active");
 
-    /** An applier that records what it was handed and reports one outcome. */
-    function recordingApplier() {
-        const passes: { effects: readonly Effect[]; revision: string }[] = [];
-        const applier: Applier = {
-            applyAll: (effects, config) => {
-                passes.push({ effects, revision: config.revision });
-                return Promise.resolve(
-                    effects.map((effect) => ({
-                        effectId: effect.intent.idempotencyKey,
-                        capability: effect.intent.capability,
-                        operation: effect.intent.operation,
-                        item: effect.intent.item,
-                        outcome: "applied" as const,
-                        code: null,
-                        detail: null,
-                    })),
-                );
-            },
-            recover: () => Promise.resolve(),
-        };
-        return { applier, passes };
-    }
+    /** An applier that reports one outcome per approved effect. */
+    const applying: Applier = {
+        applyAll: (effects: readonly Effect[]) =>
+            Promise.resolve(
+                effects.map((effect) => ({
+                    effectId: effect.intent.idempotencyKey,
+                    capability: effect.intent.capability,
+                    operation: effect.intent.operation,
+                    item: effect.intent.item,
+                    outcome: "applied" as const,
+                    code: null,
+                    detail: null,
+                })),
+            ),
+        recover: () => Promise.resolve(),
+    };
 
     function withConfig(text: string, applier?: Applier) {
-        return createProcessor({
-            store,
+        return laneWith({
             capabilities: [toEngine(intake)],
             configSource: {
                 load: async () => ({ ok: true, document: { revision: "rev-a", text } }),
             },
-            externals: () => stubbedExternals(),
-            repository: REPOSITORY,
-            worker: "test-worker",
-            log,
             clock: () => new Date(BASE.getTime() + 1000),
             ...(applier === undefined ? {} : { applier }),
         });
@@ -714,16 +667,9 @@ describe("the effects a decision approved", () => {
         ]);
     });
 
-    it("hands the approved effects to a wired applier, under the same configuration", async () => {
-        const wired = recordingApplier();
+    it("records what the applier made of the effects, under the same configuration", async () => {
+        expect(await withConfig(ACTIVE_CONFIG, applying).processOnce()).toBe(true);
 
-        expect(await withConfig(ACTIVE_CONFIG, wired.applier).processOnce()).toBe(true);
-
-        expect(wired.passes).toHaveLength(1);
-        expect(wired.passes[0]!.revision).toBe("rev-a");
-        expect(wired.passes[0]!.effects.map((effect) => effect.intent.operation)).toEqual([
-            "applyMappedLabel",
-        ]);
         const [entry] = records();
         expect(entry).toMatchObject({ kind: "decision", configRevision: "rev-a" });
         expect(entry?.["effects"]).toEqual([
@@ -731,20 +677,9 @@ describe("the effects a decision approved", () => {
         ]);
     });
 
-    it("records an empty effect list outside active mode, and calls no applier", async () => {
-        const wired = recordingApplier();
-
-        expect(await withConfig(CONFIG_TEXT, wired.applier).processOnce()).toBe(true);
-
-        expect(wired.passes).toEqual([]);
-        expect(records()).toEqual([expect.objectContaining({ kind: "decision", effects: [] })]);
-    });
-
     /** A record kind is not added: the decision arm simply says more. */
     it("stays a decision record, effects and all", async () => {
-        const wired = recordingApplier();
-
-        await withConfig(ACTIVE_CONFIG, wired.applier).processOnce();
+        await withConfig(ACTIVE_CONFIG, applying).processOnce();
 
         expect(logged).toContainEqual({
             event: "deliveryCompleted",
@@ -752,23 +687,29 @@ describe("the effects a decision approved", () => {
             kind: "decision",
         });
     });
+
+    /** The record's instant is the rows' instant, so the ledger cannot disagree with it. */
+    it("stamps the rows the box wrote with the instant the record carries", async () => {
+        expect(await lane(toEngine(intake)).processOnce()).toBe(true);
+
+        const rows = store.ledger.decisionsOn(REPOSITORY, { kind: "issue", number: 164 });
+        expect(rows.length).toBeGreaterThan(0);
+        expect(new Set(rows.map((row) => row.at))).toEqual(
+            new Set([records()[0]?.["decidedAt"] as string]),
+        );
+    });
 });
 
 /**
- * The one read the sweep borrows from this lane. It exists so a recovery pass
- * gates on the same file a delivery would, rather than growing a second reader
- * that could disagree about whether a repository is still in active mode.
+ * The one read the sweep borrows from this lane. It exists so a firing gates
+ * on the same file a delivery would, rather than growing a second reader that
+ * could disagree about whether a repository is still in active mode.
  */
 describe("the configuration this lane reads", () => {
     const reading = (load: ConfigSource["load"]) =>
-        createProcessor({
-            store,
+        laneWith({
             capabilities: [toEngine(intake)],
             configSource: { load },
-            externals: () => stubbedExternals(),
-            repository: REPOSITORY,
-            worker: "test-worker",
-            log,
             clock: () => BASE,
         });
 
@@ -800,7 +741,7 @@ describe("the configuration this lane reads", () => {
 });
 
 /**
- * The one thing this lane does for the OTHER one. The processor reads the
+ * The one thing this lane does for the OTHER one. The lane reads the
  * configuration on every delivery, so it is where a repository's standing
  * request to be swept gets written down (`design/guides/sweep.md` §2).
  */
@@ -816,8 +757,7 @@ capabilities:
 `;
 
     const declaring = (enabled: boolean) =>
-        createProcessor({
-            store,
+        laneWith({
             capabilities: [inactivity],
             configSource: {
                 load: async () => ({
@@ -828,10 +768,6 @@ capabilities:
                     },
                 }),
             },
-            externals: () => stubbedExternals(),
-            repository: REPOSITORY,
-            worker: "test-worker",
-            log,
             clock: () => BASE,
         });
 
@@ -851,193 +787,5 @@ capabilities:
         await declaring(false).processOnce();
 
         expect(store.ledger.claimDue(BASE.toISOString())).toEqual([]);
-    });
-});
-
-/**
- * The sweep's entry to this lane. It reaches the same mode gate, the same
- * `decide()` and the same record shape a delivery does — without the queue,
- * because a swept item has no durable delivery of its own to claim.
- */
-describe("one fact record decided outside the queue", () => {
-    const deciding = (mode: string) =>
-        createProcessor({
-            store,
-            capabilities: [inactivity],
-            configSource: {
-                load: async () => ({
-                    ok: true,
-                    document: {
-                        revision: "rev-sweep",
-                        text: `schemaVersion: 2\nmode: ${mode}\ncapabilities:\n  inactivity:\n    enabled: true\n`,
-                    },
-                }),
-            },
-            externals: () => stubbedExternals(),
-            repository: REPOSITORY,
-            worker: "test-worker",
-            log,
-            clock: () => BASE,
-        });
-
-    const input = async (mode: string) => {
-        const lane = deciding(mode);
-        const config = await lane.configuration();
-        expect(config, "the suite's configuration parses").not.toBeNull();
-        return {
-            lane,
-            facts: {
-                facts: RECORD,
-                deliveryId: "sweep:owner/repo:issue#164",
-                receivedAt: BASE.toISOString(),
-                config: config!,
-            },
-        };
-    };
-
-    it("stamps the record with the sweep and the synthetic id, and decides", async () => {
-        const { lane, facts } = await input("dry-run");
-
-        expect(await lane.processFacts(facts)).toMatchObject({
-            kind: "decision",
-            deliveryId: "sweep:owner/repo:issue#164",
-            event: "sweep",
-            receivedAt: BASE.toISOString(),
-            configRevision: "rev-sweep",
-            effects: [],
-        });
-    });
-
-    it("meets the same mode gate a delivery does, with no write path wired", async () => {
-        const { lane, facts } = await input("active");
-
-        expect(await lane.processFacts(facts)).toMatchObject({
-            kind: "modeUnsupported",
-            reason: "active mode is unsupported by the runnable shell",
-        });
-    });
-});
-
-/**
- * Every decision is a row (D163). Both callers write them from one place, so a
- * delivery's rows and a swept item's differ only in what they name as the source.
- */
-describe("the decision rows one pass writes", () => {
-    const ITEM = { kind: "issue", number: 164 } as const;
-    const FOREVER = "2999-01-01T00:00:00.000Z";
-    const rows = () => store.ledger.decisionsOn(REPOSITORY, ITEM);
-
-    /** One outcome per approved effect, so a row has an effect id to carry. */
-    const applying: Applier = {
-        applyAll: (effects: readonly Effect[]) =>
-            Promise.resolve(
-                effects.map((effect) => ({
-                    effectId: effect.intent.idempotencyKey,
-                    capability: effect.intent.capability,
-                    operation: effect.intent.operation,
-                    item: effect.intent.item,
-                    outcome: "applied" as const,
-                    code: null,
-                    detail: null,
-                })),
-            ),
-        recover: () => Promise.resolve(),
-    };
-
-    const laneFor = (text: string, applier?: Applier) =>
-        createProcessor({
-            store,
-            capabilities: [toEngine(intake)],
-            configSource: {
-                load: async () => ({ ok: true, document: { revision: "rev-test-1", text } }),
-            },
-            externals: () => stubbedExternals(),
-            repository: REPOSITORY,
-            worker: "test-worker",
-            log,
-            clock: () => new Date(BASE.getTime() + 1000),
-            ...(applier === undefined ? {} : { applier }),
-        });
-
-    it("writes one row per item finding, sourced at the delivery that caused them", async () => {
-        expect(await processor(toEngine(intake)).processOnce()).toBe(true);
-
-        expect(rows().map(({ verdict, code, effectId }) => [verdict, code, effectId])).toEqual([
-            ["info", "capabilityExplained", null],
-            ["notice", "modeRecordsOnly", null],
-            ["info", "wouldApply", null],
-        ]);
-        expect(rows()[0]).toMatchObject({
-            passId: GUID as string,
-            source: "webhook",
-            sourceId: GUID as string,
-            at: records()[0]?.["decidedAt"],
-            repository: REPOSITORY,
-            item: ITEM,
-            capability: "intake",
-            detail: "New issue placed in triage.",
-        });
-    });
-
-    it("names the sweep and the schedule row the swept id was minted from", async () => {
-        const lane = processor(toEngine(intake));
-        const config = await lane.configuration();
-        expect(config, "the suite's configuration parses").not.toBeNull();
-        const scheduleId = sweepScheduleId(REPOSITORY);
-
-        await lane.processFacts({
-            facts: RECORD,
-            deliveryId: sweptItemId(scheduleId, ITEM),
-            receivedAt: BASE.toISOString(),
-            config: config!,
-        });
-
-        expect(rows()).toContainEqual(
-            expect.objectContaining({
-                passId: sweptItemId(scheduleId, ITEM),
-                source: "sweep",
-                sourceId: scheduleId,
-                capability: "intake",
-            }),
-        );
-    });
-
-    it("carries the effect id on the row an outcome writes", async () => {
-        const active = CONFIG_TEXT.replace("mode: dry-run", "mode: active");
-
-        expect(await laneFor(active, applying).processOnce()).toBe(true);
-
-        expect(rows().filter(({ effectId }) => effectId !== null)).toEqual([
-            expect.objectContaining({
-                capability: "intake",
-                verdict: "applied",
-                code: null,
-                detail: null,
-            }),
-        ]);
-    });
-
-    /** `pruneDecisions` counts what it deleted, which is the only read of the whole table. */
-    it("writes nothing for a record whose findings name no item", async () => {
-        store.inbox.acceptDelivery({
-            deliveryId: SECOND_GUID,
-            eventName: "issues",
-            payload: Buffer.from('{"action":"opened"}'),
-            receivedAt: new Date(BASE.getTime() + 500).toISOString(),
-        });
-
-        await laneFor(CONFIG_TEXT.replace("enabled: true", "enabled: false")).drain();
-
-        expect(records()[1]).toMatchObject({
-            report: {
-                findings: [
-                    expect.objectContaining({
-                        code: "repositoryUnreadable",
-                        subject: { kind: "repository" },
-                    }),
-                ],
-            },
-        });
-        expect(store.ledger.pruneDecisions(FOREVER)).toBe(0);
     });
 });

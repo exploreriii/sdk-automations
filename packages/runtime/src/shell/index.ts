@@ -9,7 +9,8 @@ export { operationOf, parseJournaledCall, planFor, serializeCall } from "./opera
 export * from "./apply/apply.js";
 export * from "./log.js";
 /** Published because the sweep's seam names its shapes. */
-export * from "./processor.js";
+export * from "./decide/item.js";
+export * from "./inbound/deliveries.js";
 export * from "./schedule.js";
 export * from "./sweep.js";
 export * from "./shell.js";

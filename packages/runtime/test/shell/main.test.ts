@@ -10,7 +10,7 @@
  * what the startup line announces, what leaves the process on the wire, and
  * what a signal does to it. Whatever a seam can answer is answered at the
  * seam — `composition.test.ts` for every variable the environment is refused
- * for, `shell.test.ts` for composition, `processor.test.ts` for the lane,
+ * for, `shell.test.ts` for composition, `inbound/deliveries.test.ts` for the lane,
  * `externals.test.ts` for the live adapter, `log.test.ts` for the event
  * vocabulary — and is not rehearsed here at process cost.
  *
@@ -96,7 +96,7 @@ mappings:
 
 /**
  * A repository that has asked to be swept: `inactivity` is the one shipped
- * capability that runs on a clock, so enabling it is what makes the processor
+ * capability that runs on a clock, so enabling it is what makes the lane
  * declare a `sweep:` schedule row.
  */
 const SWEEP_CONFIG = `schemaVersion: 2

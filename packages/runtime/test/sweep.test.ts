@@ -8,7 +8,7 @@
  * place a failed group exactly where a case is about it.
  *
  * The second wires the REAL reader over recorded GitHub responses into the REAL
- * processor with the real `inactivity` capability, and reads what arrived at
+ * box with the real `inactivity` capability, and reads what arrived at
  * `decide()` off the report it produced: the issue record judged (its groups
  * were read) and the pull-request record skipped `factsUnread` (its `review`
  * group was not). That is the whole contract of this phase in one case.
@@ -35,7 +35,8 @@ import { CAPABILITIES, inactivity } from "@hiero-hackers/automation-capabilities
 import { useTempDir } from "@hiero-hackers/automation-testkit";
 import { createFactsReader, orderingEvidenceSource } from "../src/adapter/index.js";
 import {
-    createProcessor,
+    createDeliveries,
+    createItemDecider,
     createSweep,
     serializeCall,
     stubbedExternals,
@@ -44,14 +45,15 @@ import {
     SWEEP_WRITE_CAP,
     sweepScheduleId,
     type ConfigSource,
+    type Decided,
     type EffectOutcome,
-    type FactRecordInput,
+    type ItemInput,
     type ShellEvent,
-    type ShellRecord,
     type SweepFacts,
     type SweepProcessor,
     type SweptItem,
     type SweptItems,
+    type WriteBudget,
 } from "../src/shell/index.js";
 import { Store, type Fact } from "../src/store/index.js";
 import { httpHarness, installationToken, success, type ResponseStep } from "./adapter/harness.js";
@@ -110,7 +112,7 @@ const log = (event: ShellEvent): void => {
 const events = (name: ShellEvent["event"]): ShellEvent[] =>
     logged.filter((event) => event.event === name);
 
-/** The row the processor would have declared, armed at `dueAt`. */
+/** The row the delivery lane would have declared, armed at `dueAt`. */
 function armed(dueAt = DUE_AT): void {
     store.ledger.schedule(SCHEDULE, dueAt, SWEEP_EFFECT);
 }
@@ -197,41 +199,62 @@ function scriptedReader(script: Script = {}): ScriptedReader {
     return { facts };
 }
 
-interface ScriptedProcessor {
-    readonly processor: SweepProcessor;
-    readonly decided: FactRecordInput[];
+/** One call the driver made on the shared box, as the box's own signature takes it. */
+interface Handed {
+    readonly input: Extract<ItemInput, { kind: "facts" }>;
+    readonly config: RepositoryConfig;
+    readonly at: string;
+    readonly budget: WriteBudget | undefined;
 }
 
-/** The record one decided swept item produces, carrying what became of its effects. */
-const decidedAs = (input: FactRecordInput, effects: readonly EffectOutcome[]): ShellRecord => ({
-    kind: "decision",
-    deliveryId: input.deliveryId,
-    event: "sweep",
-    receivedAt: input.receivedAt,
-    decidedAt: NOW.toISOString(),
-    configRevision: input.config.revision,
+interface ScriptedProcessor {
+    readonly processor: SweepProcessor;
+    readonly decided: Handed[];
+}
+
+/** What one decided swept item comes back as, carrying what became of its effects. */
+const decidedAs = (config: RepositoryConfig, outcomes: readonly EffectOutcome[]): Decided => ({
+    kind: "decided",
     report: {
-        revision: input.config.revision,
-        mode: input.config.mode,
+        revision: config.revision,
+        mode: config.mode,
         repository: REPOSITORY,
         findings: [],
     },
-    effects,
+    outcomes,
 });
+
+/** Every call recorded, with the facts arm narrowed: the sweep sends no deliveries. */
+function handedIn(
+    decided: Handed[],
+): (...args: Parameters<SweepProcessor["decideItem"]>) => Handed {
+    return (input, config, at, budget) => {
+        expect(input.kind, "the sweep decides fact records").toBe("facts");
+        const handed = {
+            input: input as Extract<ItemInput, { kind: "facts" }>,
+            config,
+            at,
+            budget,
+        };
+        decided.push(handed);
+        return handed;
+    };
+}
 
 function scriptedProcessor(
     config: RepositoryConfig | null,
     onFacts?: () => never,
 ): ScriptedProcessor {
-    const decided: FactRecordInput[] = [];
+    const decided: Handed[] = [];
+    const record = handedIn(decided);
     return {
         decided,
         processor: {
             configuration: () => Promise.resolve(config),
-            processFacts: (input) => {
-                decided.push(input);
+            decideItem: (...args) => {
+                record(...args);
                 onFacts?.();
-                return Promise.resolve(decidedAs(input, []));
+                return Promise.resolve(decidedAs(args[1], []));
             },
         },
     };
@@ -239,7 +262,7 @@ function scriptedProcessor(
 
 interface Driven {
     readonly reader: ScriptedReader;
-    readonly decided: FactRecordInput[];
+    readonly decided: Handed[];
     run(): Promise<void>;
 }
 
@@ -264,22 +287,20 @@ function driven(script: Script = {}, config = configFrom(CONFIG_TEXT, CAPABILITI
 // ─── The driver ──────────────────────────────────────────────────────
 
 describe("a due sweep row", () => {
-    it("builds one record per open item and hands each to the processor once", async () => {
+    it("builds one record per open item and hands each to the box once", async () => {
         armed();
         const { decided, run } = driven();
 
         await run();
 
         // Number order, whatever the kind: what a firing read is a prefix of the list.
-        expect(decided.map((input) => input.deliveryId)).toEqual([
-            `${SCHEDULE}:issue#12`,
-            `${SCHEDULE}:pullRequest#34`,
-        ]);
-        expect(decided.map((input) => input.facts.trigger)).toEqual([
+        expect(decided.map(({ input }) => input.facts.item)).toEqual([ISSUE, PULL]);
+        expect(decided.every(({ input }) => input.scheduleId === SCHEDULE)).toBe(true);
+        expect(decided.map(({ input }) => input.facts.trigger)).toEqual([
             { kind: "sweep" },
             { kind: "sweep" },
         ]);
-        expect(decided.every((input) => input.receivedAt === DUE_AT)).toBe(true);
+        expect(decided.every(({ at }) => at === DUE_AT)).toBe(true);
     });
 
     it("gives each issue the pull requests that close it, from the sweep's own reads", async () => {
@@ -290,7 +311,7 @@ describe("a due sweep row", () => {
         // every pull request this firing read is in.
         await run();
 
-        expect(decided[0]?.facts.links).toEqual({ openPullRequests: [PULL] });
+        expect(decided[0]?.input.facts.links).toEqual({ openPullRequests: [PULL] });
     });
 
     it("gives an issue nothing closes an empty list, which is a read answer", async () => {
@@ -299,7 +320,7 @@ describe("a due sweep row", () => {
 
         await run();
 
-        expect(decided[0]?.facts.links).toEqual({ openPullRequests: [] });
+        expect(decided[0]?.input.facts.links).toEqual({ openPullRequests: [] });
     });
 
     it("leaves every issue's links unread when one pull request's links were not read", async () => {
@@ -308,7 +329,7 @@ describe("a due sweep row", () => {
 
         await run();
 
-        expect(decided.map((input) => input.facts.links)).toEqual([UNREAD, UNREAD]);
+        expect(decided.map(({ input }) => input.facts.links)).toEqual([UNREAD, UNREAD]);
     });
 
     it("arms the next firing a cadence out, and releases the claim", async () => {
@@ -523,40 +544,41 @@ const effectOn = (
 
 interface Spending {
     readonly processor: SweepProcessor;
-    /** Every record the firing handed down, to see whether they shared one budget. */
-    readonly handed: FactRecordInput[];
+    /** Every call the firing handed down, to see whether they shared one budget. */
+    readonly handed: Handed[];
     /** The item numbers a write landed on, in order. */
     readonly written: number[];
 }
 
 /**
- * A processor that spends the firing's budget the way the applier does: one
- * write per item nothing has written to, nothing for one already written, and a
+ * A box that spends the firing's budget the way the applier does: one write per
+ * item nothing has written to, nothing for one already written, and a
  * `sweepWriteCap` refusal once the firing's writes are spent.
  */
 function spending(config: RepositoryConfig): Spending {
-    const handed: FactRecordInput[] = [];
+    const handed: Handed[] = [];
+    const record = handedIn(handed);
     const written: number[] = [];
     return {
         handed,
         written,
         processor: {
             configuration: () => Promise.resolve(config),
-            processFacts: (input) => {
-                handed.push(input);
+            decideItem: (...args) => {
+                const { input, config: under, budget } = record(...args);
                 const { item } = input.facts;
-                const budget = input.budget ?? { remaining: 0 };
+                const left = budget ?? { remaining: 0 };
                 if (written.includes(item.number)) {
-                    return Promise.resolve(decidedAs(input, [effectOn(item, "already")]));
+                    return Promise.resolve(decidedAs(under, [effectOn(item, "already")]));
                 }
-                if (budget.remaining === 0) {
+                if (left.remaining === 0) {
                     return Promise.resolve(
-                        decidedAs(input, [effectOn(item, "refused", "sweepWriteCap")]),
+                        decidedAs(under, [effectOn(item, "refused", "sweepWriteCap")]),
                     );
                 }
-                budget.remaining -= 1;
+                left.remaining -= 1;
                 written.push(item.number);
-                return Promise.resolve(decidedAs(input, [effectOn(item, "applied")]));
+                return Promise.resolve(decidedAs(under, [effectOn(item, "applied")]));
             },
         },
     };
@@ -589,7 +611,7 @@ describe("the writes one firing may send", () => {
             { items: 3, decided: 3, writes: 2, heldBack: 1 },
         ]);
         // One budget for the firing, not one per record.
-        expect(new Set(handed.map((input) => input.budget)).size).toBe(1);
+        expect(new Set(handed.map(({ budget }) => budget)).size).toBe(1);
 
         now = new Date(NOW.getTime() + DAY_MS);
         await sweep.runDue();
@@ -608,14 +630,9 @@ describe("the writes one firing may send", () => {
             processor: {
                 configuration: () => Promise.resolve(configFrom(CONFIG_TEXT, CAPABILITIES)),
                 // The shipped composition wires no applier, so active mode ends here.
-                processFacts: (input) =>
+                decideItem: () =>
                     Promise.resolve({
                         kind: "modeUnsupported",
-                        deliveryId: input.deliveryId,
-                        event: SWEEP_EFFECT,
-                        receivedAt: input.receivedAt,
-                        decidedAt: NOW.toISOString(),
-                        configRevision: input.config.revision,
                         reason: "active mode is unsupported by the runnable shell",
                     }),
             },
@@ -646,7 +663,7 @@ const LIST_COST = 1;
 const ITEM_COST = 2;
 
 interface Budgeted {
-    /** The item numbers handed to the processor, across every firing, in order. */
+    /** The item numbers handed to the box, across every firing, in order. */
     read(): number[];
     /** What the next firing's list answers; a case may make it unreadable. */
     readonly listing: { items: SweptItems };
@@ -691,7 +708,7 @@ function budgeted(readBudget: number): Budgeted {
         log,
     });
     return {
-        read: () => decided.map((input) => input.facts.item.number),
+        read: () => decided.map(({ input }) => input.facts.item.number),
         listing,
         fire: (days) => {
             now = new Date(NOW.getTime() + days * DAY_MS);
@@ -1002,7 +1019,7 @@ describe("a firing under a suspended installation", () => {
         configuration: () => {
             throw new Error("the configuration was consulted");
         },
-        processFacts: () => {
+        decideItem: () => {
             throw new Error("an item was decided");
         },
     };
@@ -1149,28 +1166,35 @@ describe("the reader and the driver together", () => {
                 },
             ],
         });
-        const processor = createProcessor({
+        const decideItem = createItemDecider({
+            store,
+            capabilities,
+            externals: () => stubbedExternals(),
+            repository: REPOSITORY,
+        });
+        const lane = createDeliveries({
             store,
             capabilities,
             configSource,
-            externals: () => stubbedExternals(),
+            decideItem,
             repository: REPOSITORY,
             worker: "sweep-1",
             clock: () => NOW,
             log,
         });
-        const records: ShellRecord[] = [];
-        const handed: FactRecordInput[] = [];
+        const answers: Decided[] = [];
+        const handed: Handed[] = [];
+        const record = handedIn(handed);
         const sweep = createSweep({
             store,
             capabilities,
             processor: {
-                configuration: () => processor.configuration(),
-                processFacts: async (input) => {
-                    handed.push(input);
-                    const record = await processor.processFacts(input);
-                    records.push(record);
-                    return record;
+                configuration: () => lane.configuration(),
+                decideItem: async (...args) => {
+                    record(...args);
+                    const answer = await decideItem(...args);
+                    answers.push(answer);
+                    return answer;
                 },
             },
             facts: (config) =>
@@ -1191,21 +1215,21 @@ describe("the reader and the driver together", () => {
 
         await sweep.runDue();
 
-        const codesOf = (record: ShellRecord): string[] =>
-            record.kind === "decision" ? record.report.findings.map((finding) => finding.code) : [];
-        const [issue, pull] = records;
+        const codesOf = (answer: Decided): string[] =>
+            answer.kind === "decided" ? answer.report.findings.map((finding) => finding.code) : [];
+        const [issue, pull] = answers;
 
         // The pull request's `review` group is built from three reads no
         // protocol has confirmed, so the ladder is skipped rather than guessing.
-        expect(pull?.deliveryId).toBe(`${SCHEDULE}:pullRequest#34`);
+        expect(handed[1]?.input.facts.item).toEqual(PULL);
         expect(codesOf(pull!)).toEqual(["factsUnread"]);
 
         // The issue's are both read, so it is judged — and nothing it needs is
         // reported unread. The record it was judged from carries the clocks the
         // timeline and comments dated, and the pull request that closes it.
-        expect(issue?.deliveryId).toBe(`${SCHEDULE}:issue#12`);
+        expect(handed[0]?.input.facts.item).toEqual(ISSUE);
         expect(codesOf(issue!)).not.toContain("factsUnread");
-        const judged = handed[0]?.facts;
+        const judged = handed[0]?.input.facts;
         expect(judged).toMatchObject({
             kind: "issue",
             item: ISSUE,
@@ -1222,7 +1246,7 @@ describe("the reader and the driver together", () => {
         });
         // And the pull request's own record says `review` is the group nobody
         // read — the three reads it is built from have no citation yet.
-        expect(handed[1]?.facts).toMatchObject({
+        expect(handed[1]?.input.facts).toMatchObject({
             kind: "pullRequest",
             assignees: [{ login: "ada" }],
             links: { issues: [{ item: ISSUE }] },
@@ -1321,16 +1345,9 @@ describe("an item the platform released within the minute", () => {
         into.ledger.schedule(SCHEDULE, DUE_AT, SWEEP_EFFECT);
         const capabilities: readonly EngineCapability[] = [inactivity];
         const http = httpHarness([routed(RECORDED)]);
-        const processor = createProcessor({
+        const decideItem = createItemDecider({
             store: into,
             capabilities,
-            configSource: {
-                load: () =>
-                    Promise.resolve({
-                        ok: true,
-                        document: { revision: "rev-sweep-1", text: CONFIG_TEXT },
-                    }),
-            },
             // Live-shaped: the seam the composition root hands down takes the journal.
             externals: () =>
                 stubbedExternals({
@@ -1340,20 +1357,33 @@ describe("an item the platform released within the minute", () => {
                     }),
                 }),
             repository: REPOSITORY,
+        });
+        const lane = createDeliveries({
+            store: into,
+            capabilities,
+            configSource: {
+                load: () =>
+                    Promise.resolve({
+                        ok: true,
+                        document: { revision: "rev-sweep-1", text: CONFIG_TEXT },
+                    }),
+            },
+            decideItem,
+            repository: REPOSITORY,
             worker: "sweep-1",
             clock: () => NOW,
             log,
         });
-        const records: ShellRecord[] = [];
+        const answers: Decided[] = [];
         const sweep = createSweep({
             store: into,
             capabilities,
             processor: {
-                configuration: () => processor.configuration(),
-                processFacts: async (input) => {
-                    const record = await processor.processFacts(input);
-                    records.push(record);
-                    return record;
+                configuration: () => lane.configuration(),
+                decideItem: async (...args) => {
+                    const answer = await decideItem(...args);
+                    answers.push(answer);
+                    return answer;
                 },
             },
             facts: (config) =>
@@ -1373,10 +1403,10 @@ describe("an item the platform released within the minute", () => {
         });
 
         await sweep.runDue();
-        const [record] = records;
-        expect(record?.kind, "the swept issue was decided").toBe("decision");
-        return record?.kind === "decision"
-            ? record.report.findings.map((finding) => finding.code)
+        const [answer] = answers;
+        expect(answer?.kind, "the swept issue was decided").toBe("decided");
+        return answer?.kind === "decided"
+            ? answer.report.findings.map((finding) => finding.code)
             : [];
     }
 

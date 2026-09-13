@@ -109,7 +109,8 @@ refuses each intent, which is why it sits with `observe` and `dry-run` rather th
 sweep reaches `decide()` through this same path — mode gate, applier, journal and recovery are all
 this lane's.
 
-*Sources: `packages/runtime/src/shell/receiver.ts`, `processor.ts`, `sweep.ts` — pinned end to end by
+*Sources: `packages/runtime/src/shell/receiver.ts`, `inbound/deliveries.ts`, `decide/item.ts`,
+`sweep.ts` — pinned end to end by
 `packages/runtime/test/shell/shell.test.ts`. The exhaustive rejection-code table is
 [`contracts/config-schema.md`](contracts/config-schema.md); it is deliberately not copied here.*
 

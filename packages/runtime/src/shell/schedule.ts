@@ -1,33 +1,18 @@
-/** When a repository wants sweeping, and what its schedule row and records are called (sweep.md §2). */
+/** When a repository wants sweeping, and what its schedule row is called (sweep.md §2). */
 
 import type {
     EngineCapability,
     RepositoryConfig,
-    ItemRef,
     RepositoryRef,
 } from "@hiero-hackers/automation-core";
 import type { Store } from "../store/index.js";
 
-/** The `effect` column every sweep row carries, and the `event` its records are stamped with. */
+/** The `effect` column every sweep row carries. */
 export const SWEEP_EFFECT = "sweep";
 
 /** The one spelling of a repository's sweep row. */
 export function sweepScheduleId(repository: RepositoryRef): string {
     return `${SWEEP_EFFECT}:${repository.owner}/${repository.repo}`;
-}
-
-/**
- * One swept item's synthetic delivery id — `sweep:{schedule}:{item}`.
- * A NAME, never a durable delivery: the store keys deliveries by GitHub's own GUID.
- */
-export function sweptItemId(scheduleId: string, item: ItemRef): string {
-    return `${scheduleId}:${item.kind}#${String(item.number)}`;
-}
-
-/** The row a swept item's id was minted from: `sweptItemId` read backwards. */
-export function scheduleOfSweptId(sweptId: string): string {
-    const item = sweptId.lastIndexOf(":");
-    return item === -1 ? sweptId : sweptId.slice(0, item);
 }
 
 /** Does this repository enable a capability that runs on a clock? */
@@ -42,7 +27,7 @@ export function wantsSweeping(
     );
 }
 
-/** Everything the declaration below needs; the processor holds all of it. */
+/** Everything the declaration below needs; the delivery lane holds all of it. */
 export interface SweepDeclaration {
     readonly store: Store;
     readonly repository: RepositoryRef;

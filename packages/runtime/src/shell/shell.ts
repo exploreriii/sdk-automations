@@ -1,5 +1,5 @@
 /**
- * The composition root: receiver + store + processor wired into one running shell.
+ * The composition root: receiver + store + the two lanes wired into one running shell.
  * Every box is existing, gated code; this file's whole contribution is ORDER.
  * Plus one clock — a webhook arrival is the only other thing that ever drains, so
  * the sweep is what makes stale work recover on its own in a quiet repository.
@@ -14,7 +14,8 @@ import {
 } from "@hiero-hackers/automation-core";
 import type { Store } from "../store/index.js";
 import { createReceiver } from "./receiver.js";
-import { createProcessor, STALE_CLAIM_MINUTES } from "./processor.js";
+import { createItemDecider } from "./decide/item.js";
+import { createDeliveries, STALE_CLAIM_MINUTES } from "./inbound/deliveries.js";
 import { EFFECT_LEASE_STALE_MINUTES, type Applier } from "./apply/apply.js";
 import type { ConfigSource } from "./config.js";
 import type { ExternalsForDelivery } from "./externals.js";
@@ -87,17 +88,23 @@ export function createShell(options: ShellOptions): Shell {
     const clock = options.clock ?? (() => new Date());
     const suspended = options.suspended ?? false;
     const log = contained(options.log ?? createLogger({ clock }));
-    const processor = createProcessor({
+    const decideItem = createItemDecider({
+        store: options.store,
+        capabilities: options.capabilities,
+        externals: options.externals,
+        repository: options.repository,
+        ...(options.applier === undefined ? {} : { applier: options.applier }),
+    });
+    const deliveries = createDeliveries({
         store: options.store,
         capabilities: options.capabilities,
         configSource: options.configSource,
-        externals: options.externals,
+        decideItem,
         repository: options.repository,
         worker: options.worker ?? `shell-${randomUUID()}`,
         clock,
         log,
         suspended,
-        ...(options.applier === undefined ? {} : { applier: options.applier }),
     });
     /**
      * It rides the reconciliation tick rather than owning a timer: the schedule row's DUE
@@ -109,7 +116,7 @@ export function createShell(options: ShellOptions): Shell {
             : createSweep({
                   store: options.store,
                   capabilities: options.capabilities,
-                  processor,
+                  processor: { decideItem, configuration: deliveries.configuration },
                   facts: options.sweep.facts,
                   clock,
                   cadenceMs: options.sweep.cadenceMs ?? DEFAULT_SWEEP_CADENCE_MS,
@@ -130,7 +137,7 @@ export function createShell(options: ShellOptions): Shell {
                 receivedAt: clock().toISOString(),
             }).outcome,
         onAccepted: () => {
-            void processor.drain().catch((error: unknown) => {
+            void deliveries.drain().catch((error: unknown) => {
                 log({ event: "drainFailed", phase: "accepted", detail: detailOf(error) });
             });
         },
@@ -146,7 +153,7 @@ export function createShell(options: ShellOptions): Shell {
         const before = new Date(clock().getTime() - EFFECT_LEASE_STALE_MINUTES * 60_000);
         const open = options.store.ledger.open(before.toISOString());
         if (open.length === 0) return;
-        const config = await processor.configuration();
+        const config = await deliveries.configuration();
         if (config === null) return;
         for (const row of open) {
             try {
@@ -184,7 +191,7 @@ export function createShell(options: ShellOptions): Shell {
         void recoverEffects().catch((error: unknown) => {
             log({ event: "sweepFailed", detail: detailOf(error) });
         });
-        void processor.drain().catch((error: unknown) => {
+        void deliveries.drain().catch((error: unknown) => {
             log({ event: "drainFailed", phase: "sweep", detail: detailOf(error) });
         });
         // No `.catch`: `runDue` contains its own failures, and a rejection would also
@@ -204,10 +211,10 @@ export function createShell(options: ShellOptions): Shell {
 
     return {
         server,
-        drain: () => processor.drain(),
+        drain: () => deliveries.drain(),
         /** BOTH passes, because both hold a claim: the delivery lane's, and the sweep's row. */
         settled: async () => {
-            await Promise.all([processor.settled(), factSweep?.settled()]);
+            await Promise.all([deliveries.settled(), factSweep?.settled()]);
         },
         stopSweep: () => {
             clearInterval(ticking);

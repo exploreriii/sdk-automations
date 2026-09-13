@@ -23,14 +23,14 @@ flowchart LR
 |---|---|---|
 | ① Verify the signature before anything else | [`receiver.ts`](receiver.ts) | core's `verifyBody` — the receiver never parses what it has not verified |
 | ② Persist durably, only then `202` | [`receiver.ts`](receiver.ts) → [`shell.ts`](shell.ts) | the store's `acceptDelivery` (P9): a crash after the ack loses nothing |
-| ③ Prepare: config text → `parseConfigDocument`, externals assembled | [`processor.ts`](processor.ts), [`config.ts`](config.ts), [`externals.ts`](externals.ts) | core's config layer; a broken config becomes `configRejected`, while `active` becomes `modeUnsupported` before `decide()` in any composition that wires no write path — the default |
-| ④ Decide with one verb | [`processor.ts`](processor.ts) | core's `decide()`; the shell cannot assert a world — `DerivedWorld` has no public constructor |
-| ⑤ Commit report plus completion | [`processor.ts`](processor.ts) → store's `completeDeliveryWithReport` | store verifies delivery identity and claim ownership, then creates one canonical report and marks the delivery done in one transaction |
+| ③ Prepare: config text → `parseConfigDocument`, externals assembled | [`inbound/deliveries.ts`](inbound/deliveries.ts), [`config.ts`](config.ts), [`externals.ts`](externals.ts) | core's config layer; a broken config becomes `configRejected`, while `active` becomes `modeUnsupported` before `decide()` in any composition that wires no write path — the default |
+| ④ Decide with one verb | [`decide/item.ts`](decide/item.ts) | core's `decide()`; the shell cannot assert a world — `DerivedWorld` has no public constructor |
+| ⑤ Commit report plus completion | [`inbound/deliveries.ts`](inbound/deliveries.ts) → store's `completeDeliveryWithReport` | store verifies delivery identity and claim ownership, then creates one canonical report and marks the delivery done in one transaction |
 
 ## Why a delivery goes into the database and comes back out
 
 The two lanes never speak directly: the receiver's only output is a durable row, and the
-processor's only input is that row — inside the same process. If that looks over-engineered,
+delivery lane's only input is that row — inside the same process. If that looks over-engineered,
 price every crash:
 
 | A crash… | Costs |
@@ -150,8 +150,8 @@ points `STORE_PATH` back at it is still writing raw payloads and real repository
 
 - **The scheduler beyond one repository** — the fact sweep is built ([`sweep.ts`](sweep.ts)), and it
   is a second caller of `decide()` rather than a second pipeline: a due `sweep:` row becomes one fact
-  record per open item, and each record goes through the processor's own mode gate, applier and
-  record shape. `SWEEP_CADENCE_HOURS` is what arms it, and it needs the App credentials for the same
+  record per open item, and each record goes through the same box's mode gate, applier and
+  decision rows. `SWEEP_CADENCE_HOURS` is what arms it, and it needs the App credentials for the same
   reason `APP_SLUG` does — a cadence with nothing to read GitHub with is half a configuration. What
   is still out: more than the one configured repository. The three reads `design/guides/sweep.md` §1
   once marked unconfirmed are cited (6.9, 2026-09-12), so the pull-request `review` group is read

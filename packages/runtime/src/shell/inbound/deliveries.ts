@@ -1,38 +1,36 @@
 /**
- * The worker half: claim a durable delivery, prepare, reject an unsupported mode or
- * call the one verb, apply what it approved, then commit the outcome with completion.
- * The reading key: a claimed delivery always ends as exactly ONE of five records —
- * `repositoryMismatch`, `installationSuspended`, `configRejected`, `modeUnsupported`,
- * or a decision, with no sixth exit. The try/catch in `attemptNext` is routing.
+ * The webhook lane: claim a durable delivery, prepare it, hand the shared box one item,
+ * then commit the outcome with completion. The reading key: a claimed delivery always
+ * ends as exactly ONE of five records — `repositoryMismatch`, `installationSuspended`,
+ * `configRejected`, `modeUnsupported`, or a decision, with no sixth exit.
+ * The try/catch in `attemptNext` is routing.
  */
 
 import {
-    decide,
     parseConfigDocument,
     repositoryNamedBy,
     UNREADABLE_CONFIG_REVISION,
     type ConfigResult,
     type ConfigError,
-    type Decision,
     type EngineCapability,
-    type Externals,
-    type Facts,
     type Report,
     type RepositoryConfig,
     type RepositoryRef,
 } from "@hiero-hackers/automation-core";
-import type { ClaimedDelivery, ReleaseDeliveryAfterFailureResult, Store } from "../store/index.js";
-import type { Applier, WriteBudget } from "./apply/apply.js";
-import type { ConfigSource } from "./config.js";
-import { decisionsOf } from "./decisions.js";
-import type { EffectOutcome } from "./effects.js";
-import { recordedWarningsIn, type ExternalsForDelivery } from "./externals.js";
-import { detailOf, type Log } from "./log.js";
-import { declareSweep, SWEEP_EFFECT } from "./schedule.js";
+import type {
+    ClaimedDelivery,
+    ReleaseDeliveryAfterFailureResult,
+    Store,
+} from "../../store/index.js";
+import type { ConfigSource } from "../config.js";
+import type { DecideItem } from "../decide/item.js";
+import type { EffectOutcome } from "../effects.js";
+import { detailOf, type Log } from "../log.js";
+import { declareSweep } from "../schedule.js";
 
 /**
  * A processing claim older than this is presumed dead and taken over.
- * Exported for the sweep in `shell.ts`, which requeues on the same clock.
+ * Exported for the tick in `shell.ts`, which requeues on the same clock.
  */
 export const STALE_CLAIM_MINUTES = 15;
 
@@ -50,19 +48,18 @@ function retryDelayMs(attempts: number): number {
 }
 
 /** Dependencies and operator hooks for one durable delivery worker. */
-export interface ProcessorOptions {
+export interface DeliveriesOptions {
     readonly store: Store;
     readonly capabilities: readonly EngineCapability[];
     readonly configSource: ConfigSource;
-    readonly externals: ExternalsForDelivery;
+    /** The shared box: this lane decides nothing itself (D172). */
+    readonly decideItem: DecideItem;
     /** The one repository this endpoint serves, and the name every payload is held to. */
     readonly repository: RepositoryRef;
     readonly worker: string;
     readonly clock: () => Date;
     /** Every line here names its delivery: this is the lane that retries. */
     readonly log: Log;
-    /** The write path, when a composition root has wired one. Absent is the shipped composition, so `mode: active` ends as `modeUnsupported` before `decide()` runs — the shell genuinely has no effect path. */
-    readonly applier?: Applier;
     /** The installation switch (D171): every delivery is accepted and recorded, and none is decided. */
     readonly suspended?: boolean;
 }
@@ -76,10 +73,7 @@ interface RecordIdentity {
     readonly configRevision: string;
 }
 
-/**
- * The canonical shell record persisted for one delivery — and a swept item's, which
- * is the same shape because a sweep is a second CALLER of `decide()` (facts.md §4).
- */
+/** The canonical shell record persisted for one delivery. */
 export type ShellRecord =
     | (RecordIdentity & {
           readonly kind: "decision";
@@ -133,34 +127,15 @@ function sameRepository(named: string, served: string): boolean {
     return named.toLowerCase() === served.toLowerCase();
 }
 
-/**
- * One fact record to decide about, outside the delivery queue — the sweep's entry to
- * the lifecycle this file owns (sweep.md §2). `deliveryId` is a NAME, never a durable row. The configuration is passed in because the sweep reads it ONCE per firing.
- */
-export interface FactRecordInput {
-    readonly facts: Facts;
-    readonly deliveryId: string;
-    /** When the firing this record belongs to became due. */
-    readonly receivedAt: string;
-    readonly config: RepositoryConfig;
-    /** The writes this firing has left; every record of one firing shares it (D167). */
-    readonly budget?: WriteBudget;
-}
-
 /** What the worker exposes: one pass, or pump until the queue is empty. */
-export interface Processor {
+export interface Deliveries {
     processOnce(): Promise<boolean>;
     drain(): Promise<void>;
-    /**
-     * Decide one fact record and apply what it approved — stations ④ to ⑥ for a caller
-     * that already holds the record and the configuration. ONE lifecycle, not two.
-     */
-    processFacts(input: FactRecordInput): Promise<ShellRecord>;
     /** The drain in flight, if any; resolved at once when none is. */
     settled(): Promise<void>;
     /**
      * The current configuration as this lane reads it, or `null` when it cannot be read.
-     * Exposed for the sweep's effect recovery, so a resend is gated on the same file: two readers could disagree about active mode, and that disagreement writes to GitHub.
+     * Exposed for the sweep, so a firing is gated on the same file: two readers could disagree about active mode, and that disagreement writes to GitHub.
      */
     configuration(): Promise<RepositoryConfig | null>;
 }
@@ -204,17 +179,16 @@ function dispositionOf(release: ReleaseDeliveryAfterFailureResult): {
     }
 }
 
-export function createProcessor(options: ProcessorOptions): Processor {
+export function createDeliveries(options: DeliveriesOptions): Deliveries {
     const {
         store,
         capabilities,
         configSource,
-        externals,
+        decideItem,
         repository,
         worker,
         clock,
         log,
-        applier,
         suspended = false,
     } = options;
     let draining: Promise<void> | null = null;
@@ -280,76 +254,6 @@ export function createProcessor(options: ProcessorOptions): Processor {
         configRevision,
     });
 
-    /**
-     * One record's externals as CORE takes them — both callers' only way in.
-     * Two seams bind to the store HERE, because core's take one argument and this is the lane that owns a store: the recorded warning, which is the store's rather than the delivery's, so every composition owning one can answer it with credentials or without (grace.md §2); and the item's landed writes, because GitHub names the ASSIGNEE as the actor of a release the App made, so an unbound ordering read hands that release back as a human change and refuses the next act over it (D159).
-     */
-    const externalsFor = async (
-        delivery: Parameters<ExternalsForDelivery>[0],
-    ): Promise<Externals> => {
-        const facts = await externals(delivery);
-        return {
-            ...facts,
-            latestHumanChangeAt: (item) =>
-                facts.latestHumanChangeAt(item, store.ledger.landedOn(repository, item)),
-            warningFor: recordedWarningsIn(store.ledger),
-        };
-    };
-
-    /** Stations 5–10 live behind one call: normalize, evaluate, screen, derive, gate. */
-    const decideOn = async (
-        claimed: ClaimedDelivery,
-        payload: unknown,
-        config: RepositoryConfig,
-    ): Promise<Decision> =>
-        decide(
-            { kind: "delivery", repository, event: claimed.eventName, payload },
-            config,
-            capabilities,
-            // Built per delivery: the live path binds its ordering-evidence memo to this one.
-
-            await externalsFor({ payload, deliveryId: String(claimed.deliveryId), config }),
-        );
-
-    /**
-     * Stations ④ to ⑥ over a configuration that has already parsed.
-     * BOTH callers end here, which is what makes "one lifecycle" true rather than said: the write path is acquired in one place.
-     */
-    const decidedRecord = async (
-        identity: RecordIdentity,
-        config: RepositoryConfig,
-        decideIt: () => Promise<Decision>,
-        budget?: WriteBudget,
-    ): Promise<ShellRecord> => {
-        const active = config.mode === "active";
-        if (active && applier === undefined) {
-            return {
-                kind: "modeUnsupported",
-                ...identity,
-                reason: "active mode is unsupported by the runnable shell",
-            };
-        }
-        const decision = await decideIt();
-        // Only in active mode, so a future mode cannot acquire a write path by accident.
-
-        const effects =
-            active && applier !== undefined
-                ? await applier.applyAll(decision.approved, config, budget)
-                : [];
-        const rows = decisionsOf({
-            passId: identity.deliveryId,
-            event: identity.event,
-            repository,
-            at: identity.decidedAt,
-            report: decision.report,
-            effects,
-        });
-        // One statement each and no transaction: a crash between rows loses only rows.
-
-        for (const row of rows) store.ledger.decide(row);
-        return { kind: "decision", ...identity, report: decision.report, effects };
-    };
-
     const served = `${repository.owner}/${repository.repo}`;
 
     /**
@@ -375,8 +279,8 @@ export function createProcessor(options: ProcessorOptions): Processor {
             };
         }
         const config = await loadConfig();
-        // One instant is the record's `decidedAt` AND the gates' clock, so the ledger
-        // never disagrees with the decision it holds.
+        // One instant is the record's `decidedAt` AND the rows' `at`, so the ledger
+        // never disagrees with the record it holds.
 
         const identity = identityFor(claimed, config.revision, clock());
 
@@ -390,7 +294,19 @@ export function createProcessor(options: ProcessorOptions): Processor {
         // here, because this is where the file is read (sweep.md §2, step 1).
 
         declareSweep({ store, repository, config: parsed, capabilities, now: clock() });
-        return decidedRecord(identity, parsed, () => decideOn(claimed, payload, parsed));
+        const decided = await decideItem(
+            {
+                kind: "delivery",
+                deliveryId: identity.deliveryId,
+                event: identity.event,
+                payload,
+            },
+            parsed,
+            identity.decidedAt,
+        );
+        return decided.kind === "modeUnsupported"
+            ? { kind: "modeUnsupported", ...identity, reason: decided.reason }
+            : { kind: "decision", ...identity, report: decided.report, effects: decided.outcomes };
     };
 
     /**
@@ -457,30 +373,6 @@ export function createProcessor(options: ProcessorOptions): Processor {
     };
 
     return {
-        /** One swept item, decided and applied. No claim of its own: the sweep holds the row. */
-        processFacts({ facts, deliveryId, receivedAt, config, budget }): Promise<ShellRecord> {
-            return decidedRecord(
-                {
-                    deliveryId,
-                    event: SWEEP_EFFECT,
-                    receivedAt,
-                    decidedAt: clock().toISOString(),
-                    configRevision: config.revision,
-                },
-                config,
-                async () =>
-                    decide(
-                        { kind: "facts", facts },
-                        config,
-                        capabilities,
-                        // No payload: a sweep has no causing human action to exclude.
-
-                        await externalsFor({ payload: undefined, deliveryId, config }),
-                    ),
-                budget,
-            );
-        },
-
         /** One pass. A failed delivery still throws: the caller asked for it. */
         async processOnce(): Promise<boolean> {
             const outcome = await attemptNext();

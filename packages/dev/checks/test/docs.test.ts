@@ -55,7 +55,7 @@ const page = (name: string): string => normalizeNewlines(readFileSync(join(docsD
  */
 function shellRecordKinds(): string[] {
     const source = normalizeNewlines(
-        readFileSync(join(repoRoot, "packages/runtime/src/shell/processor.ts"), "utf8"),
+        readFileSync(join(repoRoot, "packages/runtime/src/shell/inbound/deliveries.ts"), "utf8"),
     );
     const union = source.split("type ShellRecord =")[1]?.split("\n\n")[0] ?? "";
     return [...union.matchAll(/readonly kind: "([A-Za-z]+)"/g)].map((m) => m[1]!);

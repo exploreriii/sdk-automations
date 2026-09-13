@@ -303,6 +303,8 @@ export function createGitHubHttpClient({
 }: GitHubHttpClientOptions): GitHubHttpClient {
     const cache = createRepresentationCache();
     let latestRateLimit: RateLimitSnapshot | null = null;
+    /** Monotonic for this client's life; the sweep's read budget spends it (D170). */
+    let sent = 0;
 
     const rememberRateLimit = (
         url: string,
@@ -364,6 +366,10 @@ export function createGitHubHttpClient({
             ...(requestBody === undefined ? {} : { body: requestBody }),
         };
 
+        // Counted here and nowhere else: a retried attempt counts again, and a cached
+        // representation still sends a conditional request.
+
+        sent += 1;
         let response: Response;
         try {
             response = await send(request.url, init);
@@ -616,5 +622,6 @@ export function createGitHubHttpClient({
                 headers: { ...latestRateLimit.headers },
             };
         },
+        requestsMade: () => sent,
     };
 }

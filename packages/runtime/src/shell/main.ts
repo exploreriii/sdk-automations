@@ -167,13 +167,13 @@ if (writeCap !== null && (!Number.isInteger(writeCap) || writeCap < 1)) {
 }
 
 /**
- * How many items' facts ONE firing may read, overriding the budget `sweep.ts` declares (D170).
+ * How many requests ONE firing may spend reading, overriding the budget `sweep.ts` declares (D170).
  * Like the write cap it arms nothing: it only narrows a firing.
  */
 const budget = env["SWEEP_READ_BUDGET"];
 const readBudget = budget === undefined ? null : Number(budget);
 if (readBudget !== null && (!Number.isInteger(readBudget) || readBudget < 1)) {
-    console.error("SWEEP_READ_BUDGET must be a whole number of items, 1 or more.");
+    console.error("SWEEP_READ_BUDGET must be a whole number of requests, 1 or more.");
     process.exit(1);
 }
 
@@ -206,6 +206,8 @@ interface LiveGitHub {
     readonly writePath: WritePath | null;
     /** One reader per firing; see `SweepFactsSource` on why never one per process. */
     readonly facts: SweepFactsSource;
+    /** The client's own count, which the sweep's read budget is spent against (D170). */
+    readonly requestsMade: () => number;
 }
 
 function liveGitHub({
@@ -251,6 +253,7 @@ function liveGitHub({
     return {
         facts: (config) =>
             createFactsReader({ http, repository, config, clock, knownCapabilities }),
+        requestsMade: http.requestsMade,
         configSource: githubConfigSource({ client: http, repository }),
         // One call per delivery, so the seam below is bound to that delivery.
 
@@ -345,6 +348,7 @@ const sweep =
         ? undefined
         : {
               facts: live.facts,
+              requestsMade: live.requestsMade,
               cadenceMs: cadenceHours * 60 * 60_000,
               ...(writeCap === null ? {} : { writeCap }),
               ...(readBudget === null ? {} : { readBudget }),

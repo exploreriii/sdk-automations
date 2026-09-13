@@ -518,6 +518,7 @@ describe("the first slice, end to end", () => {
                     facts: () => {
                         throw new Error("the reader must not be built");
                     },
+                    requestsMade: () => 0,
                 },
                 log,
             }),

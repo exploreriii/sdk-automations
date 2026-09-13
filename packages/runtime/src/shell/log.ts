@@ -132,11 +132,13 @@ export type ShellEvent =
           /** The read budget stopped a firing short; the next one continues from the cursor (D170). */
           readonly event: "sweepPartial";
           readonly scheduleId: string;
-          /** Items this firing read facts for — the budget, or what was left of the list. */
+          /** Items this firing read facts for before the budget stopped it. */
           readonly read: number;
           readonly remaining: number;
           /** The item number the next firing resumes after. */
           readonly resumeAfter: number;
+          /** Requests this firing's reading spent (D170). */
+          readonly requests: number;
       }
     | {
           /** A firing's retention pass removed something; it says nothing when it removed nothing. */
@@ -162,6 +164,8 @@ export type ShellEvent =
           readonly remaining: number;
           /** Where the next firing starts reading; null starts the list again. */
           readonly resumeAfter: number | null;
+          /** Requests this firing's reading spent of the budget (D170). */
+          readonly requests: number;
           readonly nextDueAt: string;
       }
     | {

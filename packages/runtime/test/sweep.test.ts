@@ -145,19 +145,15 @@ interface Script {
 
 interface ScriptedReader {
     readonly facts: (config: RepositoryConfig) => SweepFacts;
-    /** Every `issueFacts` call's second argument, in order. */
-    readonly issueLinks: (readonly ItemRef[] | "unread")[];
 }
 
 function scriptedReader(script: Script = {}): ScriptedReader {
-    const issueLinks: (readonly ItemRef[] | "unread")[] = [];
     const facts = (_config: RepositoryConfig): SweepFacts => ({
         openItems: () =>
             Promise.resolve(
                 script.items ?? { ok: true, items: [listedItem(ISSUE), listedItem(PULL)] },
             ),
         issueFacts: (listed, links) => {
-            issueLinks.push(links);
             const record: IssueFacts = {
                 kind: "issue",
                 repository: REPOSITORY,
@@ -198,7 +194,7 @@ function scriptedReader(script: Script = {}): ScriptedReader {
             return Promise.resolve(record);
         },
     });
-    return { facts, issueLinks };
+    return { facts };
 }
 
 interface ScriptedProcessor {
@@ -259,6 +255,7 @@ function driven(script: Script = {}, config = configFrom(CONFIG_TEXT, CAPABILITI
         cadenceMs: DAY_MS,
         writeCap: SWEEP_WRITE_CAP,
         readBudget: SWEEP_READ_BUDGET,
+        requestsMade: () => 0,
         log,
     });
     return { reader, decided, run: () => sweep.runDue() };
@@ -273,10 +270,10 @@ describe("a due sweep row", () => {
 
         await run();
 
-        // Pull requests first: the issues' links are their link reads reversed.
+        // Number order, whatever the kind: what a firing read is a prefix of the list.
         expect(decided.map((input) => input.deliveryId)).toEqual([
-            `${SCHEDULE}:pullRequest#34`,
             `${SCHEDULE}:issue#12`,
+            `${SCHEDULE}:pullRequest#34`,
         ]);
         expect(decided.map((input) => input.facts.trigger)).toEqual([
             { kind: "sweep" },
@@ -287,30 +284,30 @@ describe("a due sweep row", () => {
 
     it("gives each issue the pull requests that close it, from the sweep's own reads", async () => {
         armed();
-        const { reader, run } = driven();
+        const { decided, run } = driven();
 
+        // The pull request is read after the issue, so the links are completed once
+        // every pull request this firing read is in.
         await run();
 
-        expect(reader.issueLinks).toEqual([[PULL]]);
+        expect(decided[0]?.facts.links).toEqual({ openPullRequests: [PULL] });
     });
 
     it("gives an issue nothing closes an empty list, which is a read answer", async () => {
         armed();
-        const { reader, decided, run } = driven({ closes: [] });
+        const { decided, run } = driven({ closes: [] });
 
         await run();
 
-        expect(reader.issueLinks).toEqual([[]]);
-        expect(decided[1]?.facts.links).toEqual({ openPullRequests: [] });
+        expect(decided[0]?.facts.links).toEqual({ openPullRequests: [] });
     });
 
     it("leaves every issue's links unread when one pull request's links were not read", async () => {
         armed();
-        const { reader, decided, run } = driven({ closes: "unread" });
+        const { decided, run } = driven({ closes: "unread" });
 
         await run();
 
-        expect(reader.issueLinks).toEqual(["unread"]);
         expect(decided.map((input) => input.facts.links)).toEqual([UNREAD, UNREAD]);
     });
 
@@ -369,6 +366,7 @@ describe("a firing that reads nothing", () => {
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
             readBudget: SWEEP_READ_BUDGET,
+            requestsMade: () => 0,
             log,
         });
 
@@ -406,6 +404,7 @@ describe("a firing that reads nothing", () => {
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
             readBudget: SWEEP_READ_BUDGET,
+            requestsMade: () => 0,
             log,
         });
 
@@ -439,6 +438,7 @@ describe("the claim", () => {
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
             readBudget: SWEEP_READ_BUDGET,
+            requestsMade: () => 0,
             log,
         });
 
@@ -489,6 +489,7 @@ describe("the claim", () => {
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
             readBudget: SWEEP_READ_BUDGET,
+            requestsMade: () => 0,
             log,
         });
 
@@ -577,6 +578,7 @@ describe("the writes one firing may send", () => {
             cadenceMs: DAY_MS,
             writeCap: 2,
             readBudget: SWEEP_READ_BUDGET,
+            requestsMade: () => 0,
             log,
         });
 
@@ -622,6 +624,7 @@ describe("the writes one firing may send", () => {
             cadenceMs: DAY_MS,
             writeCap: 2,
             readBudget: SWEEP_READ_BUDGET,
+            requestsMade: () => 0,
             log,
         });
 
@@ -638,6 +641,10 @@ const FIVE: readonly SweptItem[] = [13, 11, 15, 12, 14].map((number) =>
     listedItem({ kind: "issue", number }),
 );
 
+/** What the counted reader below charges: one request for the list, two for an item. */
+const LIST_COST = 1;
+const ITEM_COST = 2;
+
 interface Budgeted {
     /** The item numbers handed to the processor, across every firing, in order. */
     read(): number[];
@@ -647,20 +654,40 @@ interface Budgeted {
     fire(days: number): Promise<void>;
 }
 
-/** One sweep under a read budget, fired as often as a case likes. */
+/** One sweep under a read budget it spends in requests, fired as often as a case likes. */
 function budgeted(readBudget: number): Budgeted {
     const listing: { items: SweptItems } = { items: { ok: true, items: FIVE } };
     const { processor, decided } = scriptedProcessor(configFrom(CONFIG_TEXT, CAPABILITIES));
+    let requests = 0;
+    /** The scripted reader, charging what the live one's reads would cost. */
+    const counted = (config: RepositoryConfig): SweepFacts => {
+        const reader = scriptedReader(listing).facts(config);
+        return {
+            openItems: () => {
+                requests += LIST_COST;
+                return reader.openItems();
+            },
+            issueFacts: (listed, links) => {
+                requests += ITEM_COST;
+                return reader.issueFacts(listed, links);
+            },
+            pullRequestFacts: (listed, openIssues) => {
+                requests += ITEM_COST;
+                return reader.pullRequestFacts(listed, openIssues);
+            },
+        };
+    };
     let now = NOW;
     const sweep = createSweep({
         store,
         capabilities: CAPABILITIES,
         processor,
-        facts: scriptedReader(listing).facts,
+        facts: counted,
         clock: () => now,
         cadenceMs: DAY_MS,
         writeCap: SWEEP_WRITE_CAP,
         readBudget,
+        requestsMade: () => requests,
         log,
     });
     return {
@@ -677,10 +704,11 @@ function budgeted(readBudget: number): Budgeted {
 const cursorAfter = (days: number): number | null | undefined =>
     store.ledger.claimDue(new Date(NOW.getTime() + days * DAY_MS).toISOString())[0]?.resumeAfter;
 
-describe("the items one firing may read", () => {
-    it("reads the budget in number order, says what remains, and keeps the cursor", async () => {
+describe("the requests one firing may spend", () => {
+    it("stops at the budget in number order, says what remains, and keeps the cursor", async () => {
         armed();
-        const firing = budgeted(2);
+        // The list and two items: the third would be read past the budget.
+        const firing = budgeted(LIST_COST + 2 * ITEM_COST);
 
         await firing.fire(0);
 
@@ -693,29 +721,35 @@ describe("the items one firing may read", () => {
                 read: 2,
                 remaining: 3,
                 resumeAfter: 12,
+                requests: 5,
             },
         ]);
         expect(events("sweepFinished")).toMatchObject([
-            { items: 5, decided: 2, remaining: 3, resumeAfter: 12 },
+            { items: 5, decided: 2, remaining: 3, resumeAfter: 12, requests: 5 },
         ]);
         expect(cursorAfter(1)).toBe(12);
     });
 
     it("reads the next two from the cursor on the next firing", async () => {
         armed();
-        const firing = budgeted(2);
+        const firing = budgeted(5);
 
         await firing.fire(0);
         await firing.fire(1);
 
         expect(firing.read()).toEqual([11, 12, 13, 14]);
-        expect(events("sweepPartial")[1]).toMatchObject({ read: 2, remaining: 1, resumeAfter: 14 });
+        expect(events("sweepPartial")[1]).toMatchObject({
+            read: 2,
+            remaining: 1,
+            resumeAfter: 14,
+            requests: 5,
+        });
         expect(cursorAfter(2)).toBe(14);
     });
 
     it("clears the cursor on the firing that finishes the list, and starts over", async () => {
         armed();
-        const firing = budgeted(2);
+        const firing = budgeted(5);
 
         await firing.fire(0);
         await firing.fire(1);
@@ -729,13 +763,43 @@ describe("the items one firing may read", () => {
             decided: 1,
             remaining: 0,
             resumeAfter: null,
+            requests: LIST_COST + ITEM_COST,
         });
         expect(cursorAfter(3)).toBeNull();
     });
 
+    it("reads the whole list in one firing when the budget reaches it", async () => {
+        armed();
+        const firing = budgeted(LIST_COST + 5 * ITEM_COST);
+
+        await firing.fire(0);
+
+        expect(firing.read()).toEqual([11, 12, 13, 14, 15]);
+        expect(events("sweepPartial")).toEqual([]);
+        expect(events("sweepFinished")).toMatchObject([
+            { decided: 5, remaining: 0, resumeAfter: null, requests: 11 },
+        ]);
+        expect(cursorAfter(1)).toBeNull();
+    });
+
+    it("reads no item when the list alone spends the budget", async () => {
+        armed();
+        const firing = budgeted(LIST_COST);
+
+        await firing.fire(0);
+
+        // Nothing was read, so there is no cursor: the next firing starts the list again.
+        expect(firing.read()).toEqual([]);
+        expect(events("sweepPartial")).toEqual([]);
+        expect(events("sweepFinished")).toMatchObject([
+            { items: 5, decided: 0, remaining: 5, resumeAfter: null, requests: LIST_COST },
+        ]);
+        expect(cursorAfter(1)).toBeNull();
+    });
+
     it("leaves the cursor where it stood when the list could not be read", async () => {
         armed();
-        const firing = budgeted(2);
+        const firing = budgeted(5);
 
         await firing.fire(0);
         firing.listing.items = { ok: false, detail: "GitHub refused the read" };
@@ -743,7 +807,12 @@ describe("the items one firing may read", () => {
 
         expect(firing.read()).toEqual([11, 12]);
         expect(events("sweepUnreadable")).toHaveLength(1);
-        expect(events("sweepFinished")[1]).toMatchObject({ items: 0, resumeAfter: 12 });
+        // The list read is spent whether or not it answered.
+        expect(events("sweepFinished")[1]).toMatchObject({
+            items: 0,
+            resumeAfter: 12,
+            requests: LIST_COST,
+        });
         expect(cursorAfter(2)).toBe(12);
     });
 });
@@ -907,6 +976,7 @@ describe("what one firing prunes", () => {
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
             readBudget: SWEEP_READ_BUDGET,
+            requestsMade: () => 0,
             log,
         });
 
@@ -949,6 +1019,7 @@ describe("a firing under a suspended installation", () => {
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
             readBudget: SWEEP_READ_BUDGET,
+            requestsMade: () => 0,
             suspended: true,
             log,
         });
@@ -1114,6 +1185,7 @@ describe("the reader and the driver together", () => {
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
             readBudget: SWEEP_READ_BUDGET,
+            requestsMade: http.client.requestsMade,
             log,
         });
 
@@ -1121,7 +1193,7 @@ describe("the reader and the driver together", () => {
 
         const codesOf = (record: ShellRecord): string[] =>
             record.kind === "decision" ? record.report.findings.map((finding) => finding.code) : [];
-        const [pull, issue] = records;
+        const [issue, pull] = records;
 
         // The pull request's `review` group is built from three reads no
         // protocol has confirmed, so the ladder is skipped rather than guessing.
@@ -1133,7 +1205,7 @@ describe("the reader and the driver together", () => {
         // timeline and comments dated, and the pull request that closes it.
         expect(issue?.deliveryId).toBe(`${SCHEDULE}:issue#12`);
         expect(codesOf(issue!)).not.toContain("factsUnread");
-        const judged = handed[1]?.facts;
+        const judged = handed[0]?.facts;
         expect(judged).toMatchObject({
             kind: "issue",
             item: ISSUE,
@@ -1150,7 +1222,7 @@ describe("the reader and the driver together", () => {
         });
         // And the pull request's own record says `review` is the group nobody
         // read — the three reads it is built from have no citation yet.
-        expect(handed[0]?.facts).toMatchObject({
+        expect(handed[1]?.facts).toMatchObject({
             kind: "pullRequest",
             assignees: [{ login: "ada" }],
             links: { issues: [{ item: ISSUE }] },
@@ -1296,6 +1368,7 @@ describe("an item the platform released within the minute", () => {
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
             readBudget: SWEEP_READ_BUDGET,
+            requestsMade: http.client.requestsMade,
             log,
         });
 

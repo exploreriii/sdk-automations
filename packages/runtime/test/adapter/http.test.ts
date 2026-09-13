@@ -1502,6 +1502,49 @@ describe("rate awareness", () => {
     });
 });
 
+/** What the sweep's read budget spends: sends, not items and not successes (D170). */
+describe("the request count", () => {
+    it("starts at none and counts one request", async () => {
+        const { client } = harness([success()]);
+        expect(client.requestsMade()).toBe(0);
+
+        await client.request(request());
+
+        expect(client.requestsMade()).toBe(1);
+    });
+
+    it("counts a retried attempt again", async () => {
+        const { client } = harness([failure(503, "down"), success("up")]);
+
+        await client.request(request());
+
+        expect(client.requestsMade()).toBe(2);
+    });
+
+    it("counts the conditional request a cached representation answers", async () => {
+        const { client } = harness([
+            success('{"number":132}', { etag: '"issue-v1"' }),
+            new Response(null, { status: 304 }),
+        ]);
+
+        await client.request(request());
+        const cached = await client.request(request());
+
+        expect(cached).toMatchObject({ ok: true, status: 304, fromCache: true });
+        expect(client.requestsMade()).toBe(2);
+    });
+
+    it("counts nothing for a call the admission gate refused", async () => {
+        const { client } = harness([success()]);
+
+        expect(await client.request(request({ url: "not a URL" }))).toEqual({
+            ok: false,
+            failure: { kind: "notSent", reason: "malformedUrl" },
+        });
+        expect(client.requestsMade()).toBe(0);
+    });
+});
+
 describe("lastPageFromLink, held directly", () => {
     it("reads a multi-digit last page with parameters after it", () => {
         expect(

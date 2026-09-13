@@ -70,8 +70,10 @@ export interface SweepOptions {
     readonly cadenceMs: number;
     /** How many writes one firing may send; the default is `SWEEP_WRITE_CAP`. */
     readonly writeCap: number;
-    /** How many items' facts one firing may read; the default is `SWEEP_READ_BUDGET`. */
+    /** How many requests one firing may spend reading; the default is `SWEEP_READ_BUDGET`. */
     readonly readBudget: number;
+    /** What the budget above is spent against: the client's own count of requests sent. */
+    readonly requestsMade: () => number;
     /** The installation switch (D171): a firing reads nothing, and still prunes and re-arms. */
     readonly suspended?: boolean;
     readonly log: Log;
@@ -87,10 +89,10 @@ export const DEFAULT_SWEEP_CADENCE_MS = 60 * 60_000;
 export const SWEEP_WRITE_CAP = 20;
 
 /**
- * How many items' facts one firing may read before it carries the rest to the next (D170).
- * The open-item list itself is not budgeted: it is paged, and one page is one cheap read.
+ * How many requests one firing may spend reading before it carries the rest to the next (D170).
+ * Of GitHub's hourly five thousand, leaving room for webhooks and read-backs.
  */
-export const SWEEP_READ_BUDGET = 500;
+export const SWEEP_READ_BUDGET = 2_000;
 
 const DAY_MS = 24 * 60 * 60_000;
 
@@ -128,13 +130,15 @@ interface Swept {
     readonly remaining: number;
     /** Where the next firing starts reading; null reads the list again from the beginning. */
     readonly resumeAfter: number | null;
+    /** Requests this firing's reading spent of the budget (D170). */
+    readonly requests: number;
 }
 
 /**
  * A firing that read nothing — an unusable list, a suspension, or a repository that wants none.
  * The cursor is handed back as it stood: nothing was read, so nothing moved it.
  */
-const nothingRead = (row: ClaimedScheduleRow): Swept => ({
+const nothingRead = (row: ClaimedScheduleRow, requests = 0): Swept => ({
     items: 0,
     decided: 0,
     unread: 0,
@@ -142,6 +146,7 @@ const nothingRead = (row: ClaimedScheduleRow): Swept => ({
     heldBack: 0,
     remaining: 0,
     resumeAfter: row.resumeAfter,
+    requests,
 });
 
 /** How many of one record's effects the write cap turned away. */
@@ -150,31 +155,14 @@ const heldBackIn = (record: ShellRecord): number =>
         ? record.effects.filter((effect) => effect.code === "sweepWriteCap").length
         : 0;
 
-/** The items one firing reads, and where it stopped — `withinBudget`'s answer. */
-interface Reading {
-    readonly taken: readonly SweptItem[];
-    readonly remaining: number;
-    /** The last number read when items remain; null when the list was finished. */
-    readonly resumeAfter: number | null;
-}
-
 /**
- * Sorted by number ascending, skipped past the cursor, stopped at the budget (D170).
- * A judgement: the list is the only thing read before it, and it decides what else is.
+ * What this firing may read: past the cursor, by number ascending (D170).
+ * The budget stops the walk over these; nothing here knows about it.
  */
-function withinBudget(items: readonly SweptItem[], after: number | null, budget: number): Reading {
-    const eligible = items
+function afterCursor(items: readonly SweptItem[], after: number | null): readonly SweptItem[] {
+    return items
         .filter(({ item }) => after === null || item.number > after)
         .sort((left, right) => left.item.number - right.item.number);
-    const taken = eligible.slice(0, budget);
-    // In number order, so the last item read IS the cursor the next firing resumes after.
-
-    const stopped = taken.length < eligible.length ? taken.at(-1) : undefined;
-    return {
-        taken,
-        remaining: eligible.length - taken.length,
-        resumeAfter: stopped === undefined ? null : stopped.item.number,
-    };
 }
 
 export function createSweep(options: SweepOptions): Sweep {
@@ -187,6 +175,7 @@ export function createSweep(options: SweepOptions): Sweep {
         cadenceMs,
         writeCap,
         readBudget,
+        requestsMade,
         suspended = false,
         log,
     } = options;
@@ -194,34 +183,47 @@ export function createSweep(options: SweepOptions): Sweep {
     const nextDue = (): string => new Date(clock().getTime() + cadenceMs).toISOString();
 
     /**
-     * Every open item the budget reaches, read once, split by kind.
+     * Every open item the budget's requests reach, read once, in number order.
      * One list call covers both kinds because GitHub's issue list carries pull requests too.
      */
     const readRecords = async (
         row: ClaimedScheduleRow,
         config: RepositoryConfig,
     ): Promise<Swept> => {
+        const before = requestsMade();
+        const spent = (): number => requestsMade() - before;
         const reader = facts(config);
         const listed = await reader.openItems();
         if (!listed.ok) {
             log({ event: "sweepUnreadable", scheduleId: row.scheduleId, detail: listed.detail });
-            return nothingRead(row);
+            return nothingRead(row, spent());
         }
-        const reading = withinBudget(listed.items, row.resumeAfter, readBudget);
-        // Split from what the budget took, never from the whole list: a link to an item
-        // outside this window is one more facts read, which is what the budget spends.
+        const eligible = afterCursor(listed.items, row.resumeAfter);
+        // Joined against every listed issue, not this firing's window: reading one more
+        // item's clocks is a request, and requests are what the budget counts (D170).
 
-        const issues = reading.taken.filter(({ item }) => item.kind === "issue");
-        const pulls = reading.taken.filter(({ item }) => item.kind === "pullRequest");
+        const issues = listed.items.filter(({ item }) => item.kind === "issue");
 
-        // Pull requests first: their `links` are the only read that says which pull
-        // requests an issue has, and the driver reverses them below.
+        // A pull request's `links` are the only read that says which pull requests an
+        // issue has, so the driver reverses them and completes each issue's below.
 
         const inverse = new Map<number, ItemRef[]>();
         let everyLinkRead = true;
         const records: (IssueFacts | PullRequestFacts)[] = [];
-        for (const listedPull of pulls) {
-            const record = await reader.pullRequestFacts(listedPull, issues);
+        let read = 0;
+        for (const listedItem of eligible) {
+            // In number order, one item at a time: what a firing read is then a prefix of
+            // the list, which is what the cursor below hands to the next one.
+
+            if (spent() >= readBudget) break;
+            read += 1;
+            if (listedItem.item.kind === "issue") {
+                records.push(
+                    await reader.issueFacts(listedItem, inverse.get(listedItem.item.number) ?? []),
+                );
+                continue;
+            }
+            const record = await reader.pullRequestFacts(listedItem, issues);
             records.push(record);
             if (record.links === "unread") {
                 everyLinkRead = false;
@@ -233,15 +235,24 @@ export function createSweep(options: SweepOptions): Sweep {
                 inverse.set(linked.item.number, held);
             }
         }
-        for (const listedIssue of issues) {
-            // A partial inverse is a shorter list, so one unread link read makes every
-            // issue's links unread.
+        const requests = spent();
+        const remaining = eligible.length - read;
+        const resumeAfter = remaining === 0 ? null : (eligible[read - 1]?.item.number ?? null);
 
-            const links: readonly ItemRef[] | Unread = everyLinkRead
-                ? (inverse.get(listedIssue.item.number) ?? [])
-                : "unread";
-            records.push(await reader.issueFacts(listedIssue, links));
-        }
+        /**
+         * One record as it goes down: an issue's links, against every pull request read.
+         * A partial inverse is a shorter list, so one unread link read makes every issue's unread.
+         */
+        const completed = (
+            record: IssueFacts | PullRequestFacts,
+        ): IssueFacts | PullRequestFacts => {
+            if (record.kind !== "issue" || record.links === "unread") return record;
+            if (!everyLinkRead) return { ...record, links: "unread" };
+            return {
+                ...record,
+                links: { openPullRequests: inverse.get(record.item.number) ?? [] },
+            };
+        };
 
         // One budget for the firing: what it holds back is decided again next time.
 
@@ -249,7 +260,7 @@ export function createSweep(options: SweepOptions): Sweep {
         let decided = 0;
         let unread = 0;
         let heldBack = 0;
-        for (const record of records) {
+        for (const record of records.map(completed)) {
             if (record.links === "unread") unread += 1;
             const shellRecord = await processor.processFacts({
                 facts: record,
@@ -261,13 +272,14 @@ export function createSweep(options: SweepOptions): Sweep {
             heldBack += heldBackIn(shellRecord);
             decided += 1;
         }
-        if (reading.resumeAfter !== null) {
+        if (resumeAfter !== null) {
             log({
                 event: "sweepPartial",
                 scheduleId: row.scheduleId,
-                read: reading.taken.length,
-                remaining: reading.remaining,
-                resumeAfter: reading.resumeAfter,
+                read,
+                remaining,
+                resumeAfter,
+                requests,
             });
         }
         return {
@@ -276,8 +288,9 @@ export function createSweep(options: SweepOptions): Sweep {
             unread,
             writes: writeCap - budget.remaining,
             heldBack,
-            remaining: reading.remaining,
-            resumeAfter: reading.resumeAfter,
+            remaining,
+            resumeAfter,
+            requests,
         };
     };
 

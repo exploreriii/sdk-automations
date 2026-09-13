@@ -56,8 +56,10 @@ export interface ShellOptions {
         readonly cadenceMs?: number;
         /** How many writes one firing may send; the default is `SWEEP_WRITE_CAP`. */
         readonly writeCap?: number;
-        /** How many items' facts one firing may read; the default is `SWEEP_READ_BUDGET`. */
+        /** How many requests one firing may spend reading; the default is `SWEEP_READ_BUDGET`. */
         readonly readBudget?: number;
+        /** What that budget is spent against: the client's own count of requests sent. */
+        readonly requestsMade: () => number;
     };
     /** The installation switch (D171): deliveries are accepted and recorded, and nothing is read, decided or sent. */
     readonly suspended?: boolean;
@@ -113,6 +115,7 @@ export function createShell(options: ShellOptions): Shell {
                   cadenceMs: options.sweep.cadenceMs ?? DEFAULT_SWEEP_CADENCE_MS,
                   writeCap: options.sweep.writeCap ?? SWEEP_WRITE_CAP,
                   readBudget: options.sweep.readBudget ?? SWEEP_READ_BUDGET,
+                  requestsMade: options.sweep.requestsMade,
                   suspended,
                   log,
               });

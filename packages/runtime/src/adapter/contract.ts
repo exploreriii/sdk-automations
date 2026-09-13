@@ -120,6 +120,8 @@ export interface GitHubHttpClient {
     request(request: GitHubRequest): Promise<GitHubOutcome>;
     /** The last actual response, including a response that was retried. */
     latestRateLimit(): RateLimitSnapshot | null;
+    /** Requests actually sent, retries and conditional 304s included (D170). */
+    requestsMade(): number;
 }
 
 // ─── The spellings ───────────────────────────────────────────────────

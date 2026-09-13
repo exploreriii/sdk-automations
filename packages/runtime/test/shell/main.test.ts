@@ -684,7 +684,7 @@ async function withLiveGitHub(
         readonly cadenceHours?: string;
         /** How many writes one firing may send, over the sweep's own cap. */
         readonly writeCap?: string;
-        /** How many items' facts one firing may read, over the sweep's own budget. */
+        /** How many requests one firing may spend reading, over the sweep's own budget. */
         readonly readBudget?: string;
         /** How often the reconciliation tick runs — the sweep rides it. */
         readonly intervalSeconds?: string;
@@ -865,7 +865,7 @@ describe("the sandbox entry point, as a process", () => {
                 expect(shell.stdout()).toBe("");
                 expect(await shell.exit).toBe(1);
                 expect(shell.stderr().trim()).toBe(
-                    "SWEEP_READ_BUDGET must be a whole number of items, 1 or more.",
+                    "SWEEP_READ_BUDGET must be a whole number of requests, 1 or more.",
                 );
             });
         },

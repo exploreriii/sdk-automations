@@ -171,6 +171,6 @@ launch (D165); drift rejected by the fingerprint D110 established.*
 Active mode runs only where the process was composed with the App's identity as well as its
 credentials; anything else records `modeUnsupported`. Every read and write with no cited row in
 [`findings/endpoint-permission-matrix.md`](findings/endpoint-permission-matrix.md) — two resolvers,
-four operations, three of the sweep's facts — is implemented and refuses at the send. Installation-wide
-suspension has no code path. Everything else absent here is an open question in
+four operations, three of the sweep's facts — is implemented and refuses at the send. Everything
+else absent here is an open question in
 [`constraints.md`](constraints.md), deliberately not drawn.

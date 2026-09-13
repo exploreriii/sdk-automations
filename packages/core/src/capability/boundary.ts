@@ -13,7 +13,7 @@ import type {
     Unread,
 } from "../catalogue.js";
 import type { AnyIntent } from "../intents/index.js";
-import { readSettings, type SettingsOf, type SettingsView } from "./spec.js";
+import { readSettings, type SettingsOf, type SettingsView } from "../config/spec.js";
 
 // ─── Typed projections ───────────────────────────────────────────────
 

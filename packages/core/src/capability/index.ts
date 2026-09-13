@@ -3,8 +3,8 @@
  * facts it reads, the handle it is called through. The vocabularies are CLOSED
  * (D61) and comment identity platform-owned (D125), so it can extend neither.
  * Deliberately NOT here: the effects it returns (`../intents/`), the shared
- * vocabulary (`../catalogue.ts`), label strings (`../config/`), the write
- * rules (`../safety/`), the transition tables (`../workflow/`).
+ * vocabulary (`../catalogue.ts`), label strings and specs (`../config/`), the
+ * write rules (`../safety/`), the transition tables (`../workflow/`).
  */
 export * from "./producers.js";
 export * from "./facts.js";
@@ -12,20 +12,6 @@ export * from "./declaration.js";
 export * from "./factory.js";
 export * from "./boundary.js";
 export { skipped } from "./guards.js";
-export {
-    describeSpec,
-    readSettings,
-    type BlockOf,
-    type DurationOptions,
-    type Field,
-    type FieldDescription,
-    type SettingsOf,
-    type SettingsProblem,
-    type SettingsProblemCode,
-    type SettingsResult,
-    type SettingsView,
-    type Spec,
-} from "./spec.js";
 export {
     block,
     blocks,

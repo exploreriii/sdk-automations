@@ -62,9 +62,9 @@ Core's are an AUDIENCE (D175):
 | Directory | Who arrives there |
 |---|---|
 | `catalogue.ts` | both audiences: the closed vocabulary — refs, facts, resolvers, operations, comment kinds |
-| `capability/` | an author: declaration, spec, settings, facts, producers, boundary, factory, guards |
+| `capability/` | an author: declaration, settings, facts, producers, boundary, factory, guards |
 | `intents/` | an effect once decided: the intent, the platform's managed comment, one module per operation |
-| `config/`, `workflow/`, `safety/`, `github/` | what the repository asked for, the states, the write rules, what we measured of GitHub |
+| `config/`, `workflow/`, `safety/`, `github/` | what the repository asked for and the spec it is read against, the states, the write rules, what we measured of GitHub |
 | `engine/` | the composition — normalize, call, screen, gate |
 | `report/` | what happened, and who must act |
 
@@ -81,7 +81,7 @@ Each of the three is one lock:
 | Lock | The rule it states | Enforced by |
 |---|---|---|
 | shell | imports run `compose/` → the lanes and the jobs → `decide/` → `apply/` → `apply/operations/` and never back up, the root files nameable from anywhere and `compose/` from nowhere; `apply/actions.ts` alone names the fold's five states, and `decide/item.ts` alone calls the applier | `packages/dev/checks/test/shell-layering.test.ts` |
-| core | `intents/` never names `capability/`, so the check that an intent names the capability that returned it lives in `packages/core/src/engine/invoke.ts`, where intents are collected; nothing below the engine names `engine/` or `report/`; `config/` reaches one file of `capability/`, the settings reader, and nothing else there | `packages/dev/checks/test/core-layering.test.ts` |
+| core | `intents/` never names `capability/`, so the check that an intent names the capability that returned it lives in `packages/core/src/engine/invoke.ts`, where intents are collected; nothing below the engine names `engine/` or `report/` | `packages/dev/checks/test/core-layering.test.ts` |
 | adapter | `reads/` names the client; `writes/` names the client and the reads, because a read-back proves a write through the facts reader; the client names neither, which is why the admission gate reads the confirmed shapes from `packages/runtime/src/adapter/client/endpoints.ts` and never from the writes; nothing inside names the barrel | `packages/dev/checks/test/adapter-layering.test.ts` |
 
 *Each lock reads every import under its own directory and proves each of its rules can fail over

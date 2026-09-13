@@ -21,7 +21,7 @@ const ROOT = "root";
 /**
  * Who may name whom. The engine composes and the report renders what it
  * decided; `capability/` names the effects an author returns and `intents/`
- * never names back; `config` names `capability/spec.ts` and nothing else there.
+ * never names back.
  */
 const ALLOWED: Readonly<Record<string, readonly string[]>> = {
     engine: [
@@ -41,7 +41,7 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
     capability: ["intents", "config", "safety", "workflow", ROOT],
     intents: ["intents/operations", "safety", ROOT],
     "intents/operations": [ROOT],
-    config: ["capability"],
+    config: [],
     safety: ["config", "github", "workflow"],
     workflow: ["config"],
     github: [],
@@ -169,8 +169,8 @@ describe("an intent never names the author who returned it", () => {
         };
         expect(edgesIntoCapability([deeper])).toEqual(["intents/operations -> capability"]);
         const other = {
-            path: `${CORE}/config/schema.ts`,
-            text: 'import type { Spec } from "../capability/spec.js";',
+            path: `${CORE}/engine/decide.ts`,
+            text: 'import { invokeCapability } from "../capability/boundary.js";',
         };
         expect(edgesIntoCapability([other])).toEqual([]);
     });

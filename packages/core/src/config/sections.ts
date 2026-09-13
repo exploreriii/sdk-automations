@@ -4,7 +4,7 @@
  * alongside the value it contributes: `check*` problems only, `read*` both.
  */
 
-import { readSettings, type SettingsView } from "../capability/spec.js";
+import { readSettings, type SettingsView } from "./spec.js";
 import { checked, err, type Checked, type ConfigError, type ConfigErrorCode } from "./results.js";
 import { labelKey } from "./labels.js";
 import {

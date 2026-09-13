@@ -1,14 +1,19 @@
-# runtime — everything that runs
+# automation-runtime — everything that runs
 
 The one package that touches the outside world, as three directories: `src/store/` is the owned
 operational store, `src/adapter/` the only code that talks to GitHub, and `src/shell/` the transport
-that composes them — the tree is [`design/architecture.md`](../../design/architecture.md) §1, which
-holds the layer rules the dependency cruiser enforces as directory rules beside it.
+that composes them. It may import core and the capabilities the shell composes, and nothing else.
+Inside it, the store and the adapter reach core alone, and only the shell's composition root may name
+the adapter — so no credential exists anywhere else.
 
-The barrel re-exports the three; a consumer sees one package, and tests mirror the tree under
-`test/`. Run it from the repository root:
-`node --import tsx packages/runtime/src/shell/compose/main.ts`.
+The tree, and the three layering locks that hold those directions in place, are
+[`design/architecture.md`](../../design/architecture.md) §1. Running the endpoint — the environment,
+what arms writes and what arms the sweep, the switches, the commands — is
+[`docs/running.md`](../../docs/running.md).
 
-**The package mutation break threshold is 90**, the gate the adapter and shell carried before the
-merge. CI also enforces the store's existing 96 threshold from the same mutation report, so merging
-the packages does not lower its ratchet.
+The barrel re-exports the three, so a consumer names one package, and `test/` mirrors `src/`.
+
+```bash
+pnpm --filter @hiero-hackers/automation-runtime test
+pnpm --filter @hiero-hackers/automation-runtime start
+```

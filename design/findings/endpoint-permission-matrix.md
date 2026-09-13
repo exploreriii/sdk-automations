@@ -38,6 +38,33 @@ row chooses it.
 Each confirmed read's checkable shape is `packages/dev/lab/src/probes/reads.ts`; `pnpm lab:probe`
 compares it monthly (D158).
 
+## Provenance of the client's constants
+
+What the adapter's client hard-codes about GitHub, and how each fact goes stale. The reads above are
+re-probed monthly; nothing below is, so D40 makes re-probing these standing rather than occasional. A
+row with no date holds documented knowledge — something GitHub publishes and would announce changing.
+
+| Fact | Where it lives | Probed by | Date | Goes stale when | First symptom |
+|---|---|---|---|---|---|
+| JWT span ≤ 600 s from `iat` | `ASSERTION_LIFETIME_SECONDS` | GitHub's docs | documented | the cap changes | every mint 401s at once — loud |
+| RS256, backdated `iat` | `jwt.ts` | GitHub's docs | documented | the signing scheme changes | every mint rejected — loud |
+| Installation token TTL is 1 h | `REFRESH_SKEW_SECONDS`, `MINT_FLOOR_SECONDS` | the mint row above | 2026-07-23 | GitHub shortens the TTL | **quiet if shortened below ~2 min**: the floor would serve genuinely dead tokens |
+| `permissions` is `{scope: level}` | `grantsFromPermissions` | mint response | 2026-07-23 | a level outside `read`/`write` enters the ceiling | **quiet**: the grant is dropped, and a capability refuses citing a permission the installation actually holds |
+| REST request version is `2026-03-10` | `GITHUB_API_VERSION` | GitHub's version docs | documented | the version approaches sunset | the response carries `deprecation`/`sunset`, then calls return 410 |
+| Contents API wraps a file as `{type, encoding, content, sha}` — base64 inline, `encoding: "none"` past 1 MB | the decode in `config.ts` | GitHub's contents docs | documented | the envelope or the 1 MB behaviour changes | **quiet-ish**: healthy configs read as defective (fail-closed records) or unrecognized (retries) |
+| Timeline entries name `event`, a typed `actor`, second-precision `created_at`; pages ascend | the six-kind filter in `externals.ts` | GitHub's timeline docs, the timeline row above | documented + 2026-07-23 | the shape or the kinds change | a missing actor or date is unknown; **quiet**: new kinds stay uncounted |
+| Installation identities are App bot logins such as `name[bot]` | the automation actor in `resolvers.ts` | [GitHub's App identity guide](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/differences-between-github-apps-and-oauth-apps) | documented | the login convention changes | App actors are mistaken for people, or people for App actors |
+
+**The quiet rows are the ones that matter.** A wrong JWT bound fails loudly within minutes; a TTL
+that shrank, a grant level silently dropped, or a timeline shape that drifted keeps every test green
+while the running system misbehaves — and the timeline row is the worst of the three, because its
+failure direction is writing over human edits. `MINT_FLOOR_SECONDS` is *derived* from the TTL row:
+its safety argument is "an hour is far longer than a minute", and it stops being sound the day that
+stops being true.
+
+**Cadence:** quarterly for the dated rows, plus ad-hoc whenever a first-symptom column shows up in
+operator reports. **Owner:** unassigned.
+
 ## The ceiling
 
 **The proposed baseline** (from the stage-four packet, retired 2026-08-17; ratification still

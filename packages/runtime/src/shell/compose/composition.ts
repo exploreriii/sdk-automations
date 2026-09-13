@@ -44,7 +44,7 @@ export interface Credentials {
     readonly privateKeyPath: string;
 }
 
-/** One installation, as its environment describes it — grouped as the README groups it. */
+/** One installation, as its environment describes it — grouped as `docs/running.md` groups it. */
 export interface Composition {
     readonly endpoint: {
         readonly port: number;

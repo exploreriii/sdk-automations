@@ -3,7 +3,7 @@
 > The map. [`trace.md`](trace.md) is the route — one label from GitHub's POST to GitHub's API call —
 > and it is the page to read first; this one says what the pieces are and which rule holds each edge
 > in place. The italic line under each drawing names the code or test that falsifies it. Why:
-> [`constraints.md`](constraints.md). Vocabulary: [`packages/core/README.md`](../packages/core/README.md).
+> [`constraints.md`](constraints.md). Vocabulary: [`trace.md`](trace.md) §"What each noun is, once".
 
 ## 1. Three packages, and the rules between them
 
@@ -175,7 +175,9 @@ qualifying activity — and the notice follows the act ([`guides/grace.md`](guid
 
 One file, two modules over one connection: `inbox.ts` is the delivery queue, whose rows move state
 in place; `ledger.ts` is appended and folded, and holds the leases and the schedule beside the facts
-(D164).
+(D164). It never reads the clock and owns no policy: every timestamp, retention window and lease
+duration is the caller's, and a timestamp that is not exactly `Date.toISOString()` throws rather than
+misorder silently (`packages/runtime/src/store/guards.ts`). The payload is opaque bytes here.
 
 | Table | The question it answers |
 |---|---|
@@ -193,6 +195,8 @@ launch (D165); drift rejected by the fingerprint D110 established.*
 Active mode runs only where the process was composed with the App's identity as well as its
 credentials; anything else records `modeUnsupported`. Every read and write with no cited row in
 [`findings/endpoint-permission-matrix.md`](findings/endpoint-permission-matrix.md) — two resolvers,
-four operations, three of the sweep's facts — is implemented and refuses at the send. Everything
-else absent here is an open question in
+four operations, three of the sweep's facts — is implemented and refuses at the send. Config schema
+migration is unbuilt: the live and local reads share today's schema deliberately. Nothing enumerates
+what an installation covers, so a repository that has never delivered is one this process has never
+heard of (D169). Everything else absent here is an open question in
 [`constraints.md`](constraints.md), deliberately not drawn.

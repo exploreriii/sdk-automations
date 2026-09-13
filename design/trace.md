@@ -32,13 +32,29 @@ the platform posts the warning, records it when it lands, and judges the act aga
 
 - **facts** — one item as the platform read it, with a `position` (the projection) and groups that
   are read or `unread`.
+- **meaning** — a platform position word (`awaitingTriage`, `ready`, …), never a label string.
+- **mapping** — the reviewed label ↔ meaning table: the one bridge between a repository's words and
+  the platform's.
+- **projection** — the observed label set read as a position, or as a conflict.
+- **position** — the single meaning an item occupies in its flow — or `null`, or a conflict.
+- **blocked** — an orthogonal human-set pause flag: never a position, never capability-writable.
+- **capability** — a unit of automation: a declaration plus a pure `evaluate` returning intents.
+- **declaration** — a capability's self-description: what it watches, asks, does, and needs.
 - **view** — the slice of the config a capability may see: its settings and the mapped names.
 - **intent** — what a capability asks for: an operation, its desired value, its claims, its cause.
+- **occasion** — where and when an intent arose (repository, item, observed time), bound once by the
+  factory.
+- **claims** — the facts a capability believes hold; checked by derivation, or again at act time.
+- **screen** — a runtime check on a returned intent (attribution, floors, the map): enforcement, not
+  ergonomics.
+- **world** — the derived, unforgeable safety facts: what was observed, and whether a claim holds.
 - **effect** — an approved intent on its way to GitHub, with identity. A managed comment's identity
   is per item and purpose; the effect id is per occasion.
 - **call** — one GitHub step of an effect; its `sent` fact's payload is the call as bytes.
 - **verdict / outcome** — what a gate said (`apply`, `refuse` with a code, `recordOnly`), and what
   the applier made of an effect (`applied`, `already`, `refused`, `retryLater`, `unknown`).
+- **finding** — one record in a report: severity, machine code, prose, subject. `problems()` is the
+  operator surface.
 
 ## Writing a capability
 
@@ -90,7 +106,7 @@ a MEASURED or PROBED fact, and a third copy of either breaks one fact, one place
 3. **Make the folder** under `packages/capabilities/src/<name>/`: `capability.ts`, `settings.ts`
    (the spec, from `design/guides/capability-kits.md`), `capability.test.ts`, and the design page
    MOVED here as `design.md` — updating the table in `design/guides/capabilities/README.md` and the
-   one in `packages/capabilities/README.md`. Four files is the minimum, not the shape: split by
+   one-line list in `packages/capabilities/README.md`. Four files is the minimum, not the shape: split by
    concern when a file answers two questions. If the folder already exists it is a seed — promote
    it in place.
 

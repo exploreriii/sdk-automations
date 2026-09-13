@@ -130,6 +130,7 @@ describe("docs/quickstart.md", () => {
             "capabilities.md",
             "configuration.md",
             "troubleshooting.md",
+            "running.md",
         ]) {
             expect(index).toContain(`(${target})`);
         }

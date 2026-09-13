@@ -2,7 +2,7 @@
     "name": "@hiero-hackers/automation-runtime",
     "version": "0.0.0",
     "private": true,
-    "description": "The running platform: `src/store/` is the owned operational store, `src/adapter/` the only place that talks to GitHub, and `src/shell/` the transport that composes them — see the README beside each.",
+    "description": "The running platform: `src/store/` is the owned operational store, `src/adapter/` the only place that talks to GitHub, and `src/shell/` the transport that composes them — the tree is design/architecture.md §1.",
     "type": "module",
     "exports": {
         ".": {

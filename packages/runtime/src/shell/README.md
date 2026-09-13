@@ -118,7 +118,7 @@ every firing.
 
 `KILL_SWITCH=1` refuses at the decision gate as it always has, and an armed write path meets it again
 between deciding and applying: the applier re-checks it before every send and before every resend, so
-pulling the brake stops effects a decision already approved.
+the standing gate stops effects a decision already approved.
 
 The **state home** is `$XDG_STATE_HOME/sdk-automations`, or `~/.local/state/sdk-automations` when that
 variable is unset or relative. It is deliberately outside the package: in a container

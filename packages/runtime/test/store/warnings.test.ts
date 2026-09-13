@@ -4,7 +4,7 @@
  * (grace.md §4).
  *
  * The fact is written here by hand rather than through the applier, because what
- * these rows depend on is the PAYLOAD — the snapshot the destructive door matches
+ * these rows depend on is the PAYLOAD — the snapshot the destructive gate matches
  * against the request it is asked about, and which binds from the first write
  * (D162). The fold over an effect's facts is `fold.test.ts`'s; the migration that
  * creates the table is `schema.test.ts`'s.
@@ -107,7 +107,7 @@ describe("the warning a landed comment records", () => {
         store.close();
     });
 
-    /** Bytes nobody can read are no promise: the door is never handed half a snapshot. */
+    /** Bytes nobody can read are no promise: the gate is never handed half a snapshot. */
     it("answers null for a payload that is not an object", () => {
         const store = new Store(path);
 

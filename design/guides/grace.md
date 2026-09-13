@@ -49,13 +49,13 @@ For each destructive-class intent that passes the screens:
 1. `externals.warningFor(effectId)` — the recorded warning, or `null`. The shell reads it from the
    store and re-mints it through `createDestructiveWarning`, the only constructor; a capability has
    no path to one.
-2. **No warning:** approve a platform-authored effect — a `postManagedComment` of kind `warning`,
-   body `grace.warning.body`, effect id the act's with the suffix `warning` and comment identity
-   (capability, item, `warning`, the act's `topic`),
+2. **No warning — the warning gate:** approve a platform-authored effect — a `postManagedComment`
+   of kind `warning`, body `grace.warning.body`, effect id the act's with the suffix `warning` and
+   comment identity (capability, item, `warning`, the act's `topic`),
    and what the applier must record the moment the comment lands — the act's effect id, its
    request snapshot, the grace hours, `cancelledBy` and `reversesWith`. The act itself is not approved. In a record-only mode, the report says what
    would be warned.
-3. **A warning:** `evaluateDestructive({ request, warning, qualifyingActivitySinceWarning: activityAt > warnedAt }, config, context, now)`.
+3. **A warning — the deadline gate:** `evaluateDestructive({ request, warning, qualifyingActivitySinceWarning: activityAt > warnedAt }, config, context, now)`.
    `graceRunning` is an `info` finding, not a problem — waiting is the design working. Any other
    refusal is reported as today. `apply` approves the act.
 

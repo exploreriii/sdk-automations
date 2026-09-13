@@ -440,7 +440,7 @@ describe("a sweep at the fastest legal ladder", () => {
 
     /**
      * Day zero reminds, and the release does NOT follow it in the same sweep:
-     * the destructive door refuses an act with no recorded warning however
+     * the destructive gate refuses an act with no recorded warning however
      * short the clocks are, so the one effect approved is the warning the
      * platform authored (grace.md §2).
      */

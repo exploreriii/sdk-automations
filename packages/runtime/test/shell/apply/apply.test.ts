@@ -581,11 +581,11 @@ describe("recovering an effect nobody closed", () => {
     });
 
     /**
-     * The brakes are core's rules, so their PRECEDENCE is core's too: with the
-     * repository disabled and the capability turned off at once, the code an
+     * The standing gate runs core's rules, so its PRECEDENCE is core's too: with
+     * the repository disabled and the capability turned off at once, the code an
      * operator reads is the one a fresh decision would have reported.
      */
-    it("names the same code core would when two brakes trip together", async () => {
+    it("names the same code core would when two gates trip together", async () => {
         const github = fakeGitHub();
         orphan({ verb: "addLabel", label: READY_LABEL });
         const disabledAndOff = {
@@ -668,7 +668,7 @@ describe("recovering an effect nobody closed", () => {
         expect(logged).toEqual([expect.objectContaining({ event: "effectApplied" })]);
     });
 
-    it("leaves the row open when the brakes themselves could not be read", async () => {
+    it("leaves the row open when the standing gate itself could not be read", async () => {
         const github = fakeGitHub();
         orphan({ verb: "addLabel", label: READY_LABEL });
 
@@ -969,7 +969,7 @@ describe("a label move that displaces the position the item held", () => {
      * sent. The item is then in the intermediate state the plan chose — two
      * position labels, which projects as a conflict — and finishing is what
      * clears it. A full re-gate here could only answer `preconditionStale`,
-     * which is why a resume passes the brakes instead.
+     * which is why a resume passes the standing gate instead.
      */
     it("resumes at the second call and sends only that one", async () => {
         const github = fakeGitHub({ labels: [TRIAGE_LABEL, READY_LABEL] });
@@ -1768,7 +1768,7 @@ describe("a warning effect's comment, once it lands", () => {
 });
 
 /**
- * The apply-time re-gate takes the door the decision took (grace.md §2), so an
+ * The apply-time re-gate takes the gate the decision took (grace.md §2), so an
  * approval to release is permission to release NOW: the record is read again
  * here, and a grace still running refuses the act however long ago it was
  * approved.
@@ -1957,7 +1957,7 @@ describe("a graced act at the apply-time re-gate", () => {
 
     /**
      * The record the warning comment would have written. `BASE` is after the
-     * intent's own causal observation, which is what the door requires of any
+     * intent's own causal observation, which is what the gate requires of any
      * warning: one that predates its observation is not a promise about it.
      */
     const recordWarning = (): void => {
@@ -2000,7 +2000,7 @@ describe("a graced act at the apply-time re-gate", () => {
     });
 
     /**
-     * The general door would have refused this `wrongEntryPoint` — a defect
+     * The general gate would have refused this `wrongEntryPoint` — a defect
      * code — rather than letting the send answer. Past the destructive gates
      * the plan runs whole: the release, proved by the assignee read, and then
      * the notice that says what the App did (grace.md §3).
@@ -2080,7 +2080,7 @@ describe("the three sequences of rehearsal 8.3", () => {
     const granted: EffectExternalsSource = () =>
         stubbedExternals({ installationGrants: ["issues:write", "pull_requests:write"] });
 
-    /** The close's own warning, so the destructive door is not what refuses below. */
+    /** The close's own warning, so the destructive gate is not what refuses below. */
     const warnTheClose = (): void => {
         const request = writeRequestFor(closeEffect("draft").intent);
         warn(CLOSE_EFFECT_ID, PULL, {

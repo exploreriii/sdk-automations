@@ -445,7 +445,7 @@ function readInput(
 }
 
 /**
- * The front door: a delivery becomes a report, plus the intents that may act.
+ * The entry point: a delivery becomes a report, plus the intents that may act.
  * Total — every fallible seam is contained, so a report always comes back.
  */
 export async function decide(

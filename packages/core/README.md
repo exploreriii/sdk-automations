@@ -5,7 +5,7 @@ and a verdict, with no I/O anywhere — `pnpm test` runs the whole thing in
 seconds, and a real captured GitHub delivery travels payload → report inside
 a unit test (`test/slice.test.ts`).
 
-**The front door is one verb.** A shell hands `decide()` a delivery, the
+**The entry point is one verb.** A shell hands `decide()` a delivery, the
 parsed configuration, the enabled capabilities, and the few facts core
 cannot know (the clock, the kill switch, the installation's grants, human
 edit ordering, and the warning already recorded for an effect); it gets back a
@@ -25,7 +25,7 @@ screens"]
     S --> W["safety/world.ts
 derive the world"]
     W --> G["safety rules + gates
-(a graced act meets the destructive door;
+(a graced act meets the destructive gate;
 with no warning recorded, the platform's
 own warning comment is approved instead)"]
     G --> R["report/ findings"]
@@ -41,7 +41,7 @@ own warning comment is approved instead)"]
 | `src/catalogue.ts` | What words may either side use? | the closed vocabulary: refs, fact shapes, resolvers, operations, comment kinds |
 | `src/capability/` | What may a capability declare? | `declaration.ts` (the sole direct-list validator), `spec.ts` + `settings.ts` (the reader and the kit), `facts.ts`, `producers.ts`, `boundary.ts` (how it is called), `factory.ts` (how one is built without ceremony), `guards.ts` |
 | `src/intents/` | What is an effect, once decided? | `intent.ts` (the request and its derived identity), `managed.ts` (platform-owned comment identity), `operations/` (the platform's facts and change wording, one module per operation) |
-| `src/safety/` | May this write happen? | `write.ts` + `destructive.ts` (the two doors, both reachable since `design/guides/grace.md`), `rules.ts` (the ordered rules both share), `world.ts` (the derived, unforgeable facts) |
+| `src/safety/` | May this write happen? | `write.ts` + `destructive.ts` (the two gates, both reachable since `design/guides/grace.md`), `rules.ts` (the ordered rules both share), `world.ts` (the derived, unforgeable facts) |
 | `src/github/` | Is this still true of GitHub? | `failures.ts`, `rate-limits.ts`, `ids.ts`, `signatures.ts` — each stamping, in its own header, the date it was probed and the symptom that says it has rotted |
 | `src/report/` | What happened, and who must act? | `finding.ts` (the record), `convert.ts` (the one severity table) |
 

@@ -162,11 +162,11 @@ this lane's.
 
 An intent passes the screen (its own capability, a declared operation, its own item, a legal
 transition), then the world is DERIVED from the facts rather than asserted, then the ladder judges
-it: kill switch, precondition, door policy, then the general rules in a fixed order. Precedence is
+it: kill switch, precondition, gate policy, then the general rules in a fixed order. Precedence is
 contract, not style — [`contracts/safety.md`](contracts/safety.md) holds both vocabularies and the
 order, and the drift test freezes them.
 
-A `clockTriggeredDestructive` act is refused at the general door on purpose: it goes through grace
+A `clockTriggeredDestructive` act is refused at the general gate on purpose: it goes through grace
 instead. On first sight the platform approves its OWN warning comment and the act waits; the applier
 records the warning when it lands; a later occasion is judged against that record — grace elapsed, no
 qualifying activity — and the notice follows the act ([`guides/grace.md`](guides/grace.md)).

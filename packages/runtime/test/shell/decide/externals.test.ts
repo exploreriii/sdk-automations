@@ -73,7 +73,7 @@ describe("first-slice external facts", () => {
  *
  * The store holds bytes; `createDestructiveWarning` is the only constructor,
  * so a row becomes authority by passing back through it. What matters here is
- * that the snapshot survives the round trip intact — the door matches it
+ * that the snapshot survives the round trip intact — the gate matches it
  * against the request it is asked about, and a field lost in the reader would
  * widen what the warning authorizes.
  */
@@ -139,11 +139,11 @@ describe("the recorded warning a decision reads", () => {
     });
 
     /**
-     * The door is the one place that decides what a warning must look like, so
+     * The gate is the one place that decides what a warning must look like, so
      * a row whose instants no longer parse re-mints to `NaN` and is refused
      * there rather than being second-guessed by the reader.
      */
-    it("re-mints an unreadable instant as one the door refuses", () => {
+    it("re-mints an unreadable instant as one the gate refuses", () => {
         const store = new Store(temp.file("broken.sqlite"));
         store.ledger.record(warned({ ...stored, warnedAt: "whenever" }));
 

@@ -68,7 +68,7 @@ the pattern `invoke.ts` established for erased capability types.
 
 ## 3. Shell — `apply/operations/<op>`
 
-**The handler contract.** Keyed by operation, because the ledger, the brakes and the report all
+**The handler contract.** Keyed by operation, because the ledger, the gates and the report all
 speak in operations; a handler owns every call verb its operation sends.
 
 ```ts
@@ -102,8 +102,8 @@ in the vocabulary file lists them, one line per operation. The vocabulary file (
 `Call`, `JournaledCall`, `Plan`, `EffectOutcome` and the codes; the four functions over them —
 `operationOf`, `serializeCall`, `parseJournaledCall`, `planFor` — are generic walks over the
 registry, in `apply/operations/index.ts`. In the applier, `send` and `confirm` are one-line
-dispatches; the choreography around them — `sendCall`, `readBack`, the brakes and the fresh gate —
-answers the fold's five states, which `actionFor` reads as a table (D161, D172).
+dispatches; the choreography around them — `sendCall`, `readBack`, the standing gate and the fresh
+gate — answers the fold's five states, which `actionFor` reads as a table (D161, D172).
 
 **Payload compatibility is absolute.** A `sent` fact's payload is the serialized call:
 `serializeCall` writes `{capability, item}` then the handler's fields, so insertion order — and

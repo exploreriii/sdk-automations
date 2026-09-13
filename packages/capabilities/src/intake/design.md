@@ -95,7 +95,7 @@ confirmation comment, never enforced by refusing the human's approval.
 
 ## How it works
 
-Two optional stations on every new issue's front door. **On open**: mark it awaiting triage,
+Two optional stations on every new issue's front gate. **On open**: mark it awaiting triage,
 welcome the author, and optionally lock it until a maintainer approves. **On approval**: a human
 with label rights applies the configured approval meaning — that label application *is* the
 authorized command, since GitHub only lets triage-and-up apply labels — and the capability

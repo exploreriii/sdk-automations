@@ -70,7 +70,7 @@ function projectionFrom(
 
 /**
  * The recorded-warning seam, over the effect ledger (grace.md §2).
- * Nothing here validates; the destructive door matches the snapshot to the request.
+ * Nothing here validates; the destructive gate matches the snapshot to the request.
  */
 export function recordedWarningsIn(
     ledger: Ledger,
@@ -157,10 +157,14 @@ export function createGates(options: GateOptions): Gates {
     };
 
     /**
-     * The brakes an operator can still pull between deciding and applying, run by core
+     * The standing gate an operator can still close between deciding and applying, run by core
      * (`evaluateStandingRules`) and not copied. The shell decides WHICH rules to run. This item-independent subset is the whole gate a RESUME passes: add-then-remove leaves two position labels, so the full ladder could only answer `preconditionStale`.
      */
-    const brakes = (pass: Pass, operation: IntentOperation, facts: Externals): GateVerdict => {
+    const standingGate = (
+        pass: Pass,
+        operation: IntentOperation,
+        facts: Externals,
+    ): GateVerdict => {
         const operationFacts = INTENT_OPERATIONS[operation];
         const verdict = evaluateStandingRules(
             {
@@ -259,7 +263,7 @@ export function createGates(options: GateOptions): Gates {
                     modes.value,
                 ),
             };
-            // The same two doors the decision used (grace.md §2): the record is re-read
+            // The same two gates the decision used (grace.md §2): the record is re-read
             // here, so a pruned warning or a re-warned repository changes the answer.
 
             const verdict =
@@ -283,11 +287,11 @@ export function createGates(options: GateOptions): Gates {
                 : refuse(verdict.code, verdict.reason);
         },
 
-        /** The brakes, over externals read fresh for this pass. */
+        /** The standing gate, over externals read fresh for this pass. */
         async resume(pass, operation) {
             const facts = await freshExternals();
             return facts.ok
-                ? brakes(pass, operation, facts.value)
+                ? standingGate(pass, operation, facts.value)
                 : {
                       ok: false,
                       result: {

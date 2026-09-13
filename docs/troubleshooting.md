@@ -14,7 +14,7 @@ Nothing to fix — this is your configuration, or our caution, behaving as speci
 
 | Code | In plain terms |
 |---|---|
-| `killSwitch` | The intent-level emergency brake is on; returned intents are refused after capability evaluation |
+| `killSwitch` | The intent-level emergency gate is on; returned intents are refused after capability evaluation |
 | `modeDisabled` | Your file says `disabled`; enabled capabilities may be evaluated, but every screened intent is refused |
 | `modeRecordsOnly` | Your file says `observe` or `dry-run` — both record the action instead of applying it, and `dry-run` also names what it would have done in a `wouldApply` line beside this one |
 | `observation` | It was only ever a read; there was nothing to apply |

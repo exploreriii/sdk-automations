@@ -39,7 +39,7 @@ export const intake: Capability<IntakeDeclaration> = {
 
     async evaluate(facts, config, platform) {
         /**
-         * The front door is for people. The author rather than the actor, and
+         * The front gate is for people. The author rather than the actor, and
          * an unanswered lookup is not a person (D51).
          */
         const openedByBot = await platform.resolve("isAutomationActor", {

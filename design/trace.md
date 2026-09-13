@@ -16,7 +16,7 @@
 | 5 | The capability returns intents: "set `awaitingTriage`, because `issueWithoutPosition`, claiming the item is open and the meaning absent" | `packages/capabilities/src/intake/capability.ts`; `packages/core/src/capability/factory.ts` → `intentFactoryFor` | an intent is a request, dated by its occasion, with a stable identity |
 | 6 | The screen checks the intent names its own capability, a declared operation, its own item, and a legal transition on the workflow map | `packages/core/src/engine/invoke.ts` → `screenIntent` | a capability cannot act as another, on another item, or off the map |
 | 7 | The world is derived from the facts, not asserted: do the intent's claims hold against the projection the delivery carried? | `packages/core/src/safety/world.ts` → `deriveWorld` | a caller cannot assert a precondition its own delivery contradicts (D77) |
-| 8 | The safety ladder judges the write request: kill switch, mode, capability enabled, grant present, item open and unpaused, precondition holding, no newer human change | `packages/core/src/safety/write.ts` → `evaluateWrite`; `packages/core/src/safety/rules.ts`; `packages/core/src/intents/operations/` for the operation's class and permission | every refusal is a code an operator reads; a destructive class is refused here and judged only at the grace door |
+| 8 | The safety ladder judges the write request: kill switch, mode, capability enabled, grant present, item open and unpaused, precondition holding, no newer human change | `packages/core/src/safety/write.ts` → `evaluateWrite`; `packages/core/src/safety/rules.ts`; `packages/core/src/intents/operations/` for the operation's class and permission | every refusal is a code an operator reads; a destructive class is refused here and judged only at the grace gate |
 | 9 | The approval: the intent becomes an `Effect` with its managed-comment identity minted (for comments) and its `WriteRequest` snapshot; a record-only mode records `wouldApply` instead | `packages/core/src/engine/decide.ts` → `gateIntent`; `packages/core/src/intents/managed.ts` | dry-run says exactly what active would do; identity is platform-owned (D125) |
 | 10 | The applier plans the effect as calls — for a label move, add the new label then remove the displaced one — journals each call as a row BEFORE sending, re-derives the world against a live read of the item, sends, and confirms the postcondition by read-back | `packages/runtime/src/shell/apply/apply.ts` → `createApplier`; `packages/runtime/src/shell/apply/operations/index.ts` → `planFor`, `serializeCall`; `packages/runtime/src/shell/apply/operations/applyMappedLabel.ts` | a crash between journal and send is resent from the row; a human change between deciding and applying refuses the write; "applied" means observed, not assumed |
 | 11 | The adapter admits the request by shape (the endpoint matrix as code), checks the grant, mints or reuses the installation token, sends, classifies the answer, and stales its cache | `packages/runtime/src/adapter/writes/operations/applyMappedLabel.ts`; `packages/runtime/src/adapter/client/admission.ts` → `admit`; `packages/runtime/src/adapter/client/http.ts` → `createGitHubHttpClient`; `packages/runtime/src/adapter/writes/readback.ts` → `createReadBack` | only the endpoints the matrix confirmed can be reached; no credential leaves this directory |
@@ -25,7 +25,7 @@
 A sweep enters at hop 3 with a different producer: the driver decides which records exist — one per open item, with the groups its row in `PRODUCERS` promises — so the producer, not the capability, chooses which item a decision is about
 (`packages/runtime/src/shell/sweep/sweep.ts`, `design/guides/sweep.md`) and hands `decide()` one record
 per item. It is the other producer in `PRODUCERS`, and a producer decides which records exist —
-hence which items a capability may write to at all, and how much of each one it may read. A destructive act takes hop 8 through the grace door instead (`design/guides/grace.md`):
+hence which items a capability may write to at all, and how much of each one it may read. A destructive act takes hop 8 through the grace gate instead (`design/guides/grace.md`):
 the platform posts the warning, records it when it lands, and judges the act against the record.
 
 ## What each noun is, once
@@ -37,7 +37,7 @@ the platform posts the warning, records it when it lands, and judges the act aga
 - **effect** — an approved intent on its way to GitHub, with identity. A managed comment's identity
   is per item and purpose; the effect id is per occasion.
 - **call** — one GitHub step of an effect; its `sent` fact's payload is the call as bytes.
-- **verdict / outcome** — what a door said (`apply`, `refuse` with a code, `recordOnly`), and what
+- **verdict / outcome** — what a gate said (`apply`, `refuse` with a code, `recordOnly`), and what
   the applier made of an effect (`applied`, `already`, `refused`, `retryLater`, `unknown`).
 
 ## Writing a capability

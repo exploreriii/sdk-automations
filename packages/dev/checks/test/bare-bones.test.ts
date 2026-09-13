@@ -407,7 +407,7 @@ describe("a design page is four sections", () => {
     const pages = designPages();
 
     it("finds every design page", () => {
-        expect(pages.length).toBe(10);
+        expect(pages.length).toBe(11);
     });
 
     it("holds each page to the section list, in order", () => {

@@ -5,7 +5,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { MANAGED_COMMENT_KINDS, type ItemRef, type ManagedCommentKind } from "./catalogue.js";
+import { MANAGED_COMMENT_KINDS, type ItemRef, type ManagedCommentKind } from "../catalogue.js";
 
 // ─── Shape and bounds ────────────────────────────────────────────────
 

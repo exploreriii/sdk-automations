@@ -20,7 +20,7 @@ The welcome, with a mentor team and three guides:
 
 The cc leads rather than trails: `postManagedComment`'s `mention` is a principal NAME, and the
 platform resolves it into a handle and addresses the comment with it
-(`packages/core/src/capability/managed.ts`). Without a mentor team or guides, the same comment stops
+(`packages/core/src/intents/managed.ts`). Without a mentor team or guides, the same comment stops
 after the first sentence and the commands. The commands are named only when `mappings.commands` maps
 them; an unmapped command is not mentioned rather than mentioned wrongly.
 

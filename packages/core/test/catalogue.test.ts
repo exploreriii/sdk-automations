@@ -11,7 +11,7 @@ import {
     UNREAD,
     type IssueFacts,
     type PullRequestFacts,
-} from "../../src/capability/index.js";
+} from "../src/catalogue.js";
 
 const AT = new Date("2026-09-09T00:00:00.000Z");
 const REPO = { owner: "o", repo: "r" } as const;

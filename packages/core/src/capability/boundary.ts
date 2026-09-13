@@ -11,8 +11,8 @@ import type {
     ResolverOutput,
     StructuredExplanation,
     Unread,
-} from "./catalogue.js";
-import type { AnyIntent } from "./intent.js";
+} from "../catalogue.js";
+import type { AnyIntent } from "../intents/index.js";
 import { readSettings, type SettingsOf, type SettingsView } from "./spec.js";
 
 // ─── Typed projections ───────────────────────────────────────────────

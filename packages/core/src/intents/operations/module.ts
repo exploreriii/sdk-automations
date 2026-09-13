@@ -1,6 +1,6 @@
 /** The contract one operation's module fills — write-operations.md §2. */
 
-import type { IntentCatalogue, IntentOperation, OperationFacts } from "../catalogue.js";
+import type { IntentCatalogue, IntentOperation, OperationFacts } from "../../catalogue.js";
 
 export interface ChangeSubject<K extends IntentOperation> {
     readonly capability: string;

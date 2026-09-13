@@ -5,7 +5,7 @@
  * `describeChange`'s output literally, so rewording one is a behaviour change.
  */
 
-import type { IntentOperation, OperationFacts } from "../catalogue.js";
+import type { IntentOperation, OperationFacts } from "../../catalogue.js";
 import { applyMappedLabel } from "./applyMappedLabel.js";
 import { assign } from "./assign.js";
 import { closePullRequest } from "./closePullRequest.js";

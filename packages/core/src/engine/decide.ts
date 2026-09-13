@@ -6,27 +6,26 @@
  * never I/O; everything derivable is derived.
  */
 
+import { factGroupUnread, type Facts, type ItemRef, type RepositoryRef } from "../catalogue.js";
 import {
-    addressManagedComment,
-    factGroupUnread,
-    managedCommentOf,
     modesOf,
     projectCapabilityView,
-    readIntent,
-    screenIntent,
-    type AnyIntent,
     type CapabilityView,
-    type DestructiveGrace,
-    type Facts,
-    type Intent,
-    type ItemRef,
-    type ManagedComment,
-    type RepositoryRef,
     type TypedDeclaration,
 } from "../capability/index.js";
+import {
+    addressManagedComment,
+    managedCommentOf,
+    type AnyIntent,
+    type DestructiveGrace,
+    type Intent,
+    type ManagedComment,
+} from "../intents/index.js";
 import type { PermissionGrant } from "../github/index.js";
 import {
     EngineHandle,
+    readIntent,
+    screenIntent,
     thrownDetail,
     type EngineCapability,
     type ResolverSource,

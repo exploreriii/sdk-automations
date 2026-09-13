@@ -1,15 +1,15 @@
 /** The closed vocabularies a capability chooses from and cannot extend (D61, P3). */
 
-import type { Command, ConfigResult, MappableMeaning } from "../config/index.js";
-import type { PermissionGrant } from "../github/index.js";
-import type { ActionClass } from "../safety/index.js";
+import type { Command, ConfigResult, MappableMeaning } from "./config/index.js";
+import type { PermissionGrant } from "./github/index.js";
+import type { ActionClass } from "./safety/index.js";
 import type {
     EntityKind,
     IssueMeaning,
     PrMeaning,
     Projection,
     TransitionCause,
-} from "../workflow/index.js";
+} from "./workflow/index.js";
 
 // ─── References and explanations ─────────────────────────────────────
 

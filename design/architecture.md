@@ -65,6 +65,25 @@ states, and `decide/item.ts` the only caller of the applier.
 *Enforced by `packages/dev/checks/test/shell-layering.test.ts`, which reads every import under
 `src/shell/` and proves each of the three rules can fail over fixture text.*
 
+Core has a direction of its own, and its directories are an AUDIENCE (D175):
+
+| Directory | Who arrives there |
+|---|---|
+| `catalogue.ts` | both audiences: the closed vocabulary — refs, facts, resolvers, operations, comment kinds |
+| `capability/` | an author: declaration, spec, settings, facts, producers, boundary, factory, guards |
+| `intents/` | an effect once decided: the intent, the platform's managed comment, one module per operation |
+| `config/`, `workflow/`, `safety/`, `github/` | what the repository asked for, the states, the write rules, what we measured of GitHub |
+| `engine/` | the composition — normalize, call, screen, gate |
+| `report/` | what happened, and who must act |
+
+`intents/` never names `capability/`, so the check that an intent names the capability that returned
+it lives in `packages/core/src/engine/invoke.ts`, where intents are collected. Nothing below the
+engine names `engine/` or `report/`, and `config/` reaches one file of `capability/` — the settings
+reader — and nothing else there.
+
+*Enforced by `packages/dev/checks/test/core-layering.test.ts`, which reads every import under
+`packages/core/src/`, writes the table from them, and proves each direction can fail over fixture text.*
+
 ## 2. One item is the unit of decision
 
 Everything narrows to this. A producer builds one fact record about ONE item; `decide()` calls each

@@ -20,7 +20,7 @@ normalize"]
 labels → position"]
     P --> E["capability evaluate
 (via its view + handle)"]
-    E --> S["capability/intent.ts
+    E --> S["engine/invoke.ts
 screens"]
     S --> W["safety/world.ts
 derive the world"]
@@ -38,7 +38,9 @@ own warning comment is approved instead)"]
 | `src/engine/` | What does the platform DO with a delivery? | `decide.ts` (the verb), `events.ts` (webhook payload → fact record), `invoke.ts` (how a capability is called, type erased) |
 | `src/config/` | What did this repository ask for? | `schema.ts`, `sections.ts`, `parse.ts`, `document.ts` (YAML in), `labels.ts` (label ↔ meaning, both directions) |
 | `src/workflow/` | What states exist, and how do they move? | `positions.ts` (derived from config), `causes.ts`, `state.ts`, `transitions.ts` (the tables and the legality question), `reference.ts` (the executable spec), `project.ts` |
-| `src/capability/` | What may a capability declare and do? | `declaration.ts` (the sole direct-list validator), `catalogue.ts` (closed vocabulary), `operations/` (the platform's facts and change wording, one module per operation), `boundary.ts` (how it is called), `intent.ts` (projection-aware screens), `factory.ts` (how one is built without ceremony) |
+| `src/catalogue.ts` | What words may either side use? | the closed vocabulary: refs, fact shapes, resolvers, operations, comment kinds |
+| `src/capability/` | What may a capability declare? | `declaration.ts` (the sole direct-list validator), `spec.ts` + `settings.ts` (the reader and the kit), `facts.ts`, `producers.ts`, `boundary.ts` (how it is called), `factory.ts` (how one is built without ceremony), `guards.ts` |
+| `src/intents/` | What is an effect, once decided? | `intent.ts` (the request and its derived identity), `managed.ts` (platform-owned comment identity), `operations/` (the platform's facts and change wording, one module per operation) |
 | `src/safety/` | May this write happen? | `write.ts` + `destructive.ts` (the two doors, both reachable since `design/guides/grace.md`), `rules.ts` (the ordered rules both share), `world.ts` (the derived, unforgeable facts) |
 | `src/github/` | Is this still true of GitHub? | `failures.ts`, `rate-limits.ts`, `ids.ts`, `signatures.ts` — each stamping, in its own header, the date it was probed and the symptom that says it has rotted |
 | `src/report/` | What happened, and who must act? | `finding.ts` (the record), `convert.ts` (the one severity table) |
@@ -48,8 +50,8 @@ its rules and its traps. Directories are named for the question a maintainer
 arrives with, not for a technical kind. There is no `types/` or `utils/`:
 naming by kind forces you to already know the answer in order to find it.
 
-**Four stories, seven directories.** Read core as: *vocabulary* (catalogue +
-meanings + the facts tables), *rules* (safety + the screens + the map),
+**Four stories, eight directories and one root file.** Read core as: *vocabulary*
+(catalogue + meanings + the facts tables), *rules* (safety + the screens + the map),
 *engine* (events + decide), *report* — with config as the input gate and
 github as the observed-world annex. The stories are the reading; the
 directories are where the files happen to live (D92 phase 5 records why the
@@ -62,7 +64,8 @@ two aren't forced to coincide).
    Start here if the glossary below feels like a wall — it is the same journey,
    runnable.
 1. [`src/capability/index.ts`](src/capability/index.ts) — the barrel header
-   says what a capability may declare and why none of it is trusted; the three
+   says what a capability may declare and why none of it is trusted, and
+   [`src/intents/index.ts`](src/intents/index.ts) what it may ask for; the three
    seeds in `packages/capabilities/src/` are the worked examples.
 2. [`src/safety/rules.ts`](src/safety/rules.ts) — the ten rules as an ordered
    array; the order is contract and the tests assert it directly.
@@ -95,18 +98,28 @@ already seen working.
 Two views, because they answer different questions.
 
 **Who depends on whom** — what a maintainer needs when changing something.
-Every arrow runs one way; `config/` is the root and imports nothing.
+Every arrow runs one way, and `intents/` never draws one back at `capability/`
+(D175). `packages/dev/checks/test/core-layering.test.ts` is the lock.
 
 ```mermaid
 flowchart TB
-    CAP["capability/<br/>declare, call, screen"]
+    CAP["capability/<br/>what an author declares"]
+    INT["intents/<br/>what an effect is"]
+    CAT["catalogue.ts<br/>the shared vocabulary"]
     SAFE["safety/<br/>may this write happen"]
     WF["workflow/<br/>states and moves"]
     CFG["config/<br/>what the repository asked for"]
     GH["github/<br/>what we measured of GitHub"]
+    CAP --> INT
     CAP --> SAFE
     CAP --> WF
     CAP --> CFG
+    INT --> CAT
+    INT --> SAFE
+    CAT --> SAFE
+    CAT --> WF
+    CAT --> CFG
+    CAT --> GH
     SAFE --> CFG
     WF --> CFG
 ```
@@ -168,7 +181,7 @@ belongs at the root.
 The workspace's `packages/dev/checks/` package holds the invariants that are not about
 behaviour at all — source files stay free of control characters, and every
 module matches Stryker's mutate glob. Both exist because a regression got
-through: a NUL-delimited key made `capability/intent.ts` a binary file to grep, and a
+through: a NUL-delimited key made `intents/intent.ts` a binary file to grep, and a
 single-level `src/*.ts` glob silently stopped mutating three modules the day
 they moved into `src/github/`. Neither broke a test, because neither changed
 behaviour.

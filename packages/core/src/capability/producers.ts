@@ -3,7 +3,7 @@
  * THE TABLE IS THE PROMISE — a failed read still leaves its group `"unread"`.
  */
 
-import type { FactGroup, FactKind, Facts, Unread } from "./catalogue.js";
+import type { FactGroup, FactKind, Facts, Unread } from "../catalogue.js";
 
 /** The producers that wake on a webhook delivery — and so the events core consumes. */
 export const WEBHOOK_PRODUCERS = ["issues", "issue_comment", "pull_request"] as const;

@@ -9,10 +9,8 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { carriesFactGroup, FACT_GROUPS, FACT_KINDS } from "../../src/catalogue.js";
 import {
-    carriesFactGroup,
-    FACT_GROUPS,
-    FACT_KINDS,
     PRODUCER_NAMES,
     PRODUCERS,
     producerReads,

@@ -6,9 +6,9 @@
  */
 
 import type { TypedDeclaration } from "./declaration.js";
-import type { ItemRef, RepositoryRef } from "./catalogue.js";
-import type { IntentCatalogue, IntentOperation } from "./catalogue.js";
-import { deriveIdempotencyKey, type DestructiveGrace, type Intent } from "./intent.js";
+import type { ItemRef, RepositoryRef } from "../catalogue.js";
+import type { IntentCatalogue, IntentOperation } from "../catalogue.js";
+import { deriveIdempotencyKey, type DestructiveGrace, type Intent } from "../intents/index.js";
 import type { ClaimedFacts } from "../safety/index.js";
 
 /** Where and when — bound once per evaluation, not restated per intent. */

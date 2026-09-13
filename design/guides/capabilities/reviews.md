@@ -97,7 +97,7 @@ capability at all — not draft, no changes requested — that date is the momen
 which is the clock the design wants.
 
 What it is NOT is a clock a review resets. The `review` group carries no review activity
-(`packages/core/src/capability/catalogue.ts`), so a human approval or review comment leaves this
+(`packages/core/src/catalogue.ts`), so a human approval or review comment leaves this
 capability's clock exactly where it was, and the reminder keeps standing until the pull request
 leaves the waiting state. Everything the wait-resetting story needs is in Phase 2 below. An
 approval that does not change the pull request's mode is therefore invisible here; the comment is

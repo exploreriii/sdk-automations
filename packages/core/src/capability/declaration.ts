@@ -11,9 +11,9 @@ import {
     SKILL_TIERS,
 } from "../config/schema.js";
 import type { MappingFamily, RequiredMappings } from "../config/schema.js";
-import type { FactGroup, FactKind, IntentOperation, ResolverName } from "./catalogue.js";
-import { carriesFactGroup, FACT_GROUPS, FACT_KINDS, RESOLVER_NAMES } from "./catalogue.js";
-import { INTENT_OPERATIONS } from "./operations/index.js";
+import type { FactGroup, FactKind, IntentOperation, ResolverName } from "../catalogue.js";
+import { carriesFactGroup, FACT_GROUPS, FACT_KINDS, RESOLVER_NAMES } from "../catalogue.js";
+import { INTENT_OPERATIONS } from "../intents/index.js";
 import type { ProducerName } from "./producers.js";
 import type { Spec } from "./spec.js";
 import {

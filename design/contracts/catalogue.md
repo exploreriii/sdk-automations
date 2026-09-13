@@ -105,7 +105,7 @@ marker counts only under App authorship, so one copied into a repository user's 
 trigger an operation (D125).
 
 The marker's own rules are the ones a reader has to trust, and they live in
-`packages/core/src/capability/managed.ts`: one short marker per purpose per item; the schema version,
+`packages/core/src/intents/managed.ts`: one short marker per purpose per item; the schema version,
 capability and kind in the clear, so a maintainer reading raw markdown can see whose comment it is;
 the subject as a digest, because a topic is a capability's free text; and a body offered for
 recognition refused outright when it carries no marker, is oversized, is malformed, or names a prior

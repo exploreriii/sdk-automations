@@ -16,8 +16,8 @@ import {
     type AcceptedDelivery,
     type AcceptOutcome,
     type RequestHandler,
-} from "../../src/shell/receiver.js";
-import type { Log, ShellEvent } from "../../src/shell/log.js";
+} from "../../../src/shell/inbound/receiver.js";
+import type { Log, ShellEvent } from "../../../src/shell/log.js";
 
 const SECRET = "shell-test-secret";
 

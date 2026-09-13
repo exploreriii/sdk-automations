@@ -1,47 +1,12 @@
-/**
- * The facts core cannot know, and how the shared box obtains them for one item.
- * The live fill is composed only at `main.ts`; the stub below is credential-free.
- */
+/** The facts core cannot know, obtained for one item; the live fill is composed only at `main.ts`. */
 
 import {
-    createDestructiveWarning,
     isAutomationLogin,
-    type ActionClass,
-    type DestructiveWarning,
     type Externals,
     type RepositoryConfig,
     type ResolverAnswer,
     type ResolverSource,
 } from "@hiero-hackers/automation-core";
-import type { Ledger } from "../store/index.js";
-
-/**
- * The recorded-warning seam, over the effect ledger (grace.md §2).
- * Nothing here validates; the destructive door matches the snapshot to the request.
- */
-export function recordedWarningsIn(
-    ledger: Ledger,
-): (effectId: string) => DestructiveWarning | null {
-    return (effectId) => {
-        const row = ledger.warningFor(effectId);
-        if (row === null) return null;
-        return createDestructiveWarning({
-            request: {
-                capability: row.capability,
-                actionClass: row.actionClass as ActionClass,
-                requiredPermissions: [],
-                cause: row.cause,
-                causeObservedAt: new Date(row.causeObservedAt),
-                target: { item: row.item, change: row.change },
-            },
-            warnedAt: new Date(row.warnedAt),
-            gracePeriodHours: row.gracePeriodHours,
-            earliestActionAt: new Date(row.earliestActionAt),
-            cancelledBy: row.cancelledBy,
-            reversesWith: row.reversesWith,
-        });
-    };
-}
 
 /**
  * One delivery's externals, built from its raw payload.

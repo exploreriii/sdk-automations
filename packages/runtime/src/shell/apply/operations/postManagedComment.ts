@@ -4,7 +4,7 @@
  */
 
 import { MANAGED_COMMENT_KINDS, type ManagedCommentKind } from "@hiero-hackers/automation-core";
-import { renderManagedBody } from "../effects.js";
+import { renderManagedBody } from "../../effects.js";
 import {
     type CommentSeen,
     type OperationHandler,

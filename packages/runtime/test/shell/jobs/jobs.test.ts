@@ -28,7 +28,7 @@ import {
     type Shell,
     type ShellEvent,
 } from "../../../src/shell/index.js";
-import { fakeGitHub } from "../effect-harness.js";
+import { fakeGitHub } from "../apply/effect-harness.js";
 
 const SECRET = "shell-test-secret";
 const GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a69";

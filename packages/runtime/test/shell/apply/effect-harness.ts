@@ -40,7 +40,7 @@ import type {
     ReadAnswer,
     SeenState,
     WriteResult,
-} from "../../src/shell/operations/handler.js";
+} from "../../../src/shell/apply/operations/handler.js";
 
 // ─── The repository under test ───────────────────────────────────────
 

@@ -7,8 +7,8 @@
 import { join } from "node:path";
 import type { RepositoryRef } from "@hiero-hackers/automation-core";
 import { defaultDataDir, storeFile } from "../paths.js";
-import { DEFAULT_TICK_MS } from "../shell.js";
-import { SWEEP_READ_BUDGET, SWEEP_WRITE_CAP } from "../sweep.js";
+import { DEFAULT_TICK_MS } from "./shell.js";
+import { SWEEP_READ_BUDGET, SWEEP_WRITE_CAP } from "../sweep/budgets.js";
 
 /** The port this endpoint takes when PORT says nothing. */
 const DEFAULT_PORT = 8790;

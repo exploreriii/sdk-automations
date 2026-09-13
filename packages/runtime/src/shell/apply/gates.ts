@@ -5,6 +5,7 @@
  */
 
 import {
+    createDestructiveWarning,
     deriveWorld,
     evaluateDestructive,
     evaluateStandingRules,
@@ -14,7 +15,9 @@ import {
     meaningsOfLabels,
     projectIssue,
     projectPullRequest,
+    type ActionClass,
     type AnyIntent,
+    type DestructiveWarning,
     type Externals,
     type HumanChangeOrdering,
     type IntentOperation,
@@ -25,11 +28,10 @@ import {
     type RepositoryConfig,
 } from "@hiero-hackers/automation-core";
 import type { Ledger } from "../../store/index.js";
-import type { EffectOutcomeCode } from "../effects.js";
-import { recordedWarningsIn } from "../externals.js";
 import { detailOf } from "../log.js";
-import type { EffectReader, ItemSeen, ReadAnswer } from "../operations/handler.js";
+import type { EffectOutcomeCode } from "../effects.js";
 import type { Pass, PassResult } from "./actions.js";
+import type { EffectReader, ItemSeen, ReadAnswer } from "./operations/handler.js";
 
 /**
  * A FRESH externals set, built per apply pass.
@@ -64,6 +66,34 @@ function projectionFrom(
         meanings: meaningsOfLabels(config, seen.labels),
     };
     return kind === "issue" ? projectIssue(observation) : projectPullRequest(observation);
+}
+
+/**
+ * The recorded-warning seam, over the effect ledger (grace.md §2).
+ * Nothing here validates; the destructive door matches the snapshot to the request.
+ */
+export function recordedWarningsIn(
+    ledger: Ledger,
+): (effectId: string) => DestructiveWarning | null {
+    return (effectId) => {
+        const row = ledger.warningFor(effectId);
+        if (row === null) return null;
+        return createDestructiveWarning({
+            request: {
+                capability: row.capability,
+                actionClass: row.actionClass as ActionClass,
+                requiredPermissions: [],
+                cause: row.cause,
+                causeObservedAt: new Date(row.causeObservedAt),
+                target: { item: row.item, change: row.change },
+            },
+            warnedAt: new Date(row.warnedAt),
+            gracePeriodHours: row.gracePeriodHours,
+            earliestActionAt: new Date(row.earliestActionAt),
+            cancelledBy: row.cancelledBy,
+            reversesWith: row.reversesWith,
+        });
+    };
 }
 
 export interface GateOptions {

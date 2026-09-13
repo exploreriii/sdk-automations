@@ -1,7 +1,7 @@
 # Repository Configuration Contract
 
 > **Built for the current shell** — `packages/core/src/config/` parses and validates the document;
-> `packages/runtime/src/shell/config.ts` fixes its repository path. The closed vocabularies below are locked by
+> `packages/runtime/src/shell/decide/config.ts` fixes its repository path. The closed vocabularies below are locked by
 > `packages/dev/checks/test/spec-drift.test.ts`, and every rejection shape is exercised by the in-package
 > corpus in `packages/core/test/config/documents.ts`.
 

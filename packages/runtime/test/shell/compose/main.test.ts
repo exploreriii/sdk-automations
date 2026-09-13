@@ -40,10 +40,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { signBody, SIGNATURE_HEADER } from "@hiero-hackers/automation-core";
-import { Store, type Decision } from "../../src/store/index.js";
+import { Store, type Decision } from "../../../src/store/index.js";
 import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
 
-const PACKAGE_DIR = fileURLToPath(new URL("../../", import.meta.url));
+const PACKAGE_DIR = fileURLToPath(new URL("../../../", import.meta.url));
 
 /**
  * Every child gets its own state home. The default store path is derived

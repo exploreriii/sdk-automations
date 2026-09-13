@@ -17,7 +17,12 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeRequestFor, type Effect, type ItemRef } from "@hiero-hackers/automation-core";
-import { Store, type Fact, type LandedWrite, type StoredWarning } from "../../src/store/index.js";
+import {
+    Store,
+    type Fact,
+    type LandedWrite,
+    type StoredWarning,
+} from "../../../src/store/index.js";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
 import {
     createApplier,
@@ -25,11 +30,11 @@ import {
     EFFECT_LEASE_STALE_MINUTES,
     type Applier,
     type EffectExternalsSource,
-} from "../../src/shell/apply/apply.js";
-import type { EffectOutcome } from "../../src/shell/effects.js";
-import { serializeCall } from "../../src/shell/operations/index.js";
-import { stubbedExternals } from "../../src/shell/externals.js";
-import type { Log, ShellEvent } from "../../src/shell/log.js";
+} from "../../../src/shell/apply/apply.js";
+import type { EffectOutcome } from "../../../src/shell/effects.js";
+import { serializeCall } from "../../../src/shell/apply/operations/index.js";
+import { stubbedExternals } from "../../../src/shell/decide/externals.js";
+import type { Log, ShellEvent } from "../../../src/shell/log.js";
 import {
     ACT_EFFECT_ID,
     appComment,

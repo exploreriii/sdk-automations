@@ -15,7 +15,7 @@ import {
     parseJournaledCall,
     planFor,
     serializeCall,
-} from "../../src/shell/operations/index.js";
+} from "../../src/shell/apply/operations/index.js";
 import {
     commentEffect,
     configFor,
@@ -27,7 +27,7 @@ import {
     READY_LABEL,
     REVIEW_LABEL,
     TRIAGE_LABEL,
-} from "./effect-harness.js";
+} from "./apply/effect-harness.js";
 
 const config = configFor();
 

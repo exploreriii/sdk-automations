@@ -5,7 +5,7 @@
  */
 
 import type { Effect, IntentOperation, RepositoryConfig } from "@hiero-hackers/automation-core";
-import type { Call, JournaledCall, Plan } from "../effects.js";
+import type { Call, JournaledCall, Plan } from "../../effects.js";
 import { applyMappedLabel } from "./applyMappedLabel.js";
 import { assign } from "./assign.js";
 import { closePullRequest } from "./closePullRequest.js";

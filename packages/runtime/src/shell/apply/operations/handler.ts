@@ -7,7 +7,7 @@ import type {
     ItemRef,
     RepositoryConfig,
 } from "@hiero-hackers/automation-core";
-import { renderManagedBody, type Call, type Plan } from "../effects.js";
+import { renderManagedBody, type Call, type Plan } from "../../effects.js";
 
 /** What one write turned out to be, in the endpoint matrix's words. */
 export type WriteResult =

@@ -12,22 +12,17 @@ import {
     type EngineCapability,
     type RepositoryRef,
 } from "@hiero-hackers/automation-core";
-import type { Store } from "../store/index.js";
-import { createReceiver } from "./receiver.js";
-import { createItemDecider } from "./decide/item.js";
-import { createDeliveries } from "./inbound/deliveries.js";
-import { createJobs } from "./jobs/jobs.js";
-import type { Applier } from "./apply/apply.js";
-import type { ConfigSource } from "./config.js";
-import type { ExternalsForDelivery } from "./externals.js";
-import { contained, createLogger, detailOf, type Log } from "./log.js";
-import {
-    createSweep,
-    DEFAULT_SWEEP_CADENCE_MS,
-    SWEEP_READ_BUDGET,
-    SWEEP_WRITE_CAP,
-    type SweepFactsSource,
-} from "./sweep.js";
+import type { Store } from "../../store/index.js";
+import type { Applier } from "../apply/apply.js";
+import type { ConfigSource } from "../decide/config.js";
+import { createItemDecider } from "../decide/item.js";
+import type { ExternalsForDelivery } from "../decide/externals.js";
+import { createDeliveries } from "../inbound/deliveries.js";
+import { createReceiver } from "../inbound/receiver.js";
+import { createJobs } from "../jobs/jobs.js";
+import { contained, createLogger, detailOf, type Log } from "../log.js";
+import { DEFAULT_SWEEP_CADENCE_MS, SWEEP_READ_BUDGET, SWEEP_WRITE_CAP } from "../sweep/budgets.js";
+import { createSweep, type SweepFactsSource } from "../sweep/sweep.js";
 
 /** How often the shell requeues stale claims and drains, absent an override. */
 export const DEFAULT_TICK_MS = 60_000;

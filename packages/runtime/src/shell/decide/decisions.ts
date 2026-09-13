@@ -4,8 +4,8 @@
  */
 
 import type { Finding, Report, RepositoryRef, Subject } from "@hiero-hackers/automation-core";
-import type { Decision } from "../store/index.js";
-import type { EffectOutcome } from "./effects.js";
+import type { Decision } from "../../store/index.js";
+import type { EffectOutcome } from "../effects.js";
 
 /** One decided pass, as its rows name it. */
 export interface DecidedPass {

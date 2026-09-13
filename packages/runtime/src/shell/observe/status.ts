@@ -12,8 +12,8 @@ import {
     type ScheduleStanding,
     type StandingWarnings,
     type VerdictTally,
-} from "../store/index.js";
-import { storeFile } from "./paths.js";
+} from "../../store/index.js";
+import { storeFile } from "../paths.js";
 
 /** What the store answered: the lines to print, and whether a store was there. */
 export interface Status {

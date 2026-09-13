@@ -24,10 +24,10 @@ import {
     type WriteVerbs,
 } from "../../adapter/index.js";
 import type { EffectExternalsSource, EffectReader, EffectWriter } from "../apply/apply.js";
-import type { ConfigSource } from "../config.js";
-import type { ExternalsForDelivery } from "../externals.js";
+import type { ConfigSource } from "../decide/config.js";
+import type { ExternalsForDelivery } from "../decide/externals.js";
 import type { Log } from "../log.js";
-import type { SweepFacts, SweepFactsSource } from "../sweep.js";
+import type { SweepFacts, SweepFactsSource } from "../sweep/sweep.js";
 import type { Credentials } from "./composition.js";
 
 /**

@@ -7,11 +7,11 @@
 
 import type { AnyIntent, Effect, RepositoryConfig } from "@hiero-hackers/automation-core";
 import type { Fact, Ledger, OpenSend } from "../../store/index.js";
-import type { Call, EffectOutcome, EffectOutcomeName } from "../effects.js";
 import type { Log } from "../log.js";
-import type { EffectReader, EffectWriter } from "../operations/handler.js";
-import { operationOf, parseJournaledCall, planFor } from "../operations/index.js";
 import { actionFor, type Action, type Pass, type PassResult } from "./actions.js";
+import type { Call, EffectOutcome, EffectOutcomeName } from "../effects.js";
+import type { EffectReader, EffectWriter } from "./operations/handler.js";
+import { operationOf, parseJournaledCall, planFor } from "./operations/index.js";
 import { createCalls, stop, type CallResult } from "./call.js";
 import { createGates, type EffectExternalsSource } from "./gates.js";
 
@@ -24,8 +24,8 @@ export type {
     ReadAnswer,
     SeenState,
     WriteResult,
-} from "../operations/handler.js";
-export type { EffectExternalsSource } from "./gates.js";
+} from "./operations/handler.js";
+export { recordedWarningsIn, type EffectExternalsSource } from "./gates.js";
 
 // ─── The chosen bounds ───────────────────────────────────────────────
 

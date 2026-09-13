@@ -12,10 +12,10 @@ import type {
     RepositoryConfig,
     Unread,
 } from "@hiero-hackers/automation-core";
-import type { ClaimedScheduleRow, Store } from "../store/index.js";
-import type { WriteBudget } from "./apply/apply.js";
-import type { DecideItem, Decided } from "./decide/item.js";
-import { detailOf, type Log } from "./log.js";
+import type { ClaimedScheduleRow, Store } from "../../store/index.js";
+import type { WriteBudget } from "../apply/apply.js";
+import type { DecideItem, Decided } from "../decide/item.js";
+import { detailOf, type Log } from "../log.js";
 import { SWEEP_EFFECT, wantsSweeping } from "./schedule.js";
 
 // ─── The seams ───────────────────────────────────────────────────────
@@ -78,21 +78,6 @@ export interface SweepOptions {
     readonly suspended?: boolean;
     readonly log: Log;
 }
-
-/**
- * How often a repository is read when nothing says otherwise — every hour.
- * A clock the sweep cannot see is a promise the App cannot keep: the smallest reap a `duration` may state is two hours.
- */
-export const DEFAULT_SWEEP_CADENCE_MS = 60 * 60_000;
-
-/** How many writes one firing may send before it carries the rest to the next (D167). */
-export const SWEEP_WRITE_CAP = 20;
-
-/**
- * How many requests one firing may spend reading before it carries the rest to the next (D170).
- * Of GitHub's hourly five thousand, leaving room for webhooks and read-backs.
- */
-export const SWEEP_READ_BUDGET = 2_000;
 
 const DAY_MS = 24 * 60 * 60_000;
 

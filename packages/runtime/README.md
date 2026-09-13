@@ -7,11 +7,18 @@ dependency cruiser holds as directory rules:
   schedules. Sits on core only.
 - [`src/adapter/`](src/adapter/README.md) — the only code that talks to GitHub. Sits on core only,
   and is imported by the composition root alone.
-- [`src/shell/`](src/shell/README.md) — the transport: receiver, processor, applier, the fact sweep
-  that turns a due schedule row into one decision per open item, and `main.ts`, the composition root
-  where the seams meet.
+- [`src/shell/`](src/shell/README.md) — the transport, one directory per box of its drawing (D172):
 
-The barrel re-exports the three; a consumer sees one package. Tests mirror the three under `test/`,
+  - `compose/` — the environment as one record, the live seams, and the start.
+  - `inbound/` — the webhook lane: verify, accept, claim, decide, complete.
+  - `sweep/` — the sweep lane: the schedule row, one firing's budgets, the driver.
+  - `decide/` — the one box both lanes call, and the config and externals it decides through.
+  - `apply/` — the applier as a loop over a five-row table, one module per operation below it.
+  - `jobs/` — the tick's four named jobs, and the shutdown order.
+  - `observe/` — the read-only commands behind `pnpm shell:explain` and `pnpm shell:status`.
+  - `log.ts`, `paths.ts`, `effects.ts` — the vocabulary every directory above may name.
+
+The barrel re-exports the three; a consumer sees one package. Tests mirror the tree under `test/`,
 with one exception that proves the rule: `test/sweep.test.ts` is about the seam BETWEEN the adapter
 and the shell, which neither directory may import the other across, so it sits above both and
 reaches each through its barrel — the way the composition root does. Run it from the repository

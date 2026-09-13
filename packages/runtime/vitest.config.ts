@@ -11,7 +11,7 @@ export default defineConfig({
             // The composed barrel and the three it composes re-export and
             // hold nothing. `src/shell/compose/main.ts` and the live fill it
             // builds are exercised as a real process in
-            // test/shell/main.test.ts, and v8 attributes nothing across a
+            // test/shell/compose/main.test.ts, and v8 attributes nothing across a
             // spawn — the barrels' reason exactly.
             exclude: [
                 "src/index.ts",
@@ -20,8 +20,8 @@ export default defineConfig({
                 "src/store/index.ts",
                 "src/shell/compose/main.ts",
                 "src/shell/compose/live.ts",
-                "src/shell/explain-cli.ts",
-                "src/shell/status-cli.ts",
+                "src/shell/observe/explain-cli.ts",
+                "src/shell/observe/status-cli.ts",
             ],
             // The strictest of the three floors the former packages carried,
             // and still just below the measured 99.31/99.68/98.82/99.31 —

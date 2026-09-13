@@ -22,11 +22,11 @@ import type {
     ReleaseDeliveryAfterFailureResult,
     Store,
 } from "../../store/index.js";
-import type { ConfigSource } from "../config.js";
+import type { ConfigSource } from "../decide/config.js";
 import type { DecideItem } from "../decide/item.js";
 import type { EffectOutcome } from "../effects.js";
 import { detailOf, type Log } from "../log.js";
-import { declareSweep } from "../schedule.js";
+import { declareSweep } from "../sweep/schedule.js";
 
 /**
  * A processing claim older than this is presumed dead and taken over.

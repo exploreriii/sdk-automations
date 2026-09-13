@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { withTempDir } from "@hiero-hackers/automation-testkit";
 import { chmodSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_PATH, fileConfigSource } from "../../src/shell/config.js";
+import { CONFIG_PATH, fileConfigSource } from "../../../src/shell/decide/config.js";
 
 describe("configuration source", () => {
     it("owns the repository path and content-addresses exact text", async () => {

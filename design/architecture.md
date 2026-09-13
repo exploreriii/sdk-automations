@@ -43,6 +43,28 @@ than packages, and the layer policy did not change when they were filed that way
 *Enforced by `packages/dev/checks/test/architecture.test.ts`, which cruises the real tree with these
 rules and a deliberately-violating fixture tree to prove they still fire.*
 
+The shell has a second direction rule of its own, inside the one directory that composes everything
+(D172):
+
+| Directory | What it owns |
+|---|---|
+| `compose/` | the environment read into one record, the live seams, and the start |
+| `inbound/` | the webhook lane: the receiver, and the delivery it claims and completes |
+| `sweep/` | the sweep lane: the schedule row, one firing's budgets, and the driver |
+| `decide/` | the one box both lanes call — decide one item, apply, write the rows |
+| `apply/` | the applier as a loop over a five-row table, one module per operation below it |
+| `jobs/` | the tick's four named jobs, and the shutdown order |
+| `observe/` | the read-only commands |
+| `log.ts`, `paths.ts`, `effects.ts` | the vocabulary every directory above may name |
+
+Imports run down that list and never back up — `compose` → the lanes and the jobs → `decide` →
+`apply` → `apply/operations` — with the root files nameable from anywhere and `compose` from
+nowhere. Two more rules ride with it: `apply/actions.ts` is the only file that names the fold's five
+states, and `decide/item.ts` the only caller of the applier.
+
+*Enforced by `packages/dev/checks/test/shell-layering.test.ts`, which reads every import under
+`src/shell/` and proves each of the three rules can fail over fixture text.*
+
 ## 2. One item is the unit of decision
 
 Everything narrows to this. A producer builds one fact record about ONE item; `decide()` calls each
@@ -109,9 +131,9 @@ refuses each intent, which is why it sits with `observe` and `dry-run` rather th
 sweep reaches `decide()` through this same path — mode gate, applier, journal and recovery are all
 this lane's.
 
-*Sources: `packages/runtime/src/shell/receiver.ts`, `inbound/deliveries.ts`, `decide/item.ts`,
-`sweep.ts` — pinned end to end by
-`packages/runtime/test/shell/shell.test.ts`. The exhaustive rejection-code table is
+*Sources: `packages/runtime/src/shell/inbound/receiver.ts`, `inbound/deliveries.ts`,
+`decide/item.ts`, `sweep/sweep.ts` — pinned end to end by
+`packages/runtime/test/shell/compose/shell.test.ts`. The exhaustive rejection-code table is
 [`contracts/config-schema.md`](contracts/config-schema.md); it is deliberately not copied here.*
 
 ## 5. Safety, and the path a destructive act takes

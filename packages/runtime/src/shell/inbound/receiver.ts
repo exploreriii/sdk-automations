@@ -11,7 +11,7 @@ import {
     verifyBody,
     type DeliveryGuid,
 } from "@hiero-hackers/automation-core";
-import { detailOf, type Log } from "./log.js";
+import { detailOf, type Log } from "../log.js";
 
 /** GitHub caps webhook payloads at 25 MB; anything larger is not GitHub. */
 const MAX_BODY_BYTES = 25 * 1024 * 1024;

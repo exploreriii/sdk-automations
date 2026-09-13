@@ -7,12 +7,9 @@
 
 import { describe, expect, it } from "vitest";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
-import {
-    credentialFreeResolvers,
-    recordedWarningsIn,
-    stubbedExternals,
-} from "../../src/shell/externals.js";
-import { Store, type Fact, type StoredWarning } from "../../src/store/index.js";
+import { recordedWarningsIn } from "../../../src/shell/apply/apply.js";
+import { credentialFreeResolvers, stubbedExternals } from "../../../src/shell/decide/externals.js";
+import { Store, type Fact, type StoredWarning } from "../../../src/store/index.js";
 
 describe("first-slice external facts", () => {
     it("defaults to the documented sandbox facts", () => {

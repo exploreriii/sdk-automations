@@ -5,8 +5,8 @@
 
 import { existsSync } from "node:fs";
 import type { ItemRef, RepositoryRef } from "@hiero-hackers/automation-core";
-import { fold, Store, type Decision, type Fact, type LedgerState } from "../store/index.js";
-import { storeFile } from "./paths.js";
+import { fold, Store, type Decision, type Fact, type LedgerState } from "../../store/index.js";
+import { storeFile } from "../paths.js";
 
 /** What one question came to: the lines to print, and whether the store held an answer. */
 export interface Explanation {

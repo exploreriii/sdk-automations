@@ -7,8 +7,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
 import type { ItemRef, RepositoryRef } from "@hiero-hackers/automation-core";
-import { Store, type Decision, type Fact } from "../../src/store/index.js";
-import { explain, explainEffect, explainItem } from "../../src/shell/explain.js";
+import { Store, type Decision, type Fact } from "../../../src/store/index.js";
+import { explain, explainEffect, explainItem } from "../../../src/shell/observe/explain.js";
 
 const ITEM: ItemRef = { kind: "issue", number: 40 };
 const REPOSITORY: RepositoryRef = { owner: "o", repo: "r" };

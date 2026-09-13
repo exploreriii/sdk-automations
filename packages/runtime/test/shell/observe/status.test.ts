@@ -12,8 +12,8 @@ import {
     type ItemRef,
     type RepositoryRef,
 } from "@hiero-hackers/automation-core";
-import { Store, type Decision, type Fact, type StoredWarning } from "../../src/store/index.js";
-import { readStatus, status } from "../../src/shell/status.js";
+import { Store, type Decision, type Fact, type StoredWarning } from "../../../src/store/index.js";
+import { readStatus, status } from "../../../src/shell/observe/status.js";
 
 const ITEM: ItemRef = { kind: "issue", number: 40 };
 const REPOSITORY: RepositoryRef = { owner: "o", repo: "r" };

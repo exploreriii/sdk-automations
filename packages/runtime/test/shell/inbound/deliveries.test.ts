@@ -34,8 +34,11 @@ import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
 import { createDeliveries } from "../../../src/shell/inbound/deliveries.js";
 import { createItemDecider } from "../../../src/shell/decide/item.js";
 import type { Applier } from "../../../src/shell/apply/apply.js";
-import { stubbedExternals, type ExternalsForDelivery } from "../../../src/shell/externals.js";
-import type { ConfigSource } from "../../../src/shell/config.js";
+import {
+    stubbedExternals,
+    type ExternalsForDelivery,
+} from "../../../src/shell/decide/externals.js";
+import type { ConfigSource } from "../../../src/shell/decide/config.js";
 import type { Log, ShellEvent } from "../../../src/shell/log.js";
 
 /**

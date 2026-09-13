@@ -5,7 +5,7 @@ import type {
     RepositoryConfig,
     RepositoryRef,
 } from "@hiero-hackers/automation-core";
-import type { Store } from "../store/index.js";
+import type { Store } from "../../store/index.js";
 
 /** The `effect` column every sweep row carries. */
 export const SWEEP_EFFECT = "sweep";

@@ -8,7 +8,7 @@ import type { Store } from "../../store/index.js";
 import { EFFECT_LEASE_STALE_MINUTES, type Applier } from "../apply/apply.js";
 import { STALE_CLAIM_MINUTES, type Deliveries } from "../inbound/deliveries.js";
 import { detailOf, type Log } from "../log.js";
-import type { Sweep } from "../sweep.js";
+import type { Sweep } from "../sweep/sweep.js";
 
 /** One named thing a tick does. */
 export interface Job {

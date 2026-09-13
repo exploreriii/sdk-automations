@@ -13,8 +13,8 @@ import {
     REFUSAL,
     type Composition,
 } from "../../../src/shell/compose/composition.js";
-import { DEFAULT_TICK_MS } from "../../../src/shell/shell.js";
-import { SWEEP_READ_BUDGET, SWEEP_WRITE_CAP } from "../../../src/shell/sweep.js";
+import { DEFAULT_TICK_MS } from "../../../src/shell/compose/shell.js";
+import { SWEEP_READ_BUDGET, SWEEP_WRITE_CAP } from "../../../src/shell/sweep/budgets.js";
 
 const STATE_HOME = "/var/lib/state";
 const DATA_DIR = join(STATE_HOME, "sdk-automations");

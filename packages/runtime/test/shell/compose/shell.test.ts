@@ -17,7 +17,7 @@ import {
     SIGNATURE_HEADER,
     type EngineCapability,
 } from "@hiero-hackers/automation-core";
-import { Store } from "../../src/store/index.js";
+import { Store } from "../../../src/store/index.js";
 import { intake, prQuality } from "@hiero-hackers/automation-capabilities";
 import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
 import {
@@ -27,7 +27,7 @@ import {
     type Log,
     type Shell,
     type ShellEvent,
-} from "../../src/shell/index.js";
+} from "../../../src/shell/index.js";
 
 const SECRET = "shell-test-secret";
 const GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a69";

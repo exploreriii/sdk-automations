@@ -1,8 +1,8 @@
 /**
  * The delivery queue: which row may move to which state, on whose claim token.
  * A queue mutates in place, which is what makes it the ledger's opposite (D164).
- * Delivery acceptance and report completion use explicit synchronous
- * transactions, so a returned outcome always describes committed rows.
+ * Acceptance and completion use explicit synchronous transactions, so a
+ * returned outcome always describes committed rows.
  */
 
 import { createHash } from "node:crypto";
@@ -11,10 +11,9 @@ import { asDeliveryGuid, type DeliveryGuid } from "@hiero-hackers/automation-cor
 import type {
     AcceptDeliveryInput,
     AcceptDeliveryResult,
-    CanonicalDeliveryReport,
     ClaimedDelivery,
-    CompleteDeliveryWithReportInput,
-    CompleteDeliveryWithReportResult,
+    CompleteDeliveryInput,
+    CompleteDeliveryResult,
     DeadLetteredDelivery,
     DeliveryCounts,
     DeliveryState,
@@ -26,8 +25,7 @@ import type {
 import { assertNonEmpty, assertUtcInstant } from "./guards.js";
 
 /** A deliberate interruption point in delivery durability work. */
-export type DeliveryFaultPoint =
-    "finalize:reportPersisted" | "finalize:deliveryCompleted" | "finalize:committed";
+export type DeliveryFaultPoint = "finalize:deliveryCompleted" | "finalize:committed";
 
 function assertDeliveryGuid(value: DeliveryGuid): void {
     if (asDeliveryGuid(value) === undefined) {
@@ -50,16 +48,6 @@ function assertPayloadDigest(value: string): void {
 function assertAttemptCap(value: number): void {
     if (!Number.isInteger(value) || value < 1) {
         throw new TypeError("maxAttempts must be a positive integer");
-    }
-}
-
-function assertReportJson(value: string): void {
-    let parsed: unknown = null;
-    try {
-        parsed = JSON.parse(value);
-    } catch {}
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        throw new TypeError("reportJson must be a JSON object");
     }
 }
 
@@ -105,17 +93,6 @@ interface DeliveryFinalizationRow {
     readonly claim_token: string | null;
 }
 
-interface StoredReportRow {
-    readonly claim_token: string;
-    readonly report_json: string;
-}
-
-interface CanonicalDeliveryReportRow {
-    readonly delivery_id: string;
-    readonly report_json: string;
-    readonly completed_at: string;
-}
-
 interface DeliveryCountsRow {
     readonly pending: number;
     readonly processing: number;
@@ -127,6 +104,26 @@ interface DeliveryCountsRow {
 interface NewestDeliveryRow {
     readonly received_at: string;
     readonly completed_at: string | null;
+}
+
+/**
+ * Why this completion may not commit, or `undefined` when it may.
+ * Identity is checked first, so a delivery never accepted and one offered the wrong digest answer alike.
+ */
+function refusedCompletion(
+    delivery: DeliveryFinalizationRow | undefined,
+    input: CompleteDeliveryInput,
+): Exclude<CompleteDeliveryResult, { outcome: "completed" }> | undefined {
+    if (
+        delivery === undefined ||
+        delivery.event_name !== input.eventName ||
+        delivery.payload_digest !== input.payloadDigest
+    ) {
+        return { outcome: "identityMismatch" };
+    }
+    if (delivery.state === "done") return { outcome: "alreadyCompleted" };
+    if (delivery.claim_token !== input.claimToken) return { outcome: "notOwned" };
+    return undefined;
 }
 
 /** One delivery's durable life, from verified bytes to retention (D164). */
@@ -263,15 +260,16 @@ export class Inbox {
         };
     }
 
-    /** Persist one canonical report and complete only its current delivery claim. */
-    completeDeliveryWithReport(
-        input: CompleteDeliveryWithReportInput,
-    ): CompleteDeliveryWithReportResult {
+    /**
+     * Complete only this token's current claim, in one transaction (D173).
+     * A delivery already done answers `alreadyCompleted` whatever token asks: the
+     * committing token is not kept, so the store knows only that it finished.
+     */
+    completeDelivery(input: CompleteDeliveryInput): CompleteDeliveryResult {
         assertDeliveryGuid(input.deliveryId);
         assertNonEmpty(input.eventName, "eventName");
         assertPayloadDigest(input.payloadDigest);
         assertNonEmpty(input.claimToken, "claimToken");
-        assertReportJson(input.reportJson);
         assertUtcInstant(input.completedAt, "completedAt");
 
         this.db.exec("BEGIN IMMEDIATE");
@@ -286,54 +284,11 @@ export class Inbox {
                 )
                 .get(input.deliveryId) as DeliveryFinalizationRow | undefined;
 
-            if (
-                delivery === undefined ||
-                delivery.event_name !== input.eventName ||
-                delivery.payload_digest !== input.payloadDigest
-            ) {
+            const refusal = refusedCompletion(delivery, input);
+            if (refusal !== undefined) {
                 this.db.exec("ROLLBACK");
-                return { outcome: "identityMismatch" };
+                return refusal;
             }
-
-            const storedReport = this.db
-                .prepare(
-                    `
-                SELECT claim_token, report_json
-                FROM delivery_report
-                WHERE delivery_id = ?
-            `,
-                )
-                .get(input.deliveryId) as StoredReportRow | undefined;
-
-            if (delivery.state === "done") {
-                this.db.exec("ROLLBACK");
-                if (storedReport === undefined || storedReport.claim_token !== input.claimToken) {
-                    return { outcome: "notOwned" };
-                }
-                return storedReport.report_json === input.reportJson
-                    ? { outcome: "alreadyCompleted" }
-                    : { outcome: "reportConflict" };
-            }
-
-            if (delivery.claim_token !== input.claimToken) {
-                this.db.exec("ROLLBACK");
-                return { outcome: "notOwned" };
-            }
-            if (storedReport !== undefined) {
-                this.db.exec("ROLLBACK");
-                return { outcome: "reportConflict" };
-            }
-
-            this.db
-                .prepare(
-                    `
-                INSERT INTO delivery_report (
-                    delivery_id, claim_token, report_json, completed_at
-                ) VALUES (?, ?, ?, ?)
-            `,
-                )
-                .run(input.deliveryId, input.claimToken, input.reportJson, input.completedAt);
-            this.injectFault("finalize:reportPersisted");
 
             const completed = this.db
                 .prepare(
@@ -504,24 +459,6 @@ export class Inbox {
         );
     }
 
-    /** Read canonical reports in deterministic completion and delivery order. */
-    deliveryReports(): CanonicalDeliveryReport[] {
-        const rows = this.db
-            .prepare(
-                `
-                SELECT delivery_id, report_json, completed_at
-                FROM delivery_report
-                ORDER BY completed_at, delivery_id
-            `,
-            )
-            .all() as unknown as CanonicalDeliveryReportRow[];
-        return rows.map((row) => ({
-            deliveryId: row.delivery_id as DeliveryGuid,
-            reportJson: row.report_json,
-            completedAt: row.completed_at,
-        }));
-    }
-
     /** How many deliveries sit in each state, and the oldest done one still kept (D168). */
     counts(): DeliveryCounts {
         const row = this.db
@@ -545,7 +482,7 @@ export class Inbox {
         };
     }
 
-    /** The newest delivery received, and when its report was committed (D168). */
+    /** The newest delivery received, and when it finished (D168). */
     newestDelivery(): NewestDelivery | null {
         const row = this.db
             .prepare(
@@ -567,36 +504,13 @@ export class Inbox {
      */
     pruneCompletedDeliveries(before: string): number {
         assertUtcInstant(before, "before");
-        this.db.exec("BEGIN IMMEDIATE");
-        try {
-            this.db
-                .prepare(
-                    `
-                DELETE FROM delivery_report
-                WHERE delivery_id IN (
-                    SELECT delivery_id FROM seen_delivery
-                    WHERE state = 'done' AND completed_at <= ?
-                )
-            `,
-                )
-                .run(before);
-            const removed = this.db
-                .prepare(
-                    `
+        return this.db
+            .prepare(
+                `
                 DELETE FROM seen_delivery
                 WHERE state = 'done' AND completed_at <= ?
             `,
-                )
-                .run(before).changes as number;
-            this.db.exec("COMMIT");
-            return removed;
-        } catch (error) {
-            try {
-                this.db.exec("ROLLBACK");
-            } catch {
-                // Preserve the pruning failure.
-            }
-            throw error;
-        }
+            )
+            .run(before).changes as number;
     }
 }

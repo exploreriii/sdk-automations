@@ -854,12 +854,11 @@ function completed(deliveryId: DeliveryGuid, completedAt: string): void {
     );
     expect(claim, "the delivery to complete was claimed").not.toBeUndefined();
     expect(
-        store.inbox.completeDeliveryWithReport({
+        store.inbox.completeDelivery({
             deliveryId: claim!.deliveryId,
             eventName: claim!.eventName,
             payloadDigest: claim!.payloadDigest,
             claimToken: claim!.claimToken,
-            reportJson: "{}",
             completedAt,
         }),
     ).toEqual({ outcome: "completed" });
@@ -897,16 +896,15 @@ describe("what one firing prunes", () => {
     const WITHIN_30 = "2026-09-01T00:00:00.000Z";
     const PAST_90 = "2026-05-01T00:00:00.000Z";
 
-    it("takes a done delivery and its report past the window, and keeps one inside it", async () => {
+    it("takes a done delivery past the window, and keeps one inside it", async () => {
         armed();
         completed(OLD_DELIVERY, PAST_30);
         completed(NEW_DELIVERY, WITHIN_30);
 
         await driven().run();
 
-        expect(store.inbox.deliveryReports().map((report) => report.deliveryId)).toEqual([
-            NEW_DELIVERY,
-        ]);
+        // One left, and its completion instant says which: the newer one.
+        expect(store.inbox.counts()).toMatchObject({ done: 1, oldestDone: WITHIN_30 });
         expect(events("sweepPruned")).toMatchObject([{ deliveries: 1, effects: 0, decisions: 0 }]);
     });
 
@@ -972,7 +970,7 @@ describe("what one firing prunes", () => {
 
         await driven().run();
 
-        expect(store.inbox.deliveryReports()).toHaveLength(1);
+        expect(store.inbox.counts()).toMatchObject({ done: 1, oldestDone: PAST_30 });
         expect(logged).toEqual([]);
     });
 
@@ -1068,9 +1066,10 @@ describe("a firing under a suspended installation", () => {
 
         await suspendedSweep().runDue();
 
-        expect(store.inbox.deliveryReports().map((report) => report.deliveryId)).toEqual([
-            NEW_DELIVERY,
-        ]);
+        expect(store.inbox.counts()).toMatchObject({
+            done: 1,
+            oldestDone: "2026-09-01T00:00:00.000Z",
+        });
         expect(events("sweepPruned")).toMatchObject([{ deliveries: 1 }]);
     });
 });

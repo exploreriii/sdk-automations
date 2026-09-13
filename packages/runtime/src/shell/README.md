@@ -25,7 +25,7 @@ flowchart LR
 | ② Persist durably, only then `202` | [`receiver.ts`](receiver.ts) → [`shell.ts`](shell.ts) | the store's `acceptDelivery` (P9): a crash after the ack loses nothing |
 | ③ Prepare: config text → `parseConfigDocument`, externals assembled | [`inbound/deliveries.ts`](inbound/deliveries.ts), [`config.ts`](config.ts), [`externals.ts`](externals.ts) | core's config layer; a broken config becomes `configRejected`, while `active` becomes `modeUnsupported` before `decide()` in any composition that wires no write path — the default |
 | ④ Decide with one verb | [`decide/item.ts`](decide/item.ts) | core's `decide()`; the shell cannot assert a world — `DerivedWorld` has no public constructor |
-| ⑤ Commit report plus completion | [`inbound/deliveries.ts`](inbound/deliveries.ts) → store's `completeDeliveryWithReport` | store verifies delivery identity and claim ownership, then creates one canonical report and marks the delivery done in one transaction |
+| ⑤ Commit completion | [`inbound/deliveries.ts`](inbound/deliveries.ts) → store's `completeDelivery` | store verifies delivery identity and claim ownership, then marks the delivery done in one transaction; what was decided is already `decision` rows (D173) |
 
 ## Why a delivery goes into the database and comes back out
 
@@ -136,11 +136,10 @@ about one delivery — so `grep` on a GUID returns its whole passage. Lines an o
 go to stderr and the rest to stdout. The refusals to boot are the exception, and stay human sentences:
 they precede the process being alive, and have no delivery to name.
 
-Point the existing smee channel at it and open an issue on the sandbox. The canonical report and
-delivery completion are committed together in `shell.sqlite`. Startup still starts draining pending
-SQLite deliveries before listening. Automatic filesystem projection is not supported, and a polished
-operator report/query surface has not been built yet. `store.inbox.deliveryReports()` is the current
-programmatic access to canonical reports.
+Point the existing smee channel at it and open an issue on the sandbox. What each delivery decided
+is `decision` rows in `shell.sqlite`, and the completion line names the kind it finished as. Startup
+still starts draining pending SQLite deliveries before listening. `pnpm shell:explain` prints an
+item's rows; no operator surface renders a whole pass as one document.
 
 `data/` is never tracked (see the root `.gitignore`), the same rule as
 `packages/dev/lab/evidence/`. It is no longer the default home, but it stays covered: an operator who

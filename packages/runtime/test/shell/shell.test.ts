@@ -1,10 +1,10 @@
 /**
  * The definition of done, executed: a delivery GitHub actually sent (the
  * captured, scrubbed issues.opened fixture) travels webhook → verify →
- * durable accept → 202 → parseConfigDocument → decide() → persisted
- * report, over a real socket, a real SQLite store, and a real config
- * file — with only GitHub itself absent. Dry-run: the report is the
- * product and active mode stops before the decision path.
+ * durable accept → 202 → parseConfigDocument → decide() → decision rows
+ * and completion, over a real socket, a real SQLite store, and a real
+ * config file — with only GitHub itself absent. Dry-run: the rows are the
+ * product (D173) and active mode stops before the decision path.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,12 +12,10 @@ import { rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import {
     asDeliveryGuid,
-    problems,
     signBody,
     toEngine,
     SIGNATURE_HEADER,
     type EngineCapability,
-    type Report,
 } from "@hiero-hackers/automation-core";
 import { Store } from "../../src/store/index.js";
 import { intake, prQuality } from "@hiero-hackers/automation-capabilities";
@@ -49,6 +47,9 @@ mappings:
 
 /** The repository the fixture names, which is the one the shell serves. */
 const REPOSITORY = { owner: "scrubbed-1", repo: "scrubbed-2" } as const;
+
+/** The issue the fixture opens: every decision row below is about it. */
+const ITEM = { kind: "issue", number: 164 } as const;
 
 const BASE = new Date("2026-08-07T10:00:00.000Z");
 
@@ -117,30 +118,18 @@ async function deliver(shell: Shell, guid = GUID): Promise<number> {
     }
 }
 
-interface RecordIdentity {
-    readonly deliveryId: string;
-    readonly event: string;
-    readonly receivedAt: string;
-    readonly decidedAt: string;
-    readonly configRevision: string;
+/** What the shell finished, as its completion line names it — the record's only exit (D173). */
+function completions(): { readonly deliveryId: string; readonly kind: string }[] {
+    return logged.flatMap((event) =>
+        event.event === "deliveryCompleted"
+            ? [{ deliveryId: event.deliveryId, kind: event.kind }]
+            : [],
+    );
 }
 
-type StoredRecord = RecordIdentity &
-    (
-        | {
-              readonly kind: "decision";
-              readonly report: Report;
-              readonly effects: readonly unknown[];
-          }
-        | { readonly kind: "configRejected"; readonly errors: readonly unknown[] }
-        | { readonly kind: "modeUnsupported"; readonly reason: string }
-        | { readonly kind: "repositoryMismatch"; readonly expected: string }
-    );
-
-function records(): StoredRecord[] {
-    return store.inbox
-        .deliveryReports()
-        .map((report) => JSON.parse(report.reportJson) as StoredRecord);
+/** The rows one pass wrote about the fixture's issue: the decided record itself. */
+function rows() {
+    return store.ledger.decisionsOn(REPOSITORY, ITEM);
 }
 
 describe("the first slice, end to end", () => {
@@ -174,32 +163,29 @@ describe("the first slice, end to end", () => {
         );
     });
 
-    it("a real delivery becomes a persisted dry-run report", async () => {
+    it("a real delivery becomes dry-run decision rows", async () => {
         const shell = buildShell();
         expect(await deliver(shell)).toBe(202);
         await shell.drain();
 
-        const [entry, ...rest] = records();
-        expect(rest).toEqual([]);
-        expect(entry).toMatchObject({
-            kind: "decision",
-            deliveryId: GUID,
-            event: "issues",
-        });
-        if (entry?.kind !== "decision") throw new Error("expected a decision");
-        expect(entry.report.mode).toBe("dry-run");
-        // Named from the payload by the engine, and equal to the served
-        // repository because a payload naming any other never gets here.
-        expect(entry.report.repository).toEqual(REPOSITORY);
-        expect(problems(entry.report as Report)).toEqual([]);
-        expect(entry.report.findings.length).toBeGreaterThan(0);
-        expect(entry).not.toHaveProperty("approved");
-        expect(store.inbox.deliveryReports()).toEqual([
-            expect.objectContaining({
-                deliveryId: GUID,
-                reportJson: JSON.stringify(entry),
-            }),
-        ]);
+        expect(completions()).toEqual([{ deliveryId: GUID, kind: "decision" }]);
+        const decided = rows();
+        expect(decided.length).toBeGreaterThan(0);
+        // Every row names the webhook that caused it and the served
+        // repository, which is the one the payload named to get here.
+        expect(decided).toEqual(
+            decided.map(() =>
+                expect.objectContaining({
+                    source: "webhook",
+                    sourceId: GUID,
+                    repository: REPOSITORY,
+                }),
+            ),
+        );
+        // `wouldApply` is dry-run saying exactly what active would do, and
+        // no row is a problem: this configuration decided cleanly.
+        expect(decided.map((row) => row.code)).toContain("wouldApply");
+        expect(decided.filter((row) => row.verdict === "problem")).toEqual([]);
         // The queue is empty: the delivery completed.
         expect(
             store.inbox.claimNextDelivery(
@@ -230,14 +216,9 @@ describe("the first slice, end to end", () => {
         expect(await deliver(shell)).toBe(202);
         await shell.drain();
 
-        expect(records()).toEqual([
-            expect.objectContaining({
-                kind: "repositoryMismatch",
-                deliveryId: GUID,
-                expected: "some-other/repository",
-                observed: "scrubbed-1/scrubbed-2",
-            }),
-        ]);
+        expect(completions()).toEqual([{ deliveryId: GUID, kind: "repositoryMismatch" }]);
+        // Nothing was decided, so nothing was written down about the item.
+        expect(rows()).toEqual([]);
         // Terminal, like the two record kinds beside it: nothing to reclaim.
         expect(
             store.inbox.claimNextDelivery(
@@ -271,20 +252,8 @@ describe("the first slice, end to end", () => {
         expect(await deliver(shell)).toBe(202);
         await shell.drain();
 
-        const [entry, ...rest] = records();
-        expect(rest).toEqual([]);
-        expect(entry).toMatchObject({
-            kind: "modeUnsupported",
-            deliveryId: GUID,
-            event: "issues",
-            reason: "active mode is unsupported by the runnable shell",
-        });
-        expect(entry).not.toHaveProperty("report");
-        expect(entry).not.toHaveProperty("approved");
-        expect(JSON.stringify(entry)).not.toContain("applied");
-        expect(store.inbox.deliveryReports()).toEqual([
-            expect.objectContaining({ reportJson: JSON.stringify(entry) }),
-        ]);
+        expect(completions()).toEqual([{ deliveryId: GUID, kind: "modeUnsupported" }]);
+        expect(rows()).toEqual([]);
         expect(
             store.inbox.claimNextDelivery(
                 "assert",
@@ -295,7 +264,7 @@ describe("the first slice, end to end", () => {
 
         expect(await deliver(shell)).toBe(202);
         await shell.drain();
-        expect(records()).toHaveLength(1);
+        expect(completions()).toHaveLength(1);
     });
 
     /**
@@ -313,25 +282,26 @@ describe("the first slice, end to end", () => {
         const shell = buildShell();
 
         await shell.settled();
-        expect(records()).toEqual([]);
+        expect(completions()).toEqual([]);
 
         const draining = shell.drain();
         await shell.settled();
-        expect(records()).toHaveLength(1);
+        expect(completions()).toHaveLength(1);
         await draining;
     });
 
-    it("a process restart observes the committed canonical report", async () => {
+    it("a process restart observes the committed rows and completion", async () => {
         const shell = buildShell();
         expect(await deliver(shell)).toBe(202);
         await shell.drain();
-        const committed = store.inbox.deliveryReports();
+        const committed = rows();
+        expect(committed.length).toBeGreaterThan(0);
 
         store.close();
         store = new Store(temp.file("store.sqlite"));
 
-        expect(store.inbox.deliveryReports()).toEqual(committed);
-        expect(records()).toHaveLength(1);
+        expect(rows()).toEqual(committed);
+        expect(store.inbox.counts()).toMatchObject({ done: 1, pending: 0, processing: 0 });
     });
 
     it("startup draining recovers a pending delivery after restart", async () => {
@@ -349,12 +319,7 @@ describe("the first slice, end to end", () => {
         const shell = buildShell();
         await shell.drain();
 
-        expect(records()).toEqual([
-            expect.objectContaining({
-                kind: "decision",
-                deliveryId: SECOND_GUID,
-            }),
-        ]);
+        expect(completions()).toEqual([{ deliveryId: SECOND_GUID, kind: "decision" }]);
         expect(
             store.inbox.claimNextDelivery(
                 "assert",
@@ -367,7 +332,7 @@ describe("the first slice, end to end", () => {
     it("starts durable processing after the acknowledgment without a manual drain", async () => {
         const shell = buildShell();
         expect(await deliver(shell)).toBe(202);
-        await vi.waitFor(() => expect(records()).toHaveLength(1));
+        await vi.waitFor(() => expect(completions()).toHaveLength(1));
     });
 
     /**
@@ -463,19 +428,18 @@ describe("the first slice, end to end", () => {
 
         expect(await deliver(shell)).toBe(202);
         await shell.drain();
-        expect(records()).toHaveLength(1);
+        // This shell's log throws, so the store is the only witness left.
+        expect(store.inbox.counts()).toMatchObject({ done: 1 });
     });
 
-    it("a broken config fails closed: recorded, completed, nothing decided", async () => {
+    it("a broken config fails closed: completed, nothing decided", async () => {
         writeFileSync(configFile, "mode: [unclosed\n");
         const shell = buildShell();
         expect(await deliver(shell)).toBe(202);
         await shell.drain();
 
-        const [entry] = records();
-        expect(entry?.kind).toBe("configRejected");
-        if (entry?.kind !== "configRejected") throw new Error("expected rejection");
-        expect(entry.errors.length).toBeGreaterThan(0);
+        expect(completions()).toEqual([{ deliveryId: GUID, kind: "configRejected" }]);
+        expect(rows()).toEqual([]);
         expect(
             store.inbox.claimNextDelivery(
                 "assert",
@@ -485,15 +449,18 @@ describe("the first slice, end to end", () => {
         ).toBeUndefined();
     });
 
-    it("an absent config file decides in observe mode, like an empty one", async () => {
+    /**
+     * An absent file is an empty one (`config.test.ts` pins the revision it
+     * carries): the delivery is decided, and no capability it never enabled
+     * writes a row.
+     */
+    it("an absent config file decides rather than failing closed", async () => {
         rmSync(configFile);
         const shell = buildShell();
         expect(await deliver(shell)).toBe(202);
         await shell.drain();
 
-        const [entry] = records();
-        if (entry?.kind !== "decision") throw new Error("expected a decision");
-        expect(entry.report.mode).toBe("observe");
-        expect(entry.configRevision).toBe("sha256:absent");
+        expect(completions()).toEqual([{ deliveryId: GUID, kind: "decision" }]);
+        expect(rows()).toEqual([]);
     });
 });

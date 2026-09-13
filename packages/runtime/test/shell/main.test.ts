@@ -39,8 +39,8 @@ import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { signBody, SIGNATURE_HEADER, type Report } from "@hiero-hackers/automation-core";
-import { Store } from "../../src/store/index.js";
+import { signBody, SIGNATURE_HEADER } from "@hiero-hackers/automation-core";
+import { Store, type Decision } from "../../src/store/index.js";
 import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
 
 const PACKAGE_DIR = fileURLToPath(new URL("../../", import.meta.url));
@@ -73,6 +73,8 @@ const ACTIVE_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6e";
 
 /** The issue `issues.opened.json` carries, which the write routes answer for. */
 const ISSUE_NUMBER = 164;
+/** The item every decision row this suite reads is about. */
+const ITEM_REF = { kind: "issue", number: ISSUE_NUMBER } as const;
 /** The App the child is told it is: the id it authenticates as, and its slug. */
 const APP_ID = "123";
 const APP_SLUG = "hiero-hackers-sandbox";
@@ -460,21 +462,6 @@ async function post(
     return response.status;
 }
 
-/** Only the parts of the shell's canonical record this suite reads. */
-interface StoredRecord {
-    readonly kind: string;
-    readonly deliveryId: string;
-    readonly event: string;
-    readonly report?: Report;
-    /** What became of each approved effect. Present on a decision record. */
-    readonly effects?: readonly {
-        readonly capability: string;
-        readonly operation: string;
-        readonly outcome: string;
-        readonly code: string | null;
-    }[];
-}
-
 /** A locked database is the child mid-commit — the answer is "not yet". */
 function ifUnlocked<T>(read: () => T): T | undefined {
     try {
@@ -485,32 +472,34 @@ function ifUnlocked<T>(read: () => T): T | undefined {
     }
 }
 
-/** Poll the child's own SQLite file until its report for `deliveryId` lands. */
-async function persisted(storeFile: string, deliveryId: string): Promise<StoredRecord> {
+/** The completion line the child wrote for one delivery, once it has written one. */
+async function completed(shell: Shell, deliveryId: string): Promise<Record<string, unknown>> {
+    return until(() => {
+        const found = events(shell.stdout()).find(
+            (event) => event["event"] === "deliveryCompleted" && event["deliveryId"] === deliveryId,
+        );
+        if (found !== undefined) return found;
+        if (shell.exited()) throw new Error(`the shell exited before it completed ${deliveryId}`);
+        return undefined;
+    }, `the completion of ${deliveryId}`);
+}
+
+/** The rows the child wrote about the fixture's issue, read from its own store file (D173). */
+async function decisionRows(storeFile: string): Promise<Decision[]> {
     const store = await until(
         () => ifUnlocked(() => new Store(storeFile)),
         `the store at ${storeFile}`,
     );
     try {
-        return await until(
-            () =>
-                ifUnlocked(() => {
-                    const row = store.inbox
-                        .deliveryReports()
-                        .find((report) => (report.deliveryId as string) === deliveryId);
-                    return row === undefined
-                        ? undefined
-                        : (JSON.parse(row.reportJson) as StoredRecord);
-                }),
-            `a persisted report for ${deliveryId}`,
-        );
+        return await until(() => {
+            const rows = ifUnlocked(() =>
+                store.ledger.decisionsOn({ owner: OWNER, repo: REPO }, ITEM_REF),
+            );
+            return rows === undefined || rows.length === 0 ? undefined : rows;
+        }, `decision rows in ${storeFile}`);
     } finally {
         store.close();
     }
-}
-
-function codes(record: StoredRecord): string[] {
-    return (record.report?.findings ?? []).map((finding) => finding.code);
 }
 
 /** A temporary directory holding the dry-run config and the store. */
@@ -848,31 +837,32 @@ describe("the sandbox entry point, as a process", () => {
                                 .filter((event) => event["deliveryId"] === GUID)
                                 .map((event) => event["event"]),
                         ).toEqual(["deliveryAccepted", "deliveryClaimed", "deliveryCompleted"]);
-                        const decided = await persisted(storeFile, GUID);
-                        expect(decided).toMatchObject({
-                            kind: "decision",
-                            deliveryId: GUID,
-                            event: "issues",
-                        });
-                        expect(decided.report?.mode).toBe("dry-run");
-                        expect(codes(decided)).toEqual([
-                            "capabilityExplained",
-                            "modeRecordsOnly",
-                            "wouldApply",
-                            "capabilityExplained",
-                            "modeRecordsOnly",
-                            "wouldApply",
+                        expect(await completed(shell, GUID)).toMatchObject({ kind: "decision" });
+                        const decided = await decisionRows(storeFile);
+                        expect(
+                            decided.map((row) => [row.capability, row.verdict, row.code]),
+                        ).toEqual([
+                            ["intake", "info", "capabilityExplained"],
+                            ["intake", "notice", "modeRecordsOnly"],
+                            ["intake", "info", "wouldApply"],
+                            ["intake", "info", "capabilityExplained"],
+                            ["intake", "notice", "modeRecordsOnly"],
+                            ["intake", "info", "wouldApply"],
                         ]);
+                        // Every row names the repository this endpoint serves
+                        // and the delivery that caused it.
+                        expect(
+                            decided.map((row) => [row.repository, row.source, row.sourceId]),
+                        ).toEqual(
+                            decided.map(() => [{ owner: OWNER, repo: REPO }, "webhook", GUID]),
+                        );
 
-                        // An unreadable payload is the one report that has to
-                        // name the repository this endpoint was started for.
+                        // An unreadable payload is decided too: the shell does
+                        // not pre-empt the verdict, and no item earns a row.
                         const bytes = Buffer.from("not json");
                         expect(await post(port, UNREADABLE_GUID, bytes)).toBe(202);
-                        const unreadable = await persisted(storeFile, UNREADABLE_GUID);
-                        expect(codes(unreadable)).toEqual(["payloadNotObject"]);
-                        expect(unreadable.report?.repository).toEqual({
-                            owner: OWNER,
-                            repo: REPO,
+                        expect(await completed(shell, UNREADABLE_GUID)).toMatchObject({
+                            kind: "decision",
                         });
                     },
                 );
@@ -949,16 +939,17 @@ describe("the sandbox entry point, as a process", () => {
                     expect(await listening(shell)).toMatchObject({ writes: "armed" });
                     expect(await post(port, ACTIVE_GUID, FIXTURE)).toBe(202);
 
-                    const record = await persisted(storeFile, ACTIVE_GUID);
-                    expect(record.kind).toBe("decision");
-                    expect(record.effects).toEqual([
+                    expect(await completed(shell, ACTIVE_GUID)).toMatchObject({
+                        kind: "decision",
+                    });
+                    expect(await decisionRows(storeFile)).toContainEqual(
                         expect.objectContaining({
                             capability: "intake",
-                            operation: "applyMappedLabel",
-                            outcome: "applied",
+                            verdict: "applied",
                             code: null,
+                            effectId: expect.any(String),
                         }),
-                    ]);
+                    );
 
                     const written = requestsIn(fetchLog).filter(
                         (request) =>
@@ -999,12 +990,9 @@ describe("the sandbox entry point, as a process", () => {
                         expect(await listening(shell)).toMatchObject({ suspended: true });
                         expect(await post(port, GUID, FIXTURE)).toBe(202);
 
-                        const record = await persisted(storeFile, GUID);
-                        expect(record).toMatchObject({
+                        expect(await completed(shell, GUID)).toMatchObject({
                             kind: "installationSuspended",
-                            deliveryId: GUID,
                         });
-                        expect(record.report).toBeUndefined();
                     },
                 );
             });
@@ -1033,7 +1021,7 @@ describe("the sandbox entry point, as a process", () => {
                     async (shell) => {
                         await listening(shell);
                         expect(await post(port, GUID, FIXTURE)).toBe(202);
-                        await persisted(storeFile, GUID);
+                        await completed(shell, GUID);
 
                         // Twice: impatience is not new information, and a
                         // second shutdown would close a closed store.

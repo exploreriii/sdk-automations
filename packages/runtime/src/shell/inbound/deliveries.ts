@@ -1,6 +1,6 @@
 /**
  * The webhook lane: claim a durable delivery, prepare it, hand the shared box one item,
- * then commit the outcome with completion. The reading key: a claimed delivery always
+ * then complete it. The reading key: a claimed delivery always
  * ends as exactly ONE of five records — `repositoryMismatch`, `installationSuspended`,
  * `configRejected`, `modeUnsupported`, or a decision, with no sixth exit.
  * The try/catch in `attemptNext` is routing.
@@ -73,7 +73,7 @@ interface RecordIdentity {
     readonly configRevision: string;
 }
 
-/** The canonical shell record persisted for one delivery. */
+/** What one delivery came to; only its `kind` leaves the lane, on the completion line (D173). */
 export type ShellRecord =
     | (RecordIdentity & {
           readonly kind: "decision";
@@ -176,6 +176,25 @@ function dispositionOf(release: ReleaseDeliveryAfterFailureResult): {
             return { ...common, attempts: release.attempts, retryNotBefore: null };
         case "notOwned":
             return { ...common, attempts: null, retryNotBefore: null };
+    }
+}
+
+/** The one line an undecided record leaves behind, since nothing else stores it (D173). */
+function undecidedDetail(record: ShellRecord): string | undefined {
+    switch (record.kind) {
+        case "configRejected":
+            return record.errors
+                .map(
+                    (error) =>
+                        `${error.code}${error.path === null ? "" : ` at ${error.path}`}: ${error.message}`,
+                )
+                .join("; ");
+        case "repositoryMismatch":
+            return `expected ${record.expected}, observed ${record.observed}`;
+        case "modeUnsupported":
+            return record.reason;
+        default:
+            return undefined;
     }
 }
 
@@ -327,8 +346,8 @@ export function createDeliveries(options: DeliveriesOptions): Deliveries {
     };
 
     /**
-     * Station 3 onward: claim, decide, then atomically persist-and-complete.
-     * A failure before canonical completion is counted, not just released.
+     * Station 3 onward: claim, decide, then complete.
+     * A failure before completion is counted, not just released.
      */
     const attemptNext = async (): Promise<PassOutcome> => {
         const claimed = claimNext();
@@ -342,18 +361,23 @@ export function createDeliveries(options: DeliveriesOptions): Deliveries {
         });
         try {
             const record = await recordFor(claimed);
-            const completion = store.inbox.completeDeliveryWithReport({
+            const completion = store.inbox.completeDelivery({
                 deliveryId: claimed.deliveryId,
                 eventName: claimed.eventName,
                 payloadDigest: claimed.payloadDigest,
                 claimToken: claimed.claimToken,
-                reportJson: JSON.stringify(record),
                 completedAt: clock().toISOString(),
             });
             if (completion.outcome !== "completed") {
-                throw new Error(`delivery report was not committed: ${completion.outcome}`);
+                throw new Error(`delivery was not completed: ${completion.outcome}`);
             }
-            log({ event: "deliveryCompleted", deliveryId, kind: record.kind });
+            const detail = undecidedDetail(record);
+            log({
+                event: "deliveryCompleted",
+                deliveryId,
+                kind: record.kind,
+                ...(detail === undefined ? {} : { detail }),
+            });
             return { kind: "completed" };
         } catch (error) {
             const release = recordFailure(claimed);

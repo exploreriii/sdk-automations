@@ -57,6 +57,9 @@ const FIXTURE = capture("issues.opened.json").bytes();
  */
 const REPOSITORY = { owner: "scrubbed-1", repo: "scrubbed-2" } as const;
 
+/** The issue that fixture opens, which is what every decision row here is about. */
+const ITEM = { kind: "issue", number: 164 } as const;
+
 // Maps awaitingTriage because intake requires it: enabling without the
 // mapping is now a configRejected, which has its own coverage in core.
 const CONFIG_TEXT = `schemaVersion: 2
@@ -135,10 +138,21 @@ function lane(capability: EngineCapability, firstTickMs = 1_000) {
     });
 }
 
-function records(): Record<string, unknown>[] {
-    return store.inbox
-        .deliveryReports()
-        .map((report) => JSON.parse(report.reportJson) as Record<string, unknown>);
+/**
+ * What the lane finished, as its own completion line names it. Nothing else
+ * of the record it built leaves the lane any more (D173).
+ */
+/** What the completion lines said about an undecided record, in order. */
+function details(): (string | undefined)[] {
+    return logged.flatMap((event) => (event.event === "deliveryCompleted" ? [event.detail] : []));
+}
+
+function completions(): { readonly deliveryId: string; readonly kind: string }[] {
+    return logged.flatMap((event) =>
+        event.event === "deliveryCompleted"
+            ? [{ deliveryId: event.deliveryId, kind: event.kind }]
+            : [],
+    );
 }
 
 describe("a config source that cannot answer", () => {
@@ -149,48 +163,22 @@ describe("a config source that cannot answer", () => {
             clock: () => new Date(BASE.getTime() + atMs),
         });
 
-    it("completes a permanent defect as configRejected — retrying cannot fix a file", async () => {
-        const wedged = withSource(async () => ({
-            ok: false,
-            permanent: true,
-            detail: "the config file is not valid UTF-8",
-            revision: "deadbeef",
-        }));
+    /** Named or nameless, the file is broken and no redelivery can fix it. */
+    it.each([["deadbeef"], [undefined]])(
+        "completes a permanent defect at revision %s as configRejected",
+        async (revision) => {
+            const wedged = withSource(async () => ({
+                ok: false,
+                permanent: true,
+                detail: "the config file is not valid UTF-8",
+                ...(revision === undefined ? {} : { revision }),
+            }));
 
-        expect(await wedged.processOnce()).toBe(true);
-        expect(records()).toEqual([
-            expect.objectContaining({
-                kind: "configRejected",
-                configRevision: "deadbeef",
-                errors: [
-                    expect.objectContaining({
-                        code: "documentUnparseable",
-                        // The code cannot distinguish a file that would not
-                        // parse from one that could not be read at all, so
-                        // the message is the only place that difference is
-                        // said — and the operator's only route to the fix.
-                        message: "unreadable before parsing: the config file is not valid UTF-8",
-                    }),
-                ],
-            }),
-        ]);
-    });
-
-    it("stamps the unreadable revision when the source could not name one", async () => {
-        const nameless = withSource(async () => ({
-            ok: false,
-            permanent: true,
-            detail: "the config file is not valid UTF-8",
-        }));
-
-        expect(await nameless.processOnce()).toBe(true);
-        expect(records()).toEqual([
-            expect.objectContaining({
-                kind: "configRejected",
-                configRevision: "sha256:unreadable",
-            }),
-        ]);
-    });
+            expect(await wedged.processOnce()).toBe(true);
+            expect(completions()).toEqual([{ deliveryId: GUID as string, kind: "configRejected" }]);
+            expect(details()[0]).toContain("the config file is not valid UTF-8");
+        },
+    );
 
     it("spends an attempt on a transient failure instead of retrying at once", async () => {
         const failing = withSource(async () => ({
@@ -200,13 +188,13 @@ describe("a config source that cannot answer", () => {
         }));
 
         await expect(failing.processOnce()).rejects.toThrow("configuration unavailable");
-        expect(records()).toEqual([]);
+        expect(completions()).toEqual([]);
 
         // The deliberate change: transient config failures are counted, so a
         // config that is unreachable for good cannot spin the queue forever.
         expect(await withSource(configSource.load, 30_999).processOnce()).toBe(false);
         expect(await withSource(configSource.load, 31_000).processOnce()).toBe(true);
-        expect(records()).toHaveLength(1);
+        expect(completions()).toHaveLength(1);
     });
 });
 
@@ -234,15 +222,8 @@ describe("a delivery from another repository", () => {
         const serving = servingLane({ owner: "some-other", repo: "repository" });
 
         expect(await serving.lane.processOnce()).toBe(true);
-        expect(records()).toEqual([
-            expect.objectContaining({
-                kind: "repositoryMismatch",
-                deliveryId: GUID as string,
-                expected: "some-other/repository",
-                observed: "scrubbed-1/scrubbed-2",
-                configRevision: "sha256:unconsulted",
-            }),
-        ]);
+        expect(completions()).toEqual([{ deliveryId: GUID as string, kind: "repositoryMismatch" }]);
+        expect(details()[0]).toMatch(/^expected some-other\/repository, observed /);
         // Not merely unused: never asked for. A config outage must not turn
         // a permanent property of the delivery into a retry.
         expect(serving.reads()).toBe(0);
@@ -252,7 +233,7 @@ describe("a delivery from another repository", () => {
         const serving = servingLane({ owner: "some-other", repo: "repository" });
         await serving.lane.drain();
 
-        expect(records()).toHaveLength(1);
+        expect(completions()).toHaveLength(1);
         expect(store.inbox.deadLetteredDeliveries()).toEqual([]);
         expect(
             store.inbox.claimNextDelivery(
@@ -267,35 +248,27 @@ describe("a delivery from another repository", () => {
         const serving = servingLane({ owner: "Scrubbed-1", repo: "SCRUBBED-2" });
 
         expect(await serving.lane.processOnce()).toBe(true);
-        expect(records()).toEqual([expect.objectContaining({ kind: "decision" })]);
+        expect(completions()).toEqual([{ deliveryId: GUID as string, kind: "decision" }]);
     });
 
     /**
      * A payload that does not READABLY name a repository cannot be judged
      * foreign, and every one of these shapes is a way to fall short of
-     * naming one. Each must reach `decide()` and come back as a report
-     * naming the malformation — the shell does not pre-empt that verdict,
-     * and must not trip over the missing fields on its way past them.
+     * naming one. Each must reach `decide()` and come back a decision — the
+     * shell does not pre-empt that verdict, and must not trip over the
+     * missing fields on its way past them. Which code each draws is core's.
      */
     it.each([
-        ["not an object at all", "not json at all", "payloadNotObject"],
+        ["not an object at all", "not json at all"],
         // `typeof null === "object"`, so null is the shape that reads as a
         // record to anything that forgets to say otherwise.
-        ["a literal null", "null", "payloadNotObject"],
-        ["no repository", '{"action":"opened"}', "repositoryUnreadable"],
-        [
-            "a repository that is not an object",
-            '{"repository":"scrubbed-1/2"}',
-            "repositoryUnreadable",
-        ],
-        ["no owner", '{"repository":{"name":"scrubbed-2"}}', "repositoryUnreadable"],
-        [
-            "an owner without a login",
-            '{"repository":{"owner":{},"name":"x"}}',
-            "repositoryUnreadable",
-        ],
-        ["no name", '{"repository":{"owner":{"login":"scrubbed-1"}}}', "repositoryUnreadable"],
-    ])("leaves %s to the report that names it", async (_shape, payload, code) => {
+        ["a literal null", "null"],
+        ["no repository", '{"action":"opened"}'],
+        ["a repository that is not an object", '{"repository":"scrubbed-1/2"}'],
+        ["no owner", '{"repository":{"name":"scrubbed-2"}}'],
+        ["an owner without a login", '{"repository":{"owner":{},"name":"x"}}'],
+        ["no name", '{"repository":{"owner":{"login":"scrubbed-1"}}}'],
+    ])("leaves %s to the decision that names it", async (_shape, payload) => {
         store.inbox.acceptDelivery({
             deliveryId: SECOND_GUID,
             eventName: "issues",
@@ -306,13 +279,10 @@ describe("a delivery from another repository", () => {
         await serving.lane.drain();
 
         // The fixture is foreign and refused; this one is merely unreadable.
-        const [foreign, unreadable] = records();
-        expect(foreign).toMatchObject({ kind: "repositoryMismatch" });
-        expect(unreadable).toMatchObject({
-            kind: "decision",
-            deliveryId: SECOND_GUID as string,
-            report: { findings: [expect.objectContaining({ code })] },
-        });
+        expect(completions()).toEqual([
+            { deliveryId: GUID as string, kind: "repositoryMismatch" },
+            { deliveryId: SECOND_GUID as string, kind: "decision" },
+        ]);
     });
 });
 
@@ -322,8 +292,6 @@ describe("a delivery from another repository", () => {
  * configuration is never asked, which is what "reads nothing" means here.
  */
 describe("a delivery under a suspended installation", () => {
-    const ITEM = { kind: "issue", number: 164 } as const;
-
     /** A source no suspended pass may reach: being called is the failure. */
     const untouchable: ConfigSource = {
         load: () => {
@@ -342,25 +310,15 @@ describe("a delivery under a suspended installation", () => {
     it("completes as installationSuspended, having consulted no configuration", async () => {
         expect(await suspendedLane().processOnce()).toBe(true);
 
-        expect(records()).toEqual([
-            expect.objectContaining({
-                kind: "installationSuspended",
-                deliveryId: GUID as string,
-                event: "issues",
-                configRevision: "sha256:unconsulted",
-            }),
+        expect(completions()).toEqual([
+            { deliveryId: GUID as string, kind: "installationSuspended" },
         ]);
     });
 
-    it("writes no decision row, and names the kind it completed as", async () => {
+    it("writes no decision row: nothing was decided to write one about", async () => {
         await suspendedLane().drain();
 
         expect(store.ledger.decisionsOn(REPOSITORY, ITEM)).toEqual([]);
-        expect(logged).toContainEqual({
-            event: "deliveryCompleted",
-            deliveryId: GUID as string,
-            kind: "installationSuspended",
-        });
     });
 
     it("neither retries nor dead-letters: the delivery is done, not deferred", async () => {
@@ -388,26 +346,20 @@ describe("a crash counts an attempt", () => {
             clock: () => new Date(BASE.getTime() + 1000),
         });
         await expect(failing.processOnce()).rejects.toThrow("live externals unavailable");
-        expect(records()).toEqual([]);
+        expect(completions()).toEqual([]);
 
         // Durable but waiting: the attempt bought thirty seconds, and the
         // millisecond before them claims nothing.
         expect(await lane(toEngine(intake), 30_999).processOnce()).toBe(false);
         expect(await lane(toEngine(intake), 31_000).processOnce()).toBe(true);
-        expect(records()).toEqual([
-            expect.objectContaining({
-                kind: "decision",
-                deliveryId: GUID as string,
-                configRevision: "rev-test-1",
-            }),
-        ]);
+        expect(completions()).toEqual([{ deliveryId: GUID as string, kind: "decision" }]);
     });
 
     it("an empty queue reports itself instead of pretending to work", async () => {
         const healthy = lane(toEngine(intake));
         expect(await healthy.processOnce()).toBe(true);
         expect(await healthy.processOnce()).toBe(false);
-        expect(records()).toHaveLength(1);
+        expect(completions()).toHaveLength(1);
     });
 
     it("does not steal a fresh claim but takes over after the 15-minute lease", async () => {
@@ -421,17 +373,17 @@ describe("a crash counts an attempt", () => {
 
         const fresh = lane(toEngine(intake), 10 * 60_000);
         expect(await fresh.processOnce()).toBe(false);
-        expect(records()).toEqual([]);
+        expect(completions()).toEqual([]);
 
         const stale = lane(toEngine(intake), 16 * 60_000);
         expect(await stale.processOnce()).toBe(true);
-        expect(records()).toHaveLength(1);
+        expect(completions()).toHaveLength(1);
     });
 
     it("starts a new drain after the previous queue became empty", async () => {
         const healthy = lane(toEngine(intake));
         await healthy.drain();
-        expect(records()).toHaveLength(1);
+        expect(completions()).toHaveLength(1);
 
         store.inbox.acceptDelivery({
             deliveryId: SECOND_GUID,
@@ -440,7 +392,7 @@ describe("a crash counts an attempt", () => {
             receivedAt: new Date(BASE.getTime() + 10_000).toISOString(),
         });
         await healthy.drain();
-        expect(records()).toHaveLength(2);
+        expect(completions()).toHaveLength(2);
     });
 
     it("does not persist or complete after its delivery claim is released", async () => {
@@ -456,9 +408,9 @@ describe("a crash counts an attempt", () => {
         const candidate = lane(lostClaim);
 
         await expect(candidate.processOnce()).rejects.toThrow(
-            "delivery report was not committed: notOwned",
+            "delivery was not completed: notOwned",
         );
-        expect(records()).toEqual([]);
+        expect(completions()).toEqual([]);
         // A lost claim counted nothing, so the line reports no number: an
         // attempts figure here would be one this delivery never spent.
         expect(logged.filter((event) => event.event === "deliveryAttemptFailed")).toEqual([
@@ -469,7 +421,7 @@ describe("a crash counts an attempt", () => {
                 attempts: null,
                 maxAttempts: 5,
                 retryNotBefore: null,
-                detail: expect.stringContaining("delivery report was not committed: notOwned"),
+                detail: expect.stringContaining("delivery was not completed: notOwned"),
             },
         ]);
         expect(
@@ -494,7 +446,7 @@ describe("a crash counts an attempt", () => {
         };
         await lane(lostClaim).drain();
 
-        expect(records()).toEqual([]);
+        expect(completions()).toEqual([]);
         expect(
             store.inbox.claimNextDelivery(
                 "next-worker",
@@ -562,7 +514,7 @@ describe("a poison delivery", () => {
         // moves if a failed drain steps over it instead of unwinding.
         await drainAt(10_000);
         expect(consulted).toBe(2);
-        expect(records()).toEqual([expect.objectContaining({ deliveryId: SECOND_GUID as string })]);
+        expect(completions()).toEqual([{ deliveryId: SECOND_GUID as string, kind: "decision" }]);
 
         // Thirty seconds, then sixty: the wait doubles per spent attempt,
         // and neither is served a millisecond early.
@@ -593,7 +545,7 @@ describe("a poison delivery", () => {
         consulted = 0;
         await drainAt(24 * 60 * 60_000);
         expect(consulted).toBe(0);
-        expect(records()).toHaveLength(1);
+        expect(completions()).toHaveLength(1);
     });
 
     /**
@@ -659,43 +611,32 @@ describe("the two answers the box gives this lane", () => {
     it("still refuses active mode before deciding when nothing wired a write path", async () => {
         expect(await withConfig(ACTIVE_CONFIG).processOnce()).toBe(true);
 
-        expect(records()).toEqual([
-            expect.objectContaining({
-                kind: "modeUnsupported",
-                reason: "active mode is unsupported by the runnable shell",
-            }),
-        ]);
+        expect(completions()).toEqual([{ deliveryId: GUID as string, kind: "modeUnsupported" }]);
     });
 
-    it("records what the applier made of the effects, under the same configuration", async () => {
+    /** A record kind is not added: what the applier made of the effects is a row. */
+    it("stays a decision, and the applier's outcome is a row of its own", async () => {
         expect(await withConfig(ACTIVE_CONFIG, applying).processOnce()).toBe(true);
 
-        const [entry] = records();
-        expect(entry).toMatchObject({ kind: "decision", configRevision: "rev-a" });
-        expect(entry?.["effects"]).toEqual([
-            expect.objectContaining({ operation: "applyMappedLabel", outcome: "applied" }),
-        ]);
+        expect(completions()).toEqual([{ deliveryId: GUID as string, kind: "decision" }]);
+        expect(store.ledger.decisionsOn(REPOSITORY, ITEM)).toContainEqual(
+            expect.objectContaining({
+                capability: "intake",
+                verdict: "applied",
+                effectId: expect.any(String),
+            }),
+        );
     });
 
-    /** A record kind is not added: the decision arm simply says more. */
-    it("stays a decision record, effects and all", async () => {
-        await withConfig(ACTIVE_CONFIG, applying).processOnce();
-
-        expect(logged).toContainEqual({
-            event: "deliveryCompleted",
-            deliveryId: GUID as string,
-            kind: "decision",
-        });
-    });
-
-    /** The record's instant is the rows' instant, so the ledger cannot disagree with it. */
-    it("stamps the rows the box wrote with the instant the record carries", async () => {
+    /** One instant for the whole pass, so the rows cannot disagree with each other. */
+    it("stamps every row the box wrote with the instant the lane read once", async () => {
         expect(await lane(toEngine(intake)).processOnce()).toBe(true);
 
-        const rows = store.ledger.decisionsOn(REPOSITORY, { kind: "issue", number: 164 });
+        const rows = store.ledger.decisionsOn(REPOSITORY, ITEM);
         expect(rows.length).toBeGreaterThan(0);
+        // The second tick: the claim before it took the first.
         expect(new Set(rows.map((row) => row.at))).toEqual(
-            new Set([records()[0]?.["decidedAt"] as string]),
+            new Set([new Date(BASE.getTime() + 2000).toISOString()]),
         );
     });
 });

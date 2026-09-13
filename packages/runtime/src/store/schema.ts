@@ -16,8 +16,8 @@ export type MigrationFaultPoint = "migration:1";
 type FaultInjector = (point: MigrationFaultPoint) => void;
 
 /**
- * `failed` is dead-lettering: claimable by nothing, and it KEEPS its payload —
- * there is no report.
+ * `failed` is dead-lettering: claimable by nothing, and it KEEPS its payload.
+ * `completed_at` is when a delivery finished, done or dead-lettered alike.
  */
 const SEEN_DELIVERY = `
     CREATE TABLE seen_delivery (
@@ -58,14 +58,6 @@ const SEEN_DELIVERY = `
 const DELIVERY_WORK = `
     CREATE INDEX delivery_work
         ON seen_delivery(state, received_at, delivery_id)`;
-
-const DELIVERY_REPORT = `
-    CREATE TABLE delivery_report (
-        delivery_id TEXT PRIMARY KEY,
-        claim_token TEXT NOT NULL,
-        report_json TEXT NOT NULL,
-        completed_at TEXT NOT NULL
-    )`;
 
 /**
  * One row per fact of an effect, folded to a state (D161).
@@ -146,7 +138,6 @@ const SCHEMA_BY_VERSION = {
         decision: DECISION,
         decision_by_at: DECISION_BY_AT,
         decision_by_item: DECISION_BY_ITEM,
-        delivery_report: DELIVERY_REPORT,
         delivery_work: DELIVERY_WORK,
         effect_claim: EFFECT_CLAIM,
         effect_fact: EFFECT_FACT,
@@ -208,7 +199,7 @@ function setVersion(db: DatabaseSync, version: number): void {
 
 function createSchema(db: DatabaseSync): void {
     db.exec(
-        `${SEEN_DELIVERY};${DELIVERY_WORK};${DELIVERY_REPORT};
+        `${SEEN_DELIVERY};${DELIVERY_WORK};
          ${EFFECT_FACT};${FACT_BY_EFFECT};${FACT_BY_ITEM};${OPEN_SENDS};
          ${DECISION};${DECISION_BY_ITEM};${DECISION_BY_AT};
          ${EFFECT_CLAIM};${SCHEDULE};`,

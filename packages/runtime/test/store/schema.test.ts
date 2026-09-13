@@ -71,20 +71,13 @@ describe("storage schema versions", () => {
         expect(points).toEqual(["migration:1"]);
         expect(schemaState(databasePath)).toEqual({
             version: CURRENT_STORAGE_SCHEMA_VERSION,
-            tables: [
-                "decision",
-                "delivery_report",
-                "effect_claim",
-                "effect_fact",
-                "schedule",
-                "seen_delivery",
-            ],
+            tables: ["decision", "effect_claim", "effect_fact", "schedule", "seen_delivery"],
         });
         // The fingerprint is the contract: a schema that reaches the right
         // version with a different CHECK is the failure worth naming.
 
         const created = schemaFingerprint(databasePath);
-        expect(Object.keys(created)).toHaveLength(12);
+        expect(Object.keys(created)).toHaveLength(11);
         expect(created["seen_delivery"]).toContain("retry_not_before");
         expect(created["seen_delivery"]).toContain("'failed'");
         expect(created["effect_fact"]).toContain("'abandoned'");

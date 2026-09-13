@@ -38,7 +38,7 @@ flowchart TB
     SCHEMA["schema.ts — may this file be opened?"]
     ACC["acceptDelivery — pending"]
     CLM["claimNextDelivery — processing, + claim token"]
-    FIN["completeDeliveryWithReport — report + done, one transaction"]
+    FIN["completeDelivery — done, one transaction"]
     REL["releaseDelivery / requeueStuckDeliveries — back to pending"]
     RETRY["releaseDeliveryAfterFailure — attempt counted, retry deadline set"]
     DEAD["failed — dead letter: claimed by nothing, payload kept"]
@@ -80,17 +80,15 @@ the file inside it.
 | Table | Role | Evidence status |
 |---|---|---|
 | `seen_delivery` | atomic webhook acceptance and work queue: opaque GUID, event name, exact payload bytes, SHA-256 digest, receipt/terminal times, claim state, and the failed-attempt count with its retry deadline | GUID dedup was decided in 6.5; durable intake semantics are exercised by this package's restart and two-thread contention tests |
-| `delivery_report` | the canonical serialized shell record and the claim token that committed it, one row per delivery | report persistence plus delivery completion is crash-atomic; worker-thread fault injection covers both uncommitted steps and the committed boundary (D110) |
 | `effect_fact` | one appended row per fact of an effect — `sent`, `unsent`, `landed`, `refused`, `abandoned`, `warned`, `reversed` — each carrying item, verb and login | the runnable applier folds them to decide every pass, recovers open sends through GitHub read-back, and refuses stale configuration revisions (D161) |
-| `decision` | one row per item per capability per pass, webhook and sweep alike, with verdict, code, detail and the effect it minted | written by the lane that decides; retention is the done-deliveries window (D163) |
+| `decision` | one row per item per capability per pass, webhook and sweep alike, with verdict, code, detail and the effect it minted | the record of what a pass decided; written by the box that decides, retention is the done-deliveries window (D163, D173) |
 | `effect_claim` | one-winner LEASE per effect: atomic stale takeover, released on completion | the runnable applier claims every effect and its recovery pass; store contention tests cover the D41 mechanics |
 | `schedule` | clock-triggered work; `pending → running → done`, with claim age and a per-firing completion token | decided in 6.5; restart/requeue mechanics are pre-covered here; `claimed_at` and claim tokens prevent stale completion under D43 |
 
 Design rules (from the evidence, not preference): state transitions are
 synchronous SQLite writes, and delivery acceptance commits before it
-returns; tables have no foreign keys, while delivery finalization deliberately
-updates `delivery_report` and `seen_delivery` in one transaction;
-an open send is deliberately unresolvable from the facts
+returns; tables have no foreign keys, and completion touches `seen_delivery`
+alone (D173); an open send is deliberately unresolvable from the facts
 alone. The applier resolves it against GitHub state before retrying.
 
 Three store findings, argued in full in their register rows:
@@ -157,7 +155,7 @@ to `processing` and returns its event name and exact bytes with a fresh
 take over a processing row whose claim is at or before the caller's stale
 boundary, and it skips two kinds of ineligible row inside the same statement:
 one still waiting out a retry deadline, and one dead-lettered. `releaseDelivery`,
-`releaseDeliveryAfterFailure` and `completeDeliveryWithReport` are conditional
+`releaseDeliveryAfterFailure` and `completeDelivery` are conditional
 on that token, so an earlier worker cannot mutate a replacement claim.
 
 `releaseDeliveryAfterFailure` is the failed attempt's counterpart to
@@ -166,28 +164,25 @@ either sets the caller's retry deadline (`retryScheduled`) or — when the
 incremented count reaches the caller's `maxAttempts` — dead-letters the
 delivery as `failed` (`deadLettered`). The store owns no policy here: the
 caller that spaces the retries owns the budget they spend. A dead-lettered
-delivery is claimed by nothing, keeps its payload bytes because no canonical
-report replaced them, and is never pruned as completed work.
+delivery is claimed by nothing, keeps its payload bytes because nothing
+completed it, and is never pruned as completed work.
 `deadLetteredDeliveries` lists them by dead-letter time then GUID, identity
 and attempt count only.
 
-`completeDeliveryWithReport` verifies the GUID, event name, payload digest,
-processing state, and current claim token under one write lock. It inserts the
-canonical report and changes the delivery to `done` in the same transaction,
-clearing payload bytes while retaining delivery identity. The report row keeps
-the committing token: retrying the same token with the same canonical bytes
-returns `alreadyCompleted`; another token returns `notOwned`, and the same token
-with changed report bytes returns `reportConflict`. Every completion therefore
-has exactly one report.
+What a pass decided is `decision` rows, written before completion by the box
+that decided it; completion is one transaction on `seen_delivery` alone (D173).
 
-`deliveryReports` reads every canonical report in stable completion-time then
-delivery-ID order. It is the current programmatic access to canonical reports.
-No automatic filesystem projection or polished operator query surface is
-provided.
+`completeDelivery` verifies the GUID, event name, payload digest, processing
+state, and current claim token under one write lock, then changes the delivery
+to `done`, clearing payload bytes while retaining delivery identity and
+stamping `completed_at`. A token that does not own the current claim returns
+`notOwned`. The committing token is NOT kept, so a delivery already `done`
+returns `alreadyCompleted` to every token alike — the store knows only that it
+finished.
 
 `requeueStuckDeliveries` provides the explicit reconciliation path.
-Retention pruning deletes an eligible delivery and its report in one
-transaction; pending and processing work is never eligible.
+Retention pruning deletes eligible delivery rows; pending and processing work
+is never eligible.
 
 This is the durable store contract, not end-to-end webhook durability.
 A production HTTP receiver still must verify the signature before
@@ -202,8 +197,8 @@ instant pairs, so the lexicographic-equals-chronological claim is checked
 rather than asserted. The two pragmas that make the crash model true —
 `journal_mode = DELETE` and `synchronous = FULL` — are pinned by a
 configuration test, so they cannot change silently. Crash atomicity is proved
-at the real boundary: interruption of the schema step, worker exits after
-report insert, delivery update and commit, and two separately connected worker
+at the real boundary: interruption of the schema step, worker exits after the
+delivery update and after the commit, and two separately connected worker
 threads racing stale and current tokens.
 
 Requires Node 23.4+ — `node:sqlite` needs `--experimental-sqlite` on

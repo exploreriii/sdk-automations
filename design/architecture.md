@@ -99,11 +99,11 @@ sequenceDiagram
         P->>E: decide(facts, config, capabilities, externals)
         E-->>P: report → record 'decision'; approved effects go to the applier
     end
-    P->>S: completeDeliveryWithReport — report row + 'done', one transaction
+    P->>S: completeDelivery — 'done', one transaction
     note over P,S: any failure before commit releases the claim
 ```
 
-Every rejection fails closed and still completes, so a redelivery produces no second record.
+Every rejection fails closed and still completes, so a redelivery decides nothing a second time.
 `disabled` is deliberately not intercepted: it runs through `decide()` and the `modeDisabled` gate
 refuses each intent, which is why it sits with `observe` and `dry-run` rather than with `active`. The
 sweep reaches `decide()` through this same path — mode gate, applier, journal and recovery are all
@@ -127,7 +127,7 @@ instead. On first sight the platform approves its OWN warning comment and the ac
 records the warning when it lands; a later occasion is judged against that record — grace elapsed, no
 qualifying activity — and the notice follows the act ([`guides/grace.md`](guides/grace.md)).
 
-## 6. Store — six tables, six questions
+## 6. Store — five tables, five questions
 
 One file, two modules over one connection: `inbox.ts` is the delivery queue, whose rows move state
 in place; `ledger.ts` is appended and folded, and holds the leases and the schedule beside the facts
@@ -136,14 +136,13 @@ in place; `ledger.ts` is appended and folded, and holds the leases and the sched
 | Table | The question it answers |
 |---|---|
 | `seen_delivery` | is this delivery durable, claimed, done, or dead-lettered? |
-| `delivery_report` | what did we decide for this delivery? |
 | `effect_fact` | what has been sent, landed, refused or promised for this effect? |
 | `decision` | what did each pass decide about this item, and why? |
 | `effect_claim` | who holds this effect's lease right now? |
 | `schedule` | what clock-triggered work is due now? |
 
 *Source: `packages/runtime/src/store/schema.ts` — schema version 1, one migration, no history before
-launch (D165); drift rejected by the D110 fingerprint.*
+launch (D165); drift rejected by the fingerprint D110 established.*
 
 ## 7. What is not built
 

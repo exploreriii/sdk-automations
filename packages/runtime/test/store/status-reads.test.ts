@@ -61,12 +61,11 @@ function claim(now: string) {
 
 function complete(now: string, completedAt: string): void {
     const claimed = claim(now);
-    store.inbox.completeDeliveryWithReport({
+    store.inbox.completeDelivery({
         deliveryId: claimed.deliveryId,
         eventName: claimed.eventName,
         payloadDigest: claimed.payloadDigest,
         claimToken: claimed.claimToken,
-        reportJson: '{"decided":true}',
         completedAt,
     });
 }

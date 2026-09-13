@@ -1,20 +1,16 @@
 /**
- * The delivery's only completion boundary: canonical report plus done, under
- * one claim token. Worker exits exercise SQLite recovery with independent
- * connections rather than sequential promises posing as contention.
+ * The delivery's only completion boundary: `done`, under one claim token.
+ * Worker exits exercise SQLite recovery with independent connections rather
+ * than sequential promises posing as contention.
  */
 
-import { rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { Worker } from "node:worker_threads";
 import { beforeEach, describe, expect, it } from "vitest";
 import { asDeliveryGuid } from "@hiero-hackers/automation-core";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
 import { Store } from "../../src/store/store.js";
-import type {
-    ClaimedDelivery,
-    CompleteDeliveryWithReportInput,
-} from "../../src/store/deliveries.js";
+import type { ClaimedDelivery, CompleteDeliveryInput } from "../../src/store/deliveries.js";
 import { buildWorkerStoreModule } from "./worker-build.js";
 
 const temp = useTempDir("delivery-finalization-");
@@ -29,10 +25,6 @@ const SECOND_DELIVERY_ID = asDeliveryGuid("00000000-0000-0000-0000-000000000002"
 const THIRD_DELIVERY_ID = asDeliveryGuid("00000000-0000-0000-0000-000000000003")!;
 const RECEIVED_AT = "2026-08-01T10:00:00.000Z";
 const COMPLETED_AT = "2026-08-01T10:02:00.000Z";
-const REPORT_JSON = JSON.stringify({
-    kind: "decision",
-    deliveryId: DELIVERY_ID,
-});
 
 function acceptAndClaim(store: Store, deliveryId = DELIVERY_ID): ClaimedDelivery {
     store.inbox.acceptDelivery({
@@ -50,23 +42,20 @@ function acceptAndClaim(store: Store, deliveryId = DELIVERY_ID): ClaimedDelivery
 
 function completion(
     claim: ClaimedDelivery,
-    overrides: Partial<CompleteDeliveryWithReportInput> = {},
-): CompleteDeliveryWithReportInput {
+    overrides: Partial<CompleteDeliveryInput> = {},
+): CompleteDeliveryInput {
     return {
         deliveryId: claim.deliveryId,
         eventName: claim.eventName,
         payloadDigest: claim.payloadDigest,
         claimToken: claim.claimToken,
-        reportJson: REPORT_JSON,
         completedAt: COMPLETED_AT,
         ...overrides,
     };
 }
 
-function durableOutcome(): {
-    readonly delivery: Record<string, unknown>;
-    readonly reports: Record<string, unknown>[];
-} {
+/** The delivery row as a reopened connection reads it, which is the only durable outcome. */
+function durableDelivery(): Record<string, unknown> {
     const db = new DatabaseSync(databasePath);
     const delivery = db
         .prepare(
@@ -76,16 +65,8 @@ function durableOutcome(): {
     `,
         )
         .get(DELIVERY_ID) as Record<string, unknown>;
-    const reports = db
-        .prepare(
-            `
-        SELECT delivery_id, claim_token, report_json, completed_at
-        FROM delivery_report ORDER BY delivery_id
-    `,
-        )
-        .all() as Record<string, unknown>[];
     db.close();
-    return { delivery, reports };
+    return delivery;
 }
 
 const FINALIZER_SOURCE = `
@@ -101,7 +82,7 @@ const { parentPort, workerData } = require("node:worker_threads");
     const gate = new Int32Array(workerData.gate);
     parentPort.postMessage({ type: "ready" });
     Atomics.wait(gate, 0, 0);
-    const value = store.inbox.completeDeliveryWithReport(workerData.input);
+    const value = store.inbox.completeDelivery(workerData.input);
     store.close();
     parentPort.postMessage({ type: "result", value });
 })().catch((error) => {
@@ -119,7 +100,7 @@ interface WorkerOutcome {
 
 async function runFinalizers(
     work: ReadonlyArray<{
-        readonly input: CompleteDeliveryWithReportInput;
+        readonly input: CompleteDeliveryInput;
         readonly faultPoint?: string;
     }>,
 ): Promise<WorkerOutcome[]> {
@@ -183,55 +164,38 @@ async function runFinalizers(
     }
 }
 
-describe("atomic report completion", () => {
-    it("commits the canonical report and done state together, then retries idempotently", () => {
+describe("atomic completion", () => {
+    it("commits done and gives up the payload, then retries idempotently", () => {
         const store = new Store(databasePath);
         const claim = acceptAndClaim(store);
         const input = completion(claim);
 
-        expect(store.inbox.completeDeliveryWithReport(input)).toEqual({
-            outcome: "completed",
-        });
+        expect(store.inbox.completeDelivery(input)).toEqual({ outcome: "completed" });
         expect(
-            store.inbox.completeDeliveryWithReport({
+            store.inbox.completeDelivery({
                 ...input,
                 completedAt: "2026-08-01T10:03:00.000Z",
             }),
         ).toEqual({ outcome: "alreadyCompleted" });
-        expect(store.inbox.deliveryReports()).toEqual([
-            {
-                deliveryId: DELIVERY_ID,
-                reportJson: REPORT_JSON,
-                completedAt: COMPLETED_AT,
-            },
-        ]);
         store.close();
 
-        expect(durableOutcome()).toEqual({
-            delivery: {
-                state: "done",
-                payload: null,
-                claim_token: null,
-                completed_at: COMPLETED_AT,
-            },
-            reports: [
-                {
-                    delivery_id: DELIVERY_ID,
-                    claim_token: claim.claimToken,
-                    report_json: REPORT_JSON,
-                    completed_at: COMPLETED_AT,
-                },
-            ],
+        // The retry changed nothing: the first commit's instant is the one kept.
+        expect(durableDelivery()).toEqual({
+            state: "done",
+            payload: null,
+            claim_token: null,
+            completed_at: COMPLETED_AT,
         });
     });
 
-    it("rejects released claims, mismatched identities, and conflicting retries", () => {
+    it("rejects released claims, mismatched identities, and a never-claimed delivery", () => {
         const store = new Store(databasePath);
         const released = acceptAndClaim(store);
         expect(store.inbox.releaseDelivery(DELIVERY_ID, released.claimToken)).toEqual({
             outcome: "released",
         });
-        expect(store.inbox.completeDeliveryWithReport(completion(released))).toEqual({
+        // Early: the row is back to pending, so no token owns it.
+        expect(store.inbox.completeDelivery(completion(released))).toEqual({
             outcome: "notOwned",
         });
 
@@ -241,86 +205,45 @@ describe("atomic report completion", () => {
             "2026-08-01T09:00:00.000Z",
         )!;
         expect(
-            store.inbox.completeDeliveryWithReport(
-                completion(current, {
-                    eventName: "pull_request",
-                }),
-            ),
+            store.inbox.completeDelivery(completion(current, { eventName: "pull_request" })),
         ).toEqual({ outcome: "identityMismatch" });
         expect(
-            store.inbox.completeDeliveryWithReport(
-                completion(current, {
-                    payloadDigest: "1".repeat(64),
-                }),
-            ),
+            store.inbox.completeDelivery(completion(current, { payloadDigest: "1".repeat(64) })),
         ).toEqual({ outcome: "identityMismatch" });
         expect(
-            store.inbox.completeDeliveryWithReport(
-                completion(current, {
-                    deliveryId: SECOND_DELIVERY_ID,
-                }),
-            ),
+            store.inbox.completeDelivery(completion(current, { deliveryId: SECOND_DELIVERY_ID })),
         ).toEqual({ outcome: "identityMismatch" });
-        expect(store.inbox.completeDeliveryWithReport(completion(current))).toEqual({
+        // A stale token cannot take the completion off the current one.
+        expect(store.inbox.completeDelivery(completion(current, { claimToken: "stale" }))).toEqual({
+            outcome: "notOwned",
+        });
+        expect(store.inbox.completeDelivery(completion(current))).toEqual({
             outcome: "completed",
         });
-        expect(
-            store.inbox.completeDeliveryWithReport(
-                completion(current, {
-                    reportJson: JSON.stringify({ kind: "different" }),
-                }),
-            ),
-        ).toEqual({ outcome: "reportConflict" });
         store.close();
 
-        expect(durableOutcome().reports).toHaveLength(1);
+        expect(durableDelivery()).toMatchObject({ state: "done" });
     });
 
-    it("fails closed on malformed report-boundary inputs", () => {
+    it("fails closed on malformed completion inputs", () => {
         const store = new Store(databasePath);
         const claim = acceptAndClaim(store);
         const input = completion(claim);
 
         expect(() =>
-            store.inbox.completeDeliveryWithReport({
-                ...input,
-                payloadDigest: "not-a-digest",
-            }),
+            store.inbox.completeDelivery({ ...input, payloadDigest: "not-a-digest" }),
         ).toThrow(/payloadDigest/);
         expect(() =>
-            store.inbox.completeDeliveryWithReport({
+            store.inbox.completeDelivery({
                 ...input,
                 payloadDigest: `${claim.payloadDigest}0`,
             }),
         ).toThrow("payloadDigest must be a lowercase SHA-256 digest");
+        expect(() => store.inbox.completeDelivery({ ...input, eventName: "" })).toThrow(
+            "eventName must be a non-empty string",
+        );
         expect(() =>
-            store.inbox.completeDeliveryWithReport({
-                ...input,
-                eventName: "",
-            }),
-        ).toThrow("eventName must be a non-empty string");
-        expect(() =>
-            store.inbox.completeDeliveryWithReport({
-                ...input,
-                reportJson: "[]",
-            }),
-        ).toThrow("reportJson must be a JSON object");
-        for (const reportJson of ["null", "1", '"text"', "false"]) {
-            expect(() =>
-                store.inbox.completeDeliveryWithReport({
-                    ...input,
-                    reportJson,
-                }),
-            ).toThrow("reportJson must be a JSON object");
-        }
-        expect(() =>
-            store.inbox.completeDeliveryWithReport({
-                ...input,
-                reportJson: "not-json",
-            }),
-        ).toThrow("reportJson must be a JSON object");
-        expect(() =>
-            store.inbox.completeDeliveryWithReport({
+            store.inbox.completeDelivery({
                 ...input,
                 deliveryId: "not-a-guid" as typeof input.deliveryId,
             }),
@@ -331,46 +254,24 @@ describe("atomic report completion", () => {
         store.close();
     });
 
-    it("rejects a different token after completion and an impossible early report", () => {
+    /**
+     * The token is not kept past the commit, so a completed delivery can only
+     * say that it finished — to the worker that committed it and to the one
+     * whose claim was taken away alike (D173).
+     */
+    it("tells every later token that the delivery already completed", () => {
         const store = new Store(databasePath);
         const claim = acceptAndClaim(store);
         const input = completion(claim);
-        expect(store.inbox.completeDeliveryWithReport(input)).toEqual({
-            outcome: "completed",
-        });
+        expect(store.inbox.completeDelivery(input)).toEqual({ outcome: "completed" });
         expect(
-            store.inbox.completeDeliveryWithReport({
-                ...input,
-                claimToken: "a-different-claim-token",
-            }),
-        ).toEqual({ outcome: "notOwned" });
-        expect(store.inbox.completeDeliveryWithReport(input)).toEqual({
-            outcome: "alreadyCompleted",
-        });
+            store.inbox.completeDelivery({ ...input, claimToken: "a-different-claim-token" }),
+        ).toEqual({ outcome: "alreadyCompleted" });
+        expect(store.inbox.completeDelivery(input)).toEqual({ outcome: "alreadyCompleted" });
         store.close();
-
-        rmSync(databasePath);
-        const fresh = new Store(databasePath);
-        const freshClaim = acceptAndClaim(fresh);
-        const corruptor = new DatabaseSync(databasePath);
-        corruptor
-            .prepare(
-                `INSERT INTO delivery_report
-                 (delivery_id, claim_token, report_json, completed_at)
-                 VALUES (?, ?, ?, ?)`,
-            )
-            .run(DELIVERY_ID, freshClaim.claimToken, REPORT_JSON, COMPLETED_AT);
-        corruptor.close();
-        expect(fresh.inbox.completeDeliveryWithReport(completion(freshClaim))).toEqual({
-            outcome: "reportConflict",
-        });
-        expect(fresh.inbox.completeDeliveryWithReport(completion(freshClaim))).toEqual({
-            outcome: "reportConflict",
-        });
-        fresh.close();
     });
 
-    it("rolls back an inserted report when the owned delivery invariant is damaged", () => {
+    it("rolls back when the owned delivery invariant is damaged", () => {
         const store = new Store(databasePath);
         const claim = acceptAndClaim(store);
         const db = (store as unknown as { db: DatabaseSync }).db;
@@ -379,55 +280,23 @@ describe("atomic report completion", () => {
             DELIVERY_ID,
         );
 
-        expect(() => store.inbox.completeDeliveryWithReport(completion(claim))).toThrow(
+        expect(() => store.inbox.completeDelivery(completion(claim))).toThrow(
             "delivery ownership changed under its write transaction",
         );
-        expect(db.prepare("SELECT count(*) AS count FROM delivery_report").get()).toEqual({
-            count: 0,
-        });
         store.close();
+
+        expect(durableDelivery()).toMatchObject({ state: "pending", completed_at: null });
     });
 
-    it("lists canonical reports by completion time then delivery identity", () => {
-        const store = new Store(databasePath);
-        for (const [deliveryId, completedAt] of [
-            [THIRD_DELIVERY_ID, "2026-08-01T10:03:00.000Z"],
-            [DELIVERY_ID, "2026-08-01T10:04:00.000Z"],
-            [SECOND_DELIVERY_ID, "2026-08-01T10:03:00.000Z"],
-        ] as const) {
-            const claim = acceptAndClaim(store, deliveryId);
-            expect(
-                store.inbox.completeDeliveryWithReport(
-                    completion(claim, {
-                        reportJson: JSON.stringify({ deliveryId }),
-                        completedAt,
-                    }),
-                ),
-            ).toEqual({ outcome: "completed" });
-        }
-
-        expect(store.inbox.deliveryReports().map((report) => report.deliveryId)).toEqual([
-            SECOND_DELIVERY_ID,
-            THIRD_DELIVERY_ID,
-            DELIVERY_ID,
-        ]);
-        store.close();
-    });
-
-    it("prunes a completed delivery and its canonical report in one retention operation", () => {
+    it("prunes a completed delivery at its retention boundary", () => {
         const store = new Store(databasePath);
         const claim = acceptAndClaim(store);
-        expect(store.inbox.completeDeliveryWithReport(completion(claim))).toEqual({
-            outcome: "completed",
-        });
+        expect(store.inbox.completeDelivery(completion(claim))).toEqual({ outcome: "completed" });
         expect(store.inbox.pruneCompletedDeliveries(COMPLETED_AT)).toBe(1);
         store.close();
 
         const db = new DatabaseSync(databasePath);
         expect(db.prepare("SELECT count(*) AS count FROM seen_delivery").get()).toEqual({
-            count: 0,
-        });
-        expect(db.prepare("SELECT count(*) AS count FROM delivery_report").get()).toEqual({
             count: 0,
         });
         db.close();
@@ -497,7 +366,7 @@ describe("dead-lettering", () => {
         store.close();
 
         // The bytes a redrive would need outlive the failure, unlike a
-        // completed delivery's, which its canonical report replaces.
+        // completed delivery's, which completion clears.
         const db = new DatabaseSync(databasePath);
         const row = db
             .prepare("SELECT state, payload, completed_at FROM seen_delivery WHERE delivery_id = ?")
@@ -559,11 +428,7 @@ describe("dead-lettering", () => {
 });
 
 describe("crash boundaries", () => {
-    it.each([
-        "finalize:reportPersisted",
-        "finalize:deliveryCompleted",
-        "finalize:committed",
-    ] as const)(
+    it.each(["finalize:deliveryCompleted", "finalize:committed"] as const)(
         "a thrown fault at %s exposes the same rollback-or-commit boundary in-process",
         (faultPoint) => {
             let faulted = false;
@@ -577,54 +442,45 @@ describe("crash boundaries", () => {
             });
             const claim = acceptAndClaim(store);
 
-            expect(() => store.inbox.completeDeliveryWithReport(completion(claim))).toThrow(
+            expect(() => store.inbox.completeDelivery(completion(claim))).toThrow(
                 `fault ${faultPoint}`,
             );
             const committed = faultPoint === "finalize:committed";
-            expect(store.inbox.completeDeliveryWithReport(completion(claim))).toEqual({
+            expect(store.inbox.completeDelivery(completion(claim))).toEqual({
                 outcome: committed ? "alreadyCompleted" : "completed",
             });
             store.close();
 
-            const outcome = durableOutcome();
-            expect(outcome.delivery.state).toBe("done");
-            expect(outcome.reports).toHaveLength(1);
+            expect(durableDelivery().state).toBe("done");
         },
     );
 
     it.each([
-        ["finalize:reportPersisted", "processing", 0],
-        ["finalize:deliveryCompleted", "processing", 0],
-        ["finalize:committed", "done", 1],
-    ] as const)(
-        "a worker exit at %s leaves neither outcome or both",
-        async (faultPoint, expectedState, expectedReports) => {
-            const setup = new Store(databasePath);
-            const claim = acceptAndClaim(setup);
-            setup.close();
+        ["finalize:deliveryCompleted", "processing"],
+        ["finalize:committed", "done"],
+    ] as const)("a worker exit at %s leaves neither outcome or both", async (faultPoint, state) => {
+        const setup = new Store(databasePath);
+        const claim = acceptAndClaim(setup);
+        setup.close();
 
-            expect(
-                await runFinalizers([
-                    {
-                        input: completion(claim),
-                        faultPoint,
-                    },
-                ]),
-            ).toEqual([{ exitCode: 23 }]);
-            const outcome = durableOutcome();
-            expect(outcome.delivery.state).toBe(expectedState);
-            expect(outcome.reports).toHaveLength(expectedReports);
+        expect(await runFinalizers([{ input: completion(claim), faultPoint }])).toEqual([
+            { exitCode: 23 },
+        ]);
+        expect(durableDelivery().state).toBe(state);
 
-            const restarted = new Store(databasePath);
-            expect(restarted.inbox.completeDeliveryWithReport(completion(claim))).toEqual({
-                outcome: expectedState === "done" ? "alreadyCompleted" : "completed",
-            });
-            restarted.close();
-        },
-    );
+        const restarted = new Store(databasePath);
+        expect(restarted.inbox.completeDelivery(completion(claim))).toEqual({
+            outcome: state === "done" ? "alreadyCompleted" : "completed",
+        });
+        restarted.close();
+    });
 });
 
 describe("claim ownership under contention", () => {
+    /** The instant each racing worker would stamp, so the committed row names the winner. */
+    const OLD_AT = "2026-08-01T10:30:00.000Z";
+    const CURRENT_AT = "2026-08-01T10:31:00.000Z";
+
     it("lets only the current token finalize across real worker threads", async () => {
         const firstStore = new Store(databasePath);
         const first = acceptAndClaim(firstStore);
@@ -639,26 +495,19 @@ describe("claim ownership under contention", () => {
         secondStore.close();
 
         const outcomes = await runFinalizers([
-            {
-                input: completion(first, {
-                    reportJson: JSON.stringify({ worker: "old" }),
-                }),
-            },
-            {
-                input: completion(second, {
-                    reportJson: JSON.stringify({ worker: "current" }),
-                }),
-            },
+            { input: completion(first, { completedAt: OLD_AT }) },
+            { input: completion(second, { completedAt: CURRENT_AT }) },
         ]);
-        expect(outcomes.map((result) => result.value?.outcome).sort()).toEqual([
-            "completed",
-            "notOwned",
-        ]);
+        // The retired token loses either way: it finds the current claim in
+        // front of it, or the completion that claim already committed.
+        expect(outcomes.filter((result) => result.value?.outcome === "completed")).toHaveLength(1);
+        expect(outcomes.map((result) => result.value?.outcome)).toContainEqual(
+            expect.stringMatching(/^(notOwned|alreadyCompleted)$/),
+        );
 
-        const durable = durableOutcome();
-        expect(durable.delivery.state).toBe("done");
-        expect(durable.reports).toHaveLength(1);
-        expect(durable.reports[0]?.report_json).toBe(JSON.stringify({ worker: "current" }));
-        expect(durable.reports[0]?.claim_token).toBe(second.claimToken);
+        expect(durableDelivery()).toMatchObject({
+            state: "done",
+            completed_at: CURRENT_AT,
+        });
     });
 });

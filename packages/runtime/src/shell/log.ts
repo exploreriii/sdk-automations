@@ -61,6 +61,8 @@ export type ShellEvent =
               | "modeUnsupported"
               | "repositoryMismatch"
               | "installationSuspended";
+          /** What an undecided record found: the errors, the mismatch, the reason. */
+          readonly detail?: string;
       }
     | {
           readonly event: "deliveryAttemptFailed";

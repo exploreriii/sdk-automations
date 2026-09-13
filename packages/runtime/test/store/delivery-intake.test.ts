@@ -45,12 +45,11 @@ function accept(
 }
 
 function complete(store: Store, claim: ClaimedDelivery, completedAt: string) {
-    return store.inbox.completeDeliveryWithReport({
+    return store.inbox.completeDelivery({
         deliveryId: claim.deliveryId,
         eventName: claim.eventName,
         payloadDigest: claim.payloadDigest,
         claimToken: claim.claimToken,
-        reportJson: JSON.stringify({ deliveryId: claim.deliveryId }),
         completedAt,
     });
 }
@@ -623,17 +622,16 @@ describe("delivery intake boundaries", () => {
             eventName: "issues",
             payloadDigest: "0".repeat(64),
             claimToken: "token",
-            reportJson: "{}",
             completedAt: RECEIVED,
         };
         expect(() =>
-            store.inbox.completeDeliveryWithReport({
+            store.inbox.completeDelivery({
                 ...validCompletion,
                 completedAt: "invalid",
             }),
         ).toThrow(/completedAt/);
         expect(() =>
-            store.inbox.completeDeliveryWithReport({
+            store.inbox.completeDelivery({
                 ...validCompletion,
                 claimToken: "",
             }),

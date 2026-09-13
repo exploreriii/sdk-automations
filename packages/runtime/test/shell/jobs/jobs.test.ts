@@ -93,9 +93,13 @@ function buildShell(capability: EngineCapability = toEngine(intake), tickMs = TI
     return shell;
 }
 
-/** What a tick's drain persisted, one entry per completed delivery. */
-function records(): unknown[] {
-    return store.inbox.deliveryReports().map((report) => JSON.parse(report.reportJson) as unknown);
+/** What a tick's drain finished, one entry per completed delivery (D173). */
+function completions(): { readonly deliveryId: string; readonly kind: string }[] {
+    return logged.flatMap((event) =>
+        event.event === "deliveryCompleted"
+            ? [{ deliveryId: event.deliveryId, kind: event.kind }]
+            : [],
+    );
 }
 
 /** One delivery waiting in the queue, for a tick to requeue or drain. */
@@ -122,8 +126,8 @@ describe("one tick, four jobs", () => {
         ).toBeDefined();
 
         buildShell();
-        await vi.waitFor(() => expect(records()).toHaveLength(1));
-        expect(records()[0]).toMatchObject({ kind: "decision", deliveryId: SECOND_GUID });
+        await vi.waitFor(() => expect(completions()).toHaveLength(1));
+        expect(completions()[0]).toEqual({ kind: "decision", deliveryId: SECOND_GUID });
         // Said once, with what it handed back: a requeue means some worker
         // died holding a claim, which is the line an operator greps for.
         expect(logged.filter((event) => event.event === "sweepRequeued")).toEqual([
@@ -151,9 +155,9 @@ describe("one tick, four jobs", () => {
         accept(GUID);
 
         buildShell();
-        await vi.waitFor(() => expect(records()).toHaveLength(1));
+        await vi.waitFor(() => expect(completions()).toHaveLength(1));
 
-        expect(records()[0]).toMatchObject({ deliveryId: GUID });
+        expect(completions()[0]).toMatchObject({ deliveryId: GUID });
         expect(logged.filter((event) => event.event === "sweepRequeued")).toEqual([]);
     });
 
@@ -338,7 +342,7 @@ mappings:
         expect(github.world.labels).toEqual([LABEL]);
         expect(openRows()).toBe(0);
         // No delivery was involved in any of that.
-        expect(records()).toEqual([]);
+        expect(completions()).toEqual([]);
         expect(logged.filter((event) => event.event === "deliveryClaimed")).toEqual([]);
     });
 

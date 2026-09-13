@@ -28,7 +28,7 @@ import { withTempDir } from "@hiero-hackers/automation-testkit";
 import { Store } from "../../src/store/store.js";
 import type {
     AcceptDeliveryResult,
-    CompleteDeliveryWithReportResult,
+    CompleteDeliveryResult,
     DeliveryState,
 } from "../../src/store/deliveries.js";
 
@@ -78,16 +78,13 @@ const IDS = Array.from({ length: 10 }, (_, index) =>
 const canonicalPayload = (id: DeliveryGuid) => Buffer.from(`payload for ${id}`);
 const rewrittenPayload = (id: DeliveryGuid) => Buffer.from(`rewritten payload for ${id}`);
 const digestOf = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
-const canonicalReport = (id: DeliveryGuid) => JSON.stringify({ deliveryId: id, verdict: "ok" });
-const revisedReport = (id: DeliveryGuid) => JSON.stringify({ deliveryId: id, verdict: "revised" });
 
 /**
  * One delivery as the model believes it stands.
  *
  * `previousToken` is the token a takeover, release or completion retired.
  * It is the realistic wrong token to offer — the one a worker that lost
- * its delivery would still be holding — and every operation must refuse
- * it.
+ * its delivery would still be holding — and no operation may act on it.
  */
 interface ModelDelivery {
     receivedAt: string;
@@ -99,8 +96,6 @@ interface ModelDelivery {
     previousToken: string | null;
     claimedAt: string | null;
     completedAt: string | null;
-    reportToken: string | null;
-    reportJson: string | null;
 }
 
 type Model = Map<DeliveryGuid, ModelDelivery>;
@@ -117,8 +112,6 @@ function queued(receivedAt: string): ModelDelivery {
         previousToken: null,
         claimedAt: null,
         completedAt: null,
-        reportToken: null,
-        reportJson: null,
     };
 }
 
@@ -166,28 +159,17 @@ function expectedIntake(
 }
 
 /**
- * What the store owes a completion attempt.
- *
- * Identity is checked before state, so a delivery that was never accepted
- * and one offered the wrong digest answer alike. The `reportConflict` a
- * still-processing row with a filed report would draw is unreachable
- * without fault injection — that pairing is exactly the torn commit
- * `delivery-finalization.test.ts` injects — so this model never predicts
- * it, and would fail the run if the store produced it.
+ * What the store owes a completion attempt. Identity is checked before state,
+ * so a delivery that was never accepted and one offered the wrong digest
+ * answer alike; a finished delivery keeps no token, so it can only say so (D173).
  */
 function expectedCompletion(
     delivery: ModelDelivery | undefined,
     identityMatches: boolean,
     claimToken: string,
-    reportJson: string,
-): CompleteDeliveryWithReportResult {
+): CompleteDeliveryResult {
     if (delivery === undefined || !identityMatches) return { outcome: "identityMismatch" };
-    if (delivery.state === "done") {
-        if (delivery.reportToken !== claimToken) return { outcome: "notOwned" };
-        return delivery.reportJson === reportJson
-            ? { outcome: "alreadyCompleted" }
-            : { outcome: "reportConflict" };
-    }
+    if (delivery.state === "done") return { outcome: "alreadyCompleted" };
     if (delivery.claimToken !== claimToken) return { outcome: "notOwned" };
     return { outcome: "completed" };
 }
@@ -207,9 +189,8 @@ interface StoredRow {
 /**
  * Every promise the model makes about durable state, checked at once: the
  * row set, each row's lifecycle fields and claim ownership, the terminal
- * CHECK constraints the v5 schema pins — `done` drops its payload,
- * `failed` keeps its payload and a counted attempt — and the two
- * projections that read those rows back out.
+ * CHECK constraints the schema pins — `done` drops its payload, `failed`
+ * keeps its payload and a counted attempt — and the dead-letter projection.
  */
 function expectAgreement(db: DatabaseSync, store: Store, model: Model, where: string): void {
     const rows = db
@@ -251,7 +232,7 @@ function expectAgreement(db: DatabaseSync, store: Store, model: Model, where: st
             claimToken: delivery.claimToken,
             claimedAt: delivery.claimedAt,
             completedAt: delivery.completedAt,
-            // The terminal half of the v5 CHECK: only a completed
+            // The terminal half of the CHECK: only a completed
             // delivery gives up its bytes; a dead letter is the last
             // copy of something GitHub will not send again.
             payloadKept: delivery.state !== "done",
@@ -263,22 +244,6 @@ function expectAgreement(db: DatabaseSync, store: Store, model: Model, where: st
             ).toBeGreaterThan(0);
         }
     }
-
-    const reports = db
-        .prepare(
-            "SELECT delivery_id, claim_token, report_json FROM delivery_report ORDER BY delivery_id",
-        )
-        .all();
-    expect(reports, `${where} — canonical reports`).toEqual(
-        [...model]
-            .filter(([, delivery]) => delivery.reportJson !== null)
-            .sort(([leftId], [rightId]) => compare(leftId, rightId))
-            .map(([id, delivery]) => ({
-                delivery_id: id,
-                claim_token: delivery.reportToken,
-                report_json: delivery.reportJson,
-            })),
-    );
 
     expect(store.inbox.deadLetteredDeliveries(), `${where} — dead letters`).toEqual(
         [...model]
@@ -482,28 +447,25 @@ describe("deliveries under random interleaving: store ≡ per-delivery lifecycle
                             delivery.retryNotBefore = deadLettered ? null : retryNotBefore;
                         }
                     } else if (roll < 0.87) {
-                        // Completion: one report and one done row, provable by
-                        // token and identity or refused with a reason.
+                        // Completion: one done row, provable by token and
+                        // identity or refused with a reason.
                         where += " complete";
                         const delivery = model.get(target);
                         const token =
                             (rand() < 0.75 ? delivery?.claimToken : delivery?.previousToken) ??
                             NO_TOKEN;
                         const identityMatches = rand() >= 0.15;
-                        const reportJson =
-                            rand() < 0.3 ? revisedReport(target) : canonicalReport(target);
-                        const result = store.inbox.completeDeliveryWithReport({
+                        const result = store.inbox.completeDelivery({
                             deliveryId: target,
                             eventName: EVENT,
                             payloadDigest: identityMatches
                                 ? digestOf(canonicalPayload(target))
                                 : digestOf(rewrittenPayload(target)),
                             claimToken: token,
-                            reportJson,
                             completedAt: now,
                         });
                         expect(result, where).toEqual(
-                            expectedCompletion(delivery, identityMatches, token, reportJson),
+                            expectedCompletion(delivery, identityMatches, token),
                         );
                         if (result.outcome === "completed" && delivery !== undefined) {
                             delivery.previousToken = delivery.claimToken;
@@ -512,8 +474,6 @@ describe("deliveries under random interleaving: store ≡ per-delivery lifecycle
                             delivery.claimToken = null;
                             delivery.claimedAt = null;
                             delivery.completedAt = now;
-                            delivery.reportToken = token;
-                            delivery.reportJson = reportJson;
                         }
                     } else {
                         // The sweep: every processing row older than the

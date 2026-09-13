@@ -6,10 +6,9 @@
 export type {
     AcceptDeliveryInput,
     AcceptDeliveryResult,
-    CanonicalDeliveryReport,
     ClaimedDelivery,
-    CompleteDeliveryWithReportInput,
-    CompleteDeliveryWithReportResult,
+    CompleteDeliveryInput,
+    CompleteDeliveryResult,
     DeadLetteredDelivery,
     DeliveryCounts,
     DeliveryState,

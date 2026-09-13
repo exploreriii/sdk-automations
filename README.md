@@ -35,7 +35,7 @@
     </td>
     <td width="33%" align="center">
       <strong>Durable state</strong><br><br>
-      Accepted deliveries and canonical reports live in SQLite, with completion committed atomically.
+      Accepted deliveries and the rows every pass decided live in SQLite, with completion committed atomically.
     </td>
   </tr>
 </table>
@@ -122,14 +122,14 @@ reconciles uncertainty instead of retrying blindly.
 ## The supported path today
 
 ```text
-signed webhook  →  verify  →  persist  →  read policy and evidence  →  decide  →  store report
+signed webhook  →  verify  →  persist  →  read policy and evidence  →  decide  →  store rows
 ```
 
 The runnable sandbox now authenticates as a GitHub App. With credentials, it reads `automations.yml`
 from the repository's default branch, obtains the installation's real permission grants, and uses
 issue and pull-request timelines to determine whether a newer human change should block a proposed
-outcome. It durably accepts each webhook delivery and commits its canonical report and completion
-together in SQLite.
+outcome. It durably accepts each webhook delivery, writes down what it decided as rows, and commits
+the delivery's completion in SQLite.
 
 The live path also supplies linked-issue and automation-actor resolvers. Credential-free development
 and CI deliberately use local configuration and stubbed external facts. The shell supports `disabled`,

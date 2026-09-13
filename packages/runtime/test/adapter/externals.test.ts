@@ -70,11 +70,16 @@ function linkTo(lastPage: number): Record<string, string> {
     };
 }
 
-function source(steps: Parameters<typeof harness>[0], cause?: CauseFingerprint) {
+function source(
+    steps: Parameters<typeof harness>[0],
+    cause?: CauseFingerprint,
+    ownWrites: readonly LandedWrite[] = [],
+) {
     const built = harness(steps);
     const lookup = orderingEvidenceSource({
         http: built.client,
         repository: REPOSITORY,
+        ownWrites: () => ownWrites,
         ...(cause === undefined ? {} : { cause }),
     });
     return { lookup, scripted: built.scripted };
@@ -399,39 +404,49 @@ describe("the platform's own assignment writes", () => {
     const unassigned = (login: string, createdAt: string) =>
         entry("unassigned", login, createdAt, "User", login);
 
-    it("does not count a release its own journal claims", async () => {
-        const { lookup } = source([page([unassigned("alice", EVENT_AT)])]);
+    /** The reader with a journal injected, as the composition root injects the store's. */
+    const journalled = (steps: Parameters<typeof harness>[0], writes: readonly LandedWrite[]) =>
+        source(steps, undefined, writes).lookup;
 
-        expect(await lookup(ITEM, [release("alice")])).toBeNull();
+    it("does not count a release its own journal claims", async () => {
+        const lookup = journalled([page([unassigned("alice", EVENT_AT)])], [release("alice")]);
+
+        expect(await lookup(ITEM)).toBeNull();
     });
 
     it("counts a human unassigning a different login in the same second", async () => {
-        const { lookup } = source([page([unassigned("bob", EVENT_AT)])]);
+        const lookup = journalled([page([unassigned("bob", EVENT_AT)])], [release("alice")]);
 
-        expect(await lookup(ITEM, [release("alice")])).toEqual(new Date(EVENT_AT));
+        expect(await lookup(ITEM)).toEqual(new Date(EVENT_AT));
     });
 
     it("counts the same login unassigned five minutes either side of the release", async () => {
         const after = "2026-08-20T10:05:03Z";
         const before = "2026-08-20T09:55:03Z";
-        const later = source([page([unassigned("alice", after)])]);
-        const earlier = source([page([unassigned("alice", before)])]);
+        const later = journalled([page([unassigned("alice", after)])], [release("alice")]);
+        const earlier = journalled([page([unassigned("alice", before)])], [release("alice")]);
 
-        expect(await later.lookup(ITEM, [release("alice")])).toEqual(new Date(after));
-        expect(await earlier.lookup(ITEM, [release("alice")])).toEqual(new Date(before));
+        expect(await later(ITEM)).toEqual(new Date(after));
+        expect(await earlier(ITEM)).toEqual(new Date(before));
     });
 
     it("leaves a Bot's close excluded as it already was", async () => {
-        const { lookup } = source([page([entry("closed", "app[bot]", EVENT_AT, "Bot", "")])]);
+        const lookup = journalled(
+            [page([entry("closed", "app[bot]", EVENT_AT, "Bot", "")])],
+            [release("alice")],
+        );
 
-        expect(await lookup(ITEM, [release("alice")])).toBeNull();
+        expect(await lookup(ITEM)).toBeNull();
     });
 
     it("counts a landed write of another verb, and one naming another login", async () => {
-        const { lookup } = source([page([unassigned("alice", EVENT_AT)])]);
         const label: LandedWrite = { verb: "addLabel", login: null, at: RELEASED_AT };
+        const lookup = journalled(
+            [page([unassigned("alice", EVENT_AT)])],
+            [label, release("carol")],
+        );
 
-        expect(await lookup(ITEM, [label, release("carol")])).toEqual(new Date(EVENT_AT));
+        expect(await lookup(ITEM)).toEqual(new Date(EVENT_AT));
     });
 
     it("counts an unassigned entry that names no assignee", async () => {
@@ -461,6 +476,7 @@ describe("why an ordering came back unknown", () => {
             lookup: orderingEvidenceSource({
                 http: built.client,
                 repository: REPOSITORY,
+                ownWrites: () => [],
                 onUnknownOrdering: (detail) => details.push(detail),
             }),
             details,
@@ -531,6 +547,7 @@ describe("why an ordering came back unknown", () => {
         const lookup = orderingEvidenceSource({
             http: harness([success("not json")]).client,
             repository: REPOSITORY,
+            ownWrites: () => [],
             onUnknownOrdering: () => {
                 throw new Error("the log is gone");
             },
@@ -549,6 +566,7 @@ describe("why an ordering came back unknown", () => {
                 repository: REPOSITORY,
                 config: NO_CONFIG,
                 knownCapabilities: [],
+                ownWrites: () => [],
                 onUnknownOrdering: (detail) => details.push(detail),
             },
             PAYLOAD,
@@ -636,6 +654,7 @@ describe("live externals for one delivery", () => {
                     repository: REPOSITORY,
                     config: NO_CONFIG,
                     knownCapabilities: [],
+                    ownWrites: () => [],
                 },
                 PAYLOAD,
             ),
@@ -654,6 +673,7 @@ describe("live externals for one delivery", () => {
                 repository: REPOSITORY,
                 config: NO_CONFIG,
                 knownCapabilities: [],
+                ownWrites: () => [],
             },
             PAYLOAD,
         );
@@ -681,6 +701,7 @@ describe("live externals for one delivery", () => {
                 repository: REPOSITORY,
                 config: NO_CONFIG,
                 knownCapabilities: [],
+                ownWrites: () => [],
             },
             {},
         );
@@ -702,6 +723,7 @@ describe("live externals for one delivery", () => {
             repository: REPOSITORY,
             config: NO_CONFIG,
             knownCapabilities: [],
+            ownWrites: () => [],
         };
 
         const first = await liveExternalsForDelivery(options, PAYLOAD);

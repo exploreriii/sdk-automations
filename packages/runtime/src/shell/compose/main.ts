@@ -38,6 +38,8 @@ const clock = (): Date => new Date();
 /** The shipped declarations, as the adapter's reads want them. */
 const knownCapabilities = CAPABILITIES.map(({ declaration }) => declaration);
 
+const store = new Store(paths.storeFile);
+
 const live =
     credentials === null
         ? null
@@ -48,14 +50,15 @@ const live =
               killSwitchActive: switches.killSwitch,
               clock,
               knownCapabilities,
+              // The seam GitHub's own actor cannot answer: this item's landed calls (D159).
+
+              ownWrites: (item) => store.ledger.landedOn(repository, item),
               log,
           });
 const configSource = live?.configSource ?? fileConfigSource(paths.configFile);
 const externals =
     live?.externals ?? (() => stubbedExternals({ killSwitchActive: switches.killSwitch }));
 const writePath = live?.writePath ?? null;
-
-const store = new Store(paths.storeFile);
 
 /**
  * The write path, wired or absent — whether `mode: active` is honourable here.

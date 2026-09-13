@@ -5,7 +5,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import type { AdmittedCapability, RepositoryRef } from "@hiero-hackers/automation-core";
+import type { AdmittedCapability, Externals, RepositoryRef } from "@hiero-hackers/automation-core";
 import {
     createFactsReader,
     createGitHubHttpClient,
@@ -19,12 +19,13 @@ import {
     orderingEvidenceSource,
     wait,
     type FactsReader,
+    type OrderingEvidenceOptions,
     type ReadBack,
     type WriteVerbs,
 } from "../../adapter/index.js";
 import type { EffectExternalsSource, EffectReader, EffectWriter } from "../apply/apply.js";
 import type { ConfigSource } from "../config.js";
-import type { ExternalsForDelivery, ShellExternals } from "../externals.js";
+import type { ExternalsForDelivery } from "../externals.js";
 import type { Log } from "../log.js";
 import type { SweepFacts, SweepFactsSource } from "../sweep.js";
 import type { Credentials } from "./composition.js";
@@ -65,6 +66,8 @@ export interface LiveOptions {
     readonly clock: () => Date;
     /** Handed down because the adapter may not import the capabilities package. */
     readonly knownCapabilities: readonly AdmittedCapability[];
+    /** The store's landed calls, held to the shape the adapter's ordering read asks for (D159). */
+    readonly ownWrites: OrderingEvidenceOptions["ownWrites"];
     readonly log: Log;
 }
 
@@ -75,6 +78,7 @@ export function liveGitHub({
     killSwitchActive,
     clock,
     knownCapabilities,
+    ownWrites,
     log,
 }: LiveOptions): LiveGitHub {
     let privateKeyPem: string;
@@ -96,7 +100,7 @@ export function liveGitHub({
      * The applier's externals, built FRESH on every call (`EffectExternalsSource`).
      * No cause fingerprint is excluded — a known over-refusal, since the seam carries no cause: refusing a write it could have made beats writing over a human's edit.
      */
-    const effectExternals = async (): Promise<ShellExternals> => {
+    const effectExternals = async (): Promise<Externals> => {
         const grants = await installationGrants(tokenSource);
         if (!grants.ok) {
             throw new Error(`the installation's grants could not be read: ${grants.failure.kind}`);
@@ -104,7 +108,7 @@ export function liveGitHub({
         return {
             killSwitchActive,
             installationGrants: grants.grants,
-            latestHumanChangeAt: orderingEvidenceSource({ http, repository }),
+            latestHumanChangeAt: orderingEvidenceSource({ http, repository, ownWrites }),
         };
     };
 
@@ -123,6 +127,7 @@ export function liveGitHub({
                     repository,
                     config,
                     knownCapabilities,
+                    ownWrites,
                     onUnknownOrdering: (detail) => {
                         log({ event: "orderingUnknown", deliveryId, detail });
                     },

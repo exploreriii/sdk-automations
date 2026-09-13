@@ -1260,9 +1260,9 @@ describe("the reader and the driver together", () => {
 /**
  * D159. GitHub attributes an `unassigned` event to the ASSIGNEE even when the App
  * made the release, so the item's own journal is the only record that the change
- * was the platform's. `decide()` takes a ONE-argument ordering seam, which leaves
- * the lane that owns the store to bind the journal to it; unbound, the App's own
- * release reads back as a human change and refuses the next act over it.
+ * was the platform's. `decide()` takes a ONE-argument ordering seam, so the journal
+ * is bound to the reader where it is built; unbound, the App's own release reads
+ * back as a human change and refuses the next act over it.
  *
  * The reader here is the real one over a recorded timeline and the row is written
  * as the applier writes it, so what the case pins is the binding and nothing else.
@@ -1347,12 +1347,13 @@ describe("an item the platform released within the minute", () => {
         const decideItem = createItemDecider({
             store: into,
             capabilities,
-            // Live-shaped: the seam the composition root hands down takes the journal.
+            // Live-shaped: the seam the composition root hands down carries the journal.
             externals: () =>
                 stubbedExternals({
                     latestHumanChangeAt: orderingEvidenceSource({
                         http: http.client,
                         repository: REPOSITORY,
+                        ownWrites: (item) => into.ledger.landedOn(REPOSITORY, item),
                     }),
                 }),
             repository: REPOSITORY,

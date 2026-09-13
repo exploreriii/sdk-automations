@@ -889,11 +889,11 @@ describe("re-gating at apply time", () => {
     /**
      * D159. GitHub names the ASSIGNEE as the actor of an `unassigned` event even
      * when the App made the release, so the only record that the platform itself
-     * released `alice` is the landed fact below. The seam is handed that fact and
-     * applies the rule; what this pins is that the applier reads it and passes it,
-     * with the login and the instant the call landed.
+     * released `alice` is the landed fact below. The composition binds that record
+     * to the ordering read; what this pins is that the apply-time gate asks the
+     * BOUND seam about this item, and takes the answer it gives.
      */
-    it("hands the ordering seam the release this item's own ledger records", async () => {
+    it("takes the ordering answer its composed seam gives for this item", async () => {
         const releasedAt = new Date(CAUSE_AT.getTime() + 30 * 60_000);
         const row = serializeCall({
             capability: "inactivity",
@@ -911,12 +911,13 @@ describe("re-gating at apply time", () => {
             login: "alice",
         });
 
-        let handed: readonly LandedWrite[] | undefined;
+        let read: readonly LandedWrite[] | undefined;
+        /** Composed as `live.ts` composes it: the journal bound to the reader, not passed to it. */
         const externals: EffectExternalsSource = () =>
             stubbedExternals({
-                latestHumanChangeAt: (_item, ownWrites) => {
-                    handed = ownWrites;
-                    return ownWrites?.some(
+                latestHumanChangeAt: (item) => {
+                    read = store.ledger.landedOn(REPOSITORY, item);
+                    return read.some(
                         (write) => write.verb === "releaseAssignment" && write.login === "alice",
                     )
                         ? null
@@ -932,7 +933,7 @@ describe("re-gating at apply time", () => {
             ),
         );
 
-        expect(handed).toEqual([
+        expect(read).toEqual([
             { verb: "releaseAssignment", login: "alice", at: releasedAt.toISOString() },
         ]);
         expect(outcome).toMatchObject({ outcome: "applied" });

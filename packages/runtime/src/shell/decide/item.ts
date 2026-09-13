@@ -84,20 +84,14 @@ export function createItemDecider(options: ItemDeciderOptions): DecideItem {
     const { store, capabilities, externals, repository, applier } = options;
 
     /**
-     * One item's externals as CORE takes them — both lanes' only way in.
-     * Two seams bind to the store HERE, because core's take one argument and this is where a store is held: the recorded warning, which is the store's rather than the item's, so every composition owning one can answer it with credentials or without (grace.md §2); and the item's landed writes, because GitHub names the ASSIGNEE as the actor of a release the App made, so an unbound ordering read hands that release back as a human change and refuses the next act over it (D159).
+     * The recorded warning binds to the store HERE, because it is the store's own record rather than the item's, so every composition holding one can answer it with credentials or without (grace.md §2).
      */
+    const warningFor = recordedWarningsIn(store.ledger);
+
+    /** One item's externals as CORE takes them — both lanes' only way in. */
     const externalsFor = async (
         delivery: Parameters<ExternalsForDelivery>[0],
-    ): Promise<Externals> => {
-        const facts = await externals(delivery);
-        return {
-            ...facts,
-            latestHumanChangeAt: (item) =>
-                facts.latestHumanChangeAt(item, store.ledger.landedOn(repository, item)),
-            warningFor: recordedWarningsIn(store.ledger),
-        };
-    };
+    ): Promise<Externals> => ({ ...(await externals(delivery)), warningFor });
 
     /** Stations 5–10 live behind one call: normalize, evaluate, screen, derive, gate. */
     const decideOn = async (

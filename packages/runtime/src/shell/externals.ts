@@ -9,24 +9,11 @@ import {
     type ActionClass,
     type DestructiveWarning,
     type Externals,
-    type HumanChangeOrdering,
-    type ItemRef,
     type RepositoryConfig,
     type ResolverAnswer,
     type ResolverSource,
 } from "@hiero-hackers/automation-core";
-import type { LandedWrite, Ledger } from "../store/index.js";
-
-/**
- * Core's externals, with the ordering read also taking the platform's own writes (D159).
- * The argument is optional, so a source that ignores it is still core's one-argument lookup.
- */
-export type ShellExternals = Omit<Externals, "now" | "latestHumanChangeAt"> & {
-    readonly latestHumanChangeAt: (
-        item: ItemRef,
-        ownWrites?: readonly LandedWrite[],
-    ) => HumanChangeOrdering | Promise<HumanChangeOrdering>;
-};
+import type { Ledger } from "../store/index.js";
 
 /**
  * The recorded-warning seam, over the effect ledger (grace.md §2).
@@ -65,7 +52,7 @@ export type ExternalsForDelivery = (delivery: {
     readonly deliveryId: string;
     /** The configuration this delivery was decided under, at the revision it was read at. */
     readonly config: RepositoryConfig;
-}) => ShellExternals | Promise<ShellExternals>;
+}) => Externals | Promise<Externals>;
 
 /**
  * The resolvers that need no credential, answered on the credential-free path.
@@ -88,7 +75,7 @@ export function credentialFreeResolvers(): ResolverSource {
     return resolve as ResolverSource;
 }
 
-export function stubbedExternals(overrides: Partial<ShellExternals> = {}): ShellExternals {
+export function stubbedExternals(overrides: Partial<Externals> = {}): Externals {
     return {
         killSwitchActive: false,
         installationGrants: ["issues:write"],

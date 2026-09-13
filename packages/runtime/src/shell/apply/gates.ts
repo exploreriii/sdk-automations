@@ -15,6 +15,7 @@ import {
     projectIssue,
     projectPullRequest,
     type AnyIntent,
+    type Externals,
     type HumanChangeOrdering,
     type IntentOperation,
     type ItemRef,
@@ -22,11 +23,10 @@ import {
     type ObservedModes,
     type Projection,
     type RepositoryConfig,
-    type RepositoryRef,
 } from "@hiero-hackers/automation-core";
 import type { Ledger } from "../../store/index.js";
 import type { EffectOutcomeCode } from "../effects.js";
-import { recordedWarningsIn, type ShellExternals } from "../externals.js";
+import { recordedWarningsIn } from "../externals.js";
 import { detailOf } from "../log.js";
 import type { EffectReader, ItemSeen, ReadAnswer } from "../operations/handler.js";
 import type { Pass, PassResult } from "./actions.js";
@@ -35,7 +35,7 @@ import type { Pass, PassResult } from "./actions.js";
  * A FRESH externals set, built per apply pass.
  * Never the delivery's own: its memo would answer the apply-time gate with the instant the DECISION read, which is the one thing a re-gate must not believe.
  */
-export type EffectExternalsSource = () => ShellExternals | Promise<ShellExternals>;
+export type EffectExternalsSource = () => Externals | Promise<Externals>;
 
 /** A gate passed, or the result its refusal produces. */
 export type GateVerdict =
@@ -67,7 +67,7 @@ function projectionFrom(
 }
 
 export interface GateOptions {
-    /** The facts a warning and an item's landed writes are read from (D164). */
+    /** The facts a recorded warning is read from (D164). */
     readonly ledger: Ledger;
     readonly reader: EffectReader;
     readonly externals: EffectExternalsSource;
@@ -106,7 +106,7 @@ export function createGates(options: GateOptions): Gates {
     };
 
     /** The externals for this pass, with the seam CONTAINED. */
-    const freshExternals = async (): Promise<ReadAnswer<ShellExternals>> => {
+    const freshExternals = async (): Promise<ReadAnswer<Externals>> => {
         try {
             return { ok: true, value: await externals() };
         } catch (error) {
@@ -117,15 +117,10 @@ export function createGates(options: GateOptions): Gates {
     /**
      * Contained the way `decide()` contains it: a lookup that threw established nothing,
      * and D51 rules an unestablished ordering a conflict, which the rules already refuse.
-     * The item's landed writes go with it, because GitHub attributes the App's own release to the assignee (D159).
      */
-    const orderingFor = async (
-        facts: ShellExternals,
-        repository: RepositoryRef,
-        item: ItemRef,
-    ): Promise<HumanChangeOrdering> => {
+    const orderingFor = async (facts: Externals, item: ItemRef): Promise<HumanChangeOrdering> => {
         try {
-            return await facts.latestHumanChangeAt(item, ledger.landedOn(repository, item));
+            return await facts.latestHumanChangeAt(item);
         } catch {
             return "unknown";
         }
@@ -135,7 +130,7 @@ export function createGates(options: GateOptions): Gates {
      * The brakes an operator can still pull between deciding and applying, run by core
      * (`evaluateStandingRules`) and not copied. The shell decides WHICH rules to run. This item-independent subset is the whole gate a RESUME passes: add-then-remove leaves two position labels, so the full ladder could only answer `preconditionStale`.
      */
-    const brakes = (pass: Pass, operation: IntentOperation, facts: ShellExternals): GateVerdict => {
+    const brakes = (pass: Pass, operation: IntentOperation, facts: Externals): GateVerdict => {
         const operationFacts = INTENT_OPERATIONS[operation];
         const verdict = evaluateStandingRules(
             {
@@ -227,7 +222,7 @@ export function createGates(options: GateOptions): Gates {
             const context = {
                 killSwitchActive: facts.value.killSwitchActive,
                 installationGrants: facts.value.installationGrants,
-                latestHumanChangeAt: await orderingFor(facts.value, pass.repository, intent.item),
+                latestHumanChangeAt: await orderingFor(facts.value, intent.item),
                 world: deriveWorld(
                     projectionFrom(seen.value, intent.item.kind, pass.config),
                     intent.claims,

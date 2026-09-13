@@ -86,6 +86,8 @@ export interface LandedWrite {
 export interface OrderingEvidenceOptions {
     readonly http: GitHubHttpClient;
     readonly repository: RepositoryRef;
+    /** The item's own landed calls, which GitHub's actor cannot say (D159). */
+    readonly ownWrites: (item: ItemRef) => readonly LandedWrite[];
     /** Absent for sweeps and incomplete or unhandled causes — nothing to exclude. */
     readonly cause?: CauseFingerprint;
     /** A diagnostic seam only; it never changes an answer. */
@@ -108,9 +110,9 @@ function changeTarget(entry: unknown, action: string): unknown {
  * Does the ledger hold a release of this login dated within the window before `at`?
  * A human unassigning the same login in the same minute is indistinguishable, and holds the platform back.
  */
-function releasedByApp(login: unknown, at: Date, ownWrites: readonly LandedWrite[]): boolean {
+function releasedByApp(login: unknown, at: Date, landed: readonly LandedWrite[]): boolean {
     if (typeof login !== "string") return false;
-    return ownWrites.some((write) => {
+    return landed.some((write) => {
         if (write.verb !== "releaseAssignment" || write.login !== login) return false;
         const done = new Date(write.at).getTime();
         if (!Number.isFinite(done)) return false;
@@ -120,10 +122,7 @@ function releasedByApp(login: unknown, at: Date, ownWrites: readonly LandedWrite
 }
 
 /** A `Date`; `null` for an entry that does not count; `"unparsable"` for one that cannot be trusted. */
-function humanChangeAt(
-    entry: unknown,
-    ownWrites: readonly LandedWrite[],
-): Date | null | "unparsable" {
+function humanChangeAt(entry: unknown, landed: readonly LandedWrite[]): Date | null | "unparsable" {
     const kind = field(entry, "event");
     // Stryker disable next-line ConditionalExpression: Set.has answers false for any non-string already; the typeof arm is for readers.
     if (typeof kind !== "string" || !HUMAN_CHANGE_EVENTS.has(kind)) return null;
@@ -137,7 +136,7 @@ function humanChangeAt(
     if (!Number.isFinite(at.getTime())) return "unparsable";
     // GitHub names the ASSIGNEE as the actor of a release the App made (D159).
 
-    if (kind === "unassigned" && releasedByApp(changeTarget(entry, kind), at, ownWrites)) {
+    if (kind === "unassigned" && releasedByApp(changeTarget(entry, kind), at, landed)) {
         return null;
     }
     return at;
@@ -146,12 +145,12 @@ function humanChangeAt(
 /** Exclude at most one matching cause. Every other change still counts, including ties. */
 function newestIn(
     events: readonly unknown[],
-    ownWrites: readonly LandedWrite[],
+    landed: readonly LandedWrite[],
     cause?: CauseFingerprint,
 ): HumanChangeOrdering {
     let newest: Date | null = null;
     for (const entry of events) {
-        const at = humanChangeAt(entry, ownWrites);
+        const at = humanChangeAt(entry, landed);
         if (at === "unparsable") return "unknown";
         if (at === null) continue;
         if (
@@ -200,10 +199,10 @@ function parsePage(outcome: GitHubOutcome): PageOutcome {
  * Incomplete coverage without a newest-block find must answer `"unknown"`.
  */
 async function readOrdering(
-    { http, repository, cause, onUnknownOrdering }: OrderingEvidenceOptions,
+    { http, repository, ownWrites, cause, onUnknownOrdering }: OrderingEvidenceOptions,
     item: ItemRef,
-    ownWrites: readonly LandedWrite[],
 ): Promise<HumanChangeOrdering> {
+    const landed = ownWrites(item);
     const pageUrl = (page: number): string =>
         `${repoPath(repository)}/issues/${String(item.number)}/timeline` +
         `?per_page=${String(TIMELINE_PAGE_SIZE)}&page=${String(page)}`;
@@ -222,7 +221,7 @@ async function readOrdering(
     const itemCause = cause?.itemNumber === item.number ? cause : undefined;
     /** The newest human change in these events, saying why when it cannot tell. */
     const newestOf = (events: readonly unknown[]): HumanChangeOrdering => {
-        const answer = newestIn(events, ownWrites, itemCause);
+        const answer = newestIn(events, landed, itemCause);
         return answer === "unknown"
             ? unknown("a timeline entry carried an unreadable actor or timestamp")
             : answer;
@@ -280,17 +279,17 @@ export function causeFingerprintOf(payload: unknown): CauseFingerprint | undefin
 
 /**
  * One delivery's memo: concurrent intents share each item's in-flight read.
- * The FIRST caller's own writes answer for the item, so every caller sharing a memo must pass the same journal.
+ * The journal is read with the timeline, so a write landing mid-delivery changes no answer already given.
  */
 export function orderingEvidenceSource(
     options: OrderingEvidenceOptions,
-): (item: ItemRef, ownWrites?: readonly LandedWrite[]) => Promise<HumanChangeOrdering> {
+): (item: ItemRef) => Promise<HumanChangeOrdering> {
     const memo = new Map<string, Promise<HumanChangeOrdering>>();
-    return (item, ownWrites = []) => {
+    return (item) => {
         const key = `${item.kind}#${String(item.number)}`;
         let pending = memo.get(key);
         if (pending === undefined) {
-            pending = readOrdering(options, item, ownWrites);
+            pending = readOrdering(options, item);
             memo.set(key, pending);
         }
         return pending;
@@ -300,10 +299,7 @@ export function orderingEvidenceSource(
 /** The two facts the live fill supplies; the shell adds its own. */
 export interface LiveExternalFacts {
     readonly installationGrants: readonly PermissionGrant[];
-    readonly latestHumanChangeAt: (
-        item: ItemRef,
-        ownWrites?: readonly LandedWrite[],
-    ) => Promise<HumanChangeOrdering>;
+    readonly latestHumanChangeAt: (item: ItemRef) => Promise<HumanChangeOrdering>;
     readonly resolve: ResolverSource;
 }
 
@@ -321,7 +317,8 @@ export interface LiveExternalsOptions {
     readonly config: RepositoryConfig;
     /** The declarations the shell ships; the adapter may not import them itself. */
     readonly knownCapabilities: readonly AdmittedCapability[];
-    /** Passed straight to `OrderingEvidenceOptions`. */
+    /** Both passed straight to `OrderingEvidenceOptions`. */
+    readonly ownWrites: (item: ItemRef) => readonly LandedWrite[];
     readonly onUnknownOrdering?: (detail: string) => void;
 }
 
@@ -333,6 +330,7 @@ export async function liveExternalsForDelivery(
         repository,
         config,
         knownCapabilities,
+        ownWrites,
         onUnknownOrdering,
     }: LiveExternalsOptions,
     payload: unknown,
@@ -347,6 +345,7 @@ export async function liveExternalsForDelivery(
             latestHumanChangeAt: orderingEvidenceSource({
                 http,
                 repository,
+                ownWrites,
                 // Stryker disable next-line ConditionalExpression: spreading { cause: undefined } is runtime-identical; the guard serves exactOptionalPropertyTypes.
                 ...(cause === undefined ? {} : { cause }),
                 // Stryker disable next-line ConditionalExpression: as above — the guard serves exactOptionalPropertyTypes, not behaviour.

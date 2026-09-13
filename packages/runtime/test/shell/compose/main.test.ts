@@ -920,7 +920,7 @@ describe("the sandbox entry point, as a process", () => {
      * The fake GitHub answers the open-item list with an empty array (its last
      * route is `timeline`, and this case scripts that empty), so the firing
      * decides nothing and the case stays about the WIRING rather than about a
-     * ladder's judgement — which `test/sweep.test.ts` owns. `SWEEP_WRITE_CAP`
+     * ladder's judgement — which `test/shell/sweep/sweep.test.ts` owns. `SWEEP_WRITE_CAP`
      * and `SWEEP_READ_BUDGET` ride the same wiring: accepted at boot, and spent
      * by nothing here, so the firing finishes the list with no cursor to keep.
      */

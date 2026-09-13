@@ -113,13 +113,19 @@ module.exports = {
                 "directory of the runtime; and no other package. The " +
                 "runtime's own `src/index.ts` is absent from the FROM side because it is the " +
                 "package's public surface rather than a consumer of the adapter: it re-exports " +
-                "three barrels and reaches into none of them.",
+                "three barrels and reaches into none of them. The sweep's test directory is the " +
+                "one other exemption: the sweep is the seam between the shell and the adapter, so " +
+                "its test needs the adapter's real reader and the fake it answers with, and it " +
+                "takes both through the barrel the way the composition root does.",
             from: {
                 path: [
                     `${P}(?:core|capabilities|checks|lab|testkit)/(?:src|test)/`,
                     R("store|shell"),
                 ],
-                pathNot: ["^packages/runtime/src/shell/compose/(?:live|main)\\.ts$"],
+                pathNot: [
+                    "^packages/runtime/src/shell/compose/(?:live|main)\\.ts$",
+                    "^packages/runtime/test/shell/sweep/",
+                ],
             },
             to: { path: R("adapter") },
         },

@@ -8,10 +8,9 @@ the provenance table below records what was actually measured. The operation lis
 
 ## What is here today
 
-Three directories, one per job (D176): `client/` talks to GitHub, `reads/` reads it, `writes/`
-changes it. The reads name the client, the writes name the client and the reads, and the client
-names neither — which is why the admission gate holds the confirmed endpoint shapes itself.
-`packages/dev/checks/test/adapter-layering.test.ts` is the lock.
+Three directories, one per job (D176) — `client/` talks to GitHub, `reads/` reads it, `writes/`
+changes it — and the tree, with the lock that holds their direction, is
+[`design/architecture.md`](../../../../design/architecture.md) §1.
 
 ```mermaid
 flowchart LR
@@ -31,28 +30,9 @@ flowchart LR
     FAC --> SHELL
 ```
 
-| File | The question it answers |
-|---|---|
-| `client/jwt.ts` | What proves we are the App? |
-| `client/token.ts` | What token may we call with, right now? |
-| `client/contract.ts` | What shapes and spellings does every GitHub exchange use? |
-| `client/endpoints.ts` | Which write endpoints did the matrix confirm, and what does each one stale? |
-| `client/admission.ts` | May this request be sent, and what permission does it need? |
-| `client/http.ts` | How does one admitted request travel, and come back classified? |
-| `client/mint.ts` | How is a token minted when no token exists yet? |
-| `client/untrusted.ts` | How are GitHub's bytes read without trusting them? |
-| `reads/config.ts` | Which configuration is on the repository's default branch? |
-| `reads/externals.ts` | Which of core's external facts does GitHub answer, live? |
-| `reads/resolvers.ts` | How are the two catalogued resolver questions answered? |
-| `reads/facts.ts` | What are a repository's open items, and what does each one's record say? |
-| `writes/writes.ts` | How does one write travel, and what does its answer mean? |
-| `writes/readback.ts` | Did the write land — is the postcondition observably true? |
-| `writes/operations/` | Which verbs does one write operation contribute, and how does it build each request? |
-
 Every outside dependency — fetch, the clock, the mint call — is injected, so no test reaches the
 network. The client exposes only the REST and GraphQL reads this stage has proved, pins credentials to GitHub's
-HTTPS API origin, and refuses to follow redirects. Each file's header carries its own detail; read
-them in the table's order.
+HTTPS API origin, and refuses to follow redirects. Each file's header carries its own detail.
 
 ## The four rules every file here holds to
 

@@ -17,15 +17,14 @@ flowchart LR
     U --> C
 ```
 
-## The five stations, and who owns each
+## Who owns the five stations
 
-| Step | File | Owned by |
-|---|---|---|
-| ① Verify the signature before anything else | [`inbound/receiver.ts`](inbound/receiver.ts) | core's `verifyBody` — the receiver never parses what it has not verified |
-| ② Persist durably, only then `202` | [`inbound/receiver.ts`](inbound/receiver.ts) → [`compose/shell.ts`](compose/shell.ts) | the store's `acceptDelivery` (P9): a crash after the ack loses nothing |
-| ③ Prepare: config text → `parseConfigDocument`, externals assembled | [`inbound/deliveries.ts`](inbound/deliveries.ts), [`decide/config.ts`](decide/config.ts), [`decide/externals.ts`](decide/externals.ts) | core's config layer; a broken config becomes `configRejected`, while `active` becomes `modeUnsupported` before `decide()` in any composition that wires no write path — the default |
-| ④ Decide with one verb | [`decide/item.ts`](decide/item.ts) | core's `decide()`; the shell cannot assert a world — `DerivedWorld` has no public constructor |
-| ⑤ Commit completion | [`inbound/deliveries.ts`](inbound/deliveries.ts) → store's `completeDelivery` | store verifies delivery identity and claim ownership, then marks the delivery done in one transaction; what was decided is already `decision` rows (D173) |
+Not the shell: ① is core's `verifyBody`, ② the store's `acceptDelivery`, ③ core's config layer (a
+broken config becomes `configRejected`, and `active` becomes `modeUnsupported` before `decide()` in
+any composition that wires no write path — the default), ④ core's `decide()`, which the shell cannot
+hand a world it asserted because `DerivedWorld` has no public constructor, and ⑤ the store's
+`completeDelivery` — the shell owns the order alone, and the tree that files it is
+[`design/architecture.md`](../../../../design/architecture.md) §1.
 
 ## Why a delivery goes into the database and comes back out
 

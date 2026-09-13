@@ -7,7 +7,7 @@ description: Author or revise a capability design doc in design/guides/capabilit
 
 Read the nearest exemplar first: the design docs beside their code in `packages/capabilities/src/`.
 A new design starts in `design/guides/capabilities/` and moves into its capability's folder the day
-that folder exists. Start from what exists — the C++ and Python SDK bots and `design/audit/services.md`
+that folder exists. Start from what exists — the C++ and Python SDK bots and `design/findings/services.md`
 — and make a difference between two SDKs two example configs of one schema, not two features.
 
 ## The page

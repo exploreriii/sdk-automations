@@ -13,10 +13,10 @@
  * were read) and the pull-request record skipped `factsUnread` (its `review`
  * group was not). That is the whole contract of this phase in one case.
  *
- * It sits at the top of `test/` rather than in `test/shell/` or `test/adapter/`
- * because it is about the seam BETWEEN them, and `.dependency-cruiser.cjs` lets
- * neither directory import the other. It reaches both through their barrels,
- * which is the same thing the composition root does.
+ * It sits beside the driver it covers, and reaches the adapter's real reader
+ * and its fake under the one allowance `adapter-imported-at-shell-main-only`
+ * carries for this directory: the sweep is the seam between the two, and the
+ * barrel is how it crosses, the way the composition root does.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -33,7 +33,7 @@ import {
 } from "@hiero-hackers/automation-core";
 import { CAPABILITIES, inactivity } from "@hiero-hackers/automation-capabilities";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
-import { createFactsReader, orderingEvidenceSource } from "../src/adapter/index.js";
+import { createFactsReader, orderingEvidenceSource } from "../../../src/adapter/index.js";
 import {
     createDeliveries,
     createItemDecider,
@@ -57,9 +57,14 @@ import {
     type SweptItem,
     type SweptItems,
     type WriteBudget,
-} from "../src/shell/index.js";
-import { Store, type Fact } from "../src/store/index.js";
-import { httpHarness, installationToken, success, type ResponseStep } from "./adapter/harness.js";
+} from "../../../src/shell/index.js";
+import { Store, type Fact } from "../../../src/store/index.js";
+import {
+    httpHarness,
+    installationToken,
+    success,
+    type ResponseStep,
+} from "../../adapter/harness.js";
 
 const REPOSITORY = { owner: "hiero-hackers", repo: "sdk-automations" } as const;
 const SCHEDULE = sweepScheduleId(REPOSITORY);

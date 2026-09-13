@@ -60,20 +60,11 @@ rather than single facts. The effect leases and the schedule rows live beside
 the facts because they are the same half's concern: what one worker may start
 now, and when the clock says to start it.
 
-## The questions, and where each is answered
+## Where each question is answered
 
-| The question | Answered in |
-|---|---|
-| Which owned database format is this, and how does it reach the current version safely? | [`schema.ts`](schema.ts) |
-| Who owns the file — its pragmas, its version, and the two modules over it? | [`store.ts`](store.ts) |
-| Which durable delivery transition may commit now? | [`inbox.ts`](inbox.ts) |
-| Which fact may be appended, what do the facts add up to, and who holds the lease and the clock? | [`ledger.ts`](ledger.ts) |
-| Where does an effect stand, given its facts, and is that history possible? | [`fold.ts`](fold.ts) |
-| What are a delivery, a fact and a scheduled row? | [`deliveries.ts`](deliveries.ts), [`facts.ts`](facts.ts), [`schedules.ts`](schedules.ts) |
-| What must an argument be before a statement runs? | [`guards.ts`](guards.ts) |
-
-[`index.ts`](index.ts) is the barrel, so consumers name the concern rather than
-the file inside it.
+Behind [`index.ts`](index.ts), the barrel that lets a consumer name the concern
+rather than the file inside it; the tree is
+[`design/architecture.md`](../../../../design/architecture.md) §1.
 
 ## The tables
 

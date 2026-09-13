@@ -33,17 +33,9 @@ own warning comment is approved instead)"]
 (not executed by the runnable shell)"]
 ```
 
-| Directory | The question it answers | Files |
-|---|---|---|
-| `src/engine/` | What does the platform DO with a delivery? | `decide.ts` (the verb), `events.ts` (webhook payload → fact record), `invoke.ts` (how a capability is called, type erased) |
-| `src/config/` | What did this repository ask for? | `schema.ts`, `sections.ts`, `parse.ts`, `document.ts` (YAML in), `labels.ts` (label ↔ meaning, both directions) |
-| `src/workflow/` | What states exist, and how do they move? | `positions.ts` (derived from config), `causes.ts`, `state.ts`, `transitions.ts` (the tables and the legality question), `reference.ts` (the executable spec), `project.ts` |
-| `src/catalogue.ts` | What words may either side use? | the closed vocabulary: refs, fact shapes, resolvers, operations, comment kinds |
-| `src/capability/` | What may a capability declare? | `declaration.ts` (the sole direct-list validator), `spec.ts` + `settings.ts` (the reader and the kit), `facts.ts`, `producers.ts`, `boundary.ts` (how it is called), `factory.ts` (how one is built without ceremony), `guards.ts` |
-| `src/intents/` | What is an effect, once decided? | `intent.ts` (the request and its derived identity), `managed.ts` (platform-owned comment identity), `operations/` (the platform's facts and change wording, one module per operation) |
-| `src/safety/` | May this write happen? | `write.ts` + `destructive.ts` (the two gates, both reachable since `design/guides/grace.md`), `rules.ts` (the ordered rules both share), `world.ts` (the derived, unforgeable facts) |
-| `src/github/` | Is this still true of GitHub? | `failures.ts`, `rate-limits.ts`, `ids.ts`, `signatures.ts` — each stamping, in its own header, the date it was probed and the symptom that says it has rotted |
-| `src/report/` | What happened, and who must act? | `finding.ts` (the record), `convert.ts` (the one severity table) |
+The tree — every directory of `src/` and what it owns — is
+[`design/architecture.md`](../../design/architecture.md) §1, which files core's by the AUDIENCE each
+one serves (D175).
 
 Each directory's `index.ts` header is its own documentation — what it owns,
 its rules and its traps. Directories are named for the question a maintainer
@@ -264,7 +256,7 @@ code as its evidence:
   `readyToMerge → needsRevision` edge, the `reviewRequestedChanges`
   cause, and `approvalInvalidated` replacing the trigger-named
   `newCommitsInvalidatedApproval`. All three found by reading the tables
-  against `design/audit/`, not against the prose.
+  against `design/findings/`, not against the prose.
 - `FINDING(taxonomy-reopen)` → **D49** — reopening clears the closure
   and moves no position; a merged pull request can never reopen.
 - `FINDING(taxonomy-entity-scoped-causes)` → **D50** — issue and

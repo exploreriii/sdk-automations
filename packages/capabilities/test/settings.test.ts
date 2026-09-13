@@ -24,7 +24,11 @@ import {
 import { CAPABILITIES } from "../src/index.js";
 import { intake } from "../src/intake/capability.js";
 import { inactivity } from "../src/inactivity/capability.js";
-import { configEnabling, sweptIssue, webhookIssue } from "./world.js";
+import {
+    configEnabling,
+    sweptIssue,
+    webhookIssue,
+} from "@hiero-hackers/automation-core/author/testing";
 
 const AT = new Date("2026-09-09T09:00:00.000Z");
 const REPO = { owner: "hiero-hackers", repo: "sandbox" } as const;
@@ -36,7 +40,7 @@ const viewFor = <D extends TypedDeclaration>(
 ) =>
     projectCapabilityView(
         declaration,
-        configEnabling([declaration.name], [declaration.name], {
+        configEnabling([declaration.name], [declaration], {
             [declaration.name]: settings,
         }),
     );
@@ -112,12 +116,13 @@ describe("the seeds' specs", () => {
      */
     it("hand a seed whose spec declares no key nothing at all", () => {
         const names = CAPABILITIES.map(({ declaration }) => declaration.name);
+        const declarations = CAPABILITIES.map(({ declaration }) => declaration);
         const keyless = CAPABILITIES.filter(
             ({ declaration }) => Object.keys(declaration.settings).length === 0,
         );
         expect(keyless.length).toBeGreaterThan(0);
 
-        const config = configEnabling(names, names);
+        const config = configEnabling(names, declarations);
         for (const { declaration } of keyless) {
             expect(config.capabilities[declaration.name]?.settings, declaration.name).toEqual({});
         }
@@ -167,7 +172,7 @@ describe("a settings block a seed cannot read", () => {
             inactivity.declaration,
             configEnabling(
                 ["inactivity"],
-                ["inactivity"],
+                [inactivity.declaration],
                 {
                     inactivity: {
                         pullRequests: {
@@ -204,7 +209,7 @@ describe("a settings block a seed cannot read", () => {
             inactivity.declaration,
             configEnabling(
                 ["inactivity"],
-                ["inactivity"],
+                [inactivity.declaration],
                 { inactivity: { issues: { enabled: true } } },
                 { labels: { awaitingTriage: "status: triage" } },
             ),
@@ -227,7 +232,7 @@ describe("a settings block a seed cannot read", () => {
             inactivity.declaration,
             configEnabling(
                 ["inactivity"],
-                ["inactivity"],
+                [inactivity.declaration],
                 {
                     inactivity: {
                         pullRequests: {

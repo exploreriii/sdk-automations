@@ -13,14 +13,14 @@ import {
     type WorkItemState,
 } from "@hiero-hackers/automation-core";
 import { intake, type IntakeDeclaration } from "./capability.js";
-import { configEnabling, webhookIssue } from "../../test/world.js";
+import { configEnabling, webhookIssue } from "@hiero-hackers/automation-core/author/testing";
 
 const AT = new Date("2026-08-03T09:00:00.000Z");
 const REPO = { owner: "hiero-hackers", repo: "sandbox" } as const;
 const ITEM = { kind: "issue", number: 11 } as const;
 
-const announcing = configEnabling(["intake"], ["intake"], { intake: { announce: true } });
-const silent = configEnabling(["intake"], ["intake"]);
+const announcing = configEnabling(["intake"], [intake.declaration], { intake: { announce: true } });
+const silent = configEnabling(["intake"], [intake.declaration]);
 /** The same repository, having mapped no meanings at all. */
 const unmapped = {
     ...announcing,

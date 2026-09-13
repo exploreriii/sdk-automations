@@ -22,7 +22,11 @@ import {
 } from "@hiero-hackers/automation-core";
 import { inactivity, type InactivityDeclaration } from "./capability.js";
 import type { InactivityFacts, IssueLadderFacts, PullLadderFacts } from "./declaration.js";
-import { configEnabling, sweptIssue, sweptPullRequest } from "../../test/world.js";
+import {
+    configEnabling,
+    sweptIssue,
+    sweptPullRequest,
+} from "@hiero-hackers/automation-core/author/testing";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -66,7 +70,7 @@ const viewWith = (settings: Readonly<Record<string, unknown>>) =>
         inactivity.declaration,
         configEnabling(
             ["inactivity"],
-            ["inactivity"],
+            [inactivity.declaration],
             { inactivity: settings },
             { labels: LABELS },
         ),
@@ -763,7 +767,7 @@ describe("the platform warns, waits, then acts", () => {
     const ENGINE = [toEngine(inactivity)];
     const CONFIG = configEnabling(
         ["inactivity"],
-        ["inactivity"],
+        [inactivity.declaration],
         { inactivity: DESIGN_SETTINGS },
         { labels: LABELS },
     );

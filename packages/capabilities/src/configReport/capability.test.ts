@@ -18,7 +18,6 @@ import {
     type ConfigResult,
     type Facts,
     type ResolverSource,
-    type FactsFor,
     type PlatformHandle,
     type PrMeaning,
     type Projection,
@@ -31,7 +30,11 @@ import { CONFIG_REPORT_SETTINGS } from "./settings.js";
 import { intakeDeclaration } from "../intake/capability.js";
 import { prQualityDeclaration } from "../prQuality/capability.js";
 import { inactivityDeclaration } from "../inactivity/capability.js";
-import { asDeclared, configEnabling, webhookPullRequest } from "../../test/world.js";
+import {
+    configEnabling,
+    factsFor,
+    webhookPullRequest,
+} from "@hiero-hackers/automation-core/author/testing";
 
 const AT = new Date("2026-08-03T09:00:00.000Z");
 const REPO = { owner: "hiero-hackers", repo: "sandbox" } as const;
@@ -49,11 +52,12 @@ const KNOWN: readonly AdmittedCapability[] = [
 const view = () =>
     projectCapabilityView(
         configReport.declaration,
-        configEnabling(["configReport"], ["configReport"]),
+        configEnabling(["configReport"], [configReport.declaration]),
     );
 
 const pullRequest = (state: Partial<WorkItemState<PrMeaning>>) =>
-    asDeclared<FactsFor<ConfigReportDeclaration>>(
+    factsFor(
+        configReport.declaration,
         webhookPullRequest({
             repository: REPO,
             item: ITEM,

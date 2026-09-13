@@ -1,55 +1,34 @@
 /**
- * What remains of the probe world after D92 3(c): the engine owns the
- * platform wiring (`decide()` replaced `runEnabled`, and the engine matrix
- * replaced the harness matrix), so this file keeps only the test
- * conveniences that were never platform-shaped — a config builder and the
- * smallest-block helper it is built on, the subset enumerator, and the
- * fact-record builders.
- *
- * ONE BUILDER, and it takes a producer: `recordFrom` reads that producer's row
- * in core's `PRODUCERS` and fills exactly the groups the row names, marking the
- * rest `UNREAD`. A suite naming a producer is therefore making the platform's
- * own claim about what that producer reads, and a row that changes moves every
- * fixture with it rather than leaving four hand-written records behind. The
- * four named builders below are thin wrappers, kept because which producer a
- * suite reaches for IS the claim it is making and `recordFrom("sweep", …)`
- * reads no better at a call site than `sweptIssue()`.
+ * The fixture harness a capability's tests build on: a configuration builder,
+ * the subset enumerator, and the record builders. Every answer is read off the
+ * platform's own tables, so a table that changes moves the fixtures with it.
  */
 
-import { CAPABILITIES } from "../src/index.js";
 import {
     carriesFactGroup,
-    describeSpec,
     FACT_GROUPS,
-    parseConfig,
-    producerReads,
     UNREAD,
     type FactGroup,
-    type AdmittedCapability,
     type FactKind,
     type Facts,
+    type Unread,
+} from "../catalogue.js";
+import {
+    describeSpec,
     type FieldDescription,
-    type GroupsReadBy,
-    type ProducerName,
-    type RepositoryConfig,
     type SettingsView,
     type Spec,
-    type Unread,
-} from "@hiero-hackers/automation-core";
-
-/**
- * The shipped declaration of one name, which is how a suite admits it.
- *
- * `parseConfig` reads each block against the spec that admitted it (C1), so a
- * fixture admitting a name has to admit the real capability or it would be
- * proving the settings against a schema nobody ships. A name outside the
- * registry throws here rather than quietly admitting nothing.
- */
-function shipped(name: string): AdmittedCapability {
-    const found = CAPABILITIES.find(({ declaration }) => declaration.name === name);
-    if (found === undefined) throw new Error(`no shipped capability named "${name}"`);
-    return found.declaration;
-}
+} from "../config/spec.js";
+import { parseConfig } from "../config/parse.js";
+import type { AdmittedCapability, RepositoryConfig } from "../config/schema.js";
+import type { TypedDeclaration } from "../capability/declaration.js";
+import type { FactsFor } from "../capability/boundary.js";
+import {
+    producerReads,
+    producersReading,
+    type GroupsReadBy,
+    type ProducerName,
+} from "../capability/producers.js";
 
 /** The three meanings a repository maps unless a suite asks for others. */
 const LABELS: Readonly<Record<string, string>> = {
@@ -61,10 +40,8 @@ const LABELS: Readonly<Record<string, string>> = {
 /**
  * The principal a probe document declares when the suite named none.
  *
- * A spec may REQUIRE a principal, and a name is only a principal because the
- * document declared it — so a document that declares nobody has no valid block
- * to offer such a capability at all. One declared name is what makes the
- * smallest block below buildable without every suite knowing it.
+ * A spec may REQUIRE a principal, and a name is only one because the document
+ * declared it: one declared name is what makes the smallest block buildable.
  */
 const PRINCIPALS: Readonly<Record<string, string>> = {
     maintainerTeam: "hiero-hackers/maintainers",
@@ -72,9 +49,8 @@ const PRINCIPALS: Readonly<Record<string, string>> = {
 
 /**
  * The names a document offers a spec: its mapped families and its principals.
- *
- * The defaults are `configEnabling`'s own, so a suite that builds a block for
- * the default document and then enables it reads one answer, not two.
+ * The defaults are `configEnabling`'s own, so a block built for the default
+ * document and then enabled reads one answer, not two.
  */
 export function namesOffered(
     mappings: Readonly<Record<string, unknown>> = { labels: LABELS },
@@ -98,11 +74,8 @@ export function namesOffered(
 /**
  * The smallest value one REQUIRED field admits.
  *
- * Only the kinds whose `absent` can be `problem` have one, which is why the
- * last arm is a throw rather than a value: a constructor that grows a required
- * form and is not named here would otherwise be answered with `undefined`, and
- * the parser's complaint would name the maintainer's key rather than this
- * helper.
+ * Only the kinds whose `absent` can be `problem` have one: a required form not
+ * named here throws rather than answering `undefined` at the maintainer's key.
  */
 function smallestValue(key: string, field: FieldDescription, names: SettingsView): unknown {
     switch (field.kind) {
@@ -140,25 +113,8 @@ function smallestIn(
 
 /**
  * The smallest settings block a spec accepts: every key whose absence is a
- * PROBLEM, at the smallest value its kind admits, and nothing else.
- *
- * A spec with a required key has no empty block, so a fixture that configures
- * every shipped capability with `enabled` and nothing else stops building the
- * day one ships a required setting — and the P3 matrix is exactly that
- * fixture. Read
- * off `describeSpec`, the spec's own account of itself, so the answer moves
- * with the spec rather than with a fixture nobody would think to edit.
- *
- * `names` is `readSettings`'s own second parameter, so the block is built from
- * the names it will be judged against. A required `principal` resolves to the
- * FIRST name the document declares, which is also how this says which
- * principals a document must declare: one that declares none cannot satisfy a
- * required principal, and the parser says so at the maintainer's own path.
- *
- * A `section` is walked whether or not it is written, because an absent one
- * still reads every field it holds. Every other group empties or parks when it
- * is absent (`packages/core/src/capability/settings.ts`), so no required key
- * can hide inside one.
+ * PROBLEM, at the smallest value its kind admits, and nothing else. Read off
+ * `describeSpec`, so the answer moves with the spec rather than with a fixture.
  */
 export function smallestValidSettings(
     fields: Spec,
@@ -181,8 +137,7 @@ function fullestIn(
         } else if (field.absent === "problem") {
             written[key] = smallestValue(key, field, names);
         } else if (field.kind === "flag") {
-            // A flag is a switch, and "fullest" throws every switch: a
-            // capability whose comment is behind `announce: true` posts it here.
+            // A flag is a switch, and "fullest" throws every switch.
             written[key] = true;
         } else if (field.default !== undefined) {
             written[key] = field.default;
@@ -193,18 +148,8 @@ function fullestIn(
 
 /**
  * The settings block that switches a spec on: every block consented to, every
- * flag `true`, every required key at the smallest value its kind admits, every
- * other key at its own default.
- *
- * A capability whose work is behind an opt-in block does nothing at all under
- * `smallestValidSettings`, and a suite wanting it to decide something used to
- * keep a hand-written map of blocks to enable — a map nobody edits when a
- * capability grows its first one, which is exactly when the suite stops
- * measuring anything. This is that map derived from the spec instead.
- *
- * Absent is the default for the three kinds nothing is written for: an open
- * mapping's keys are the repository's own and no fixture can invent one, a
- * list reads as no entries, and a key that may be left out reads as `null`.
+ * flag `true`, every required key at its smallest value, every other key at its
+ * own default. The three kinds a fixture cannot invent stay absent.
  */
 export function fullestValidSettings(
     fields: Spec,
@@ -214,52 +159,37 @@ export function fullestValidSettings(
 }
 
 /**
- * A repository configuration enabling exactly the named capabilities.
- *
- * `mappings` is a parameter because a capability's rules can depend on WHICH
- * meanings are mapped, not only on its own settings: inactivity's label reason
- * demands `needsRevision`, which the default three do not include. Its entries
- * are `unknown` rather than strings because the value goes to `parseConfig`
- * unread, and narrowing it here would only be this fixture restating a schema
- * it does not own.
- *
- * `principals` is a parameter for the same reason: a settings field may name
- * one (`notify:`), and a document declaring none can only ever report the
- * name as undeclared.
- *
- * Every admitted block starts at `smallestValidSettings` rather than at `{}`,
- * enabled or not, because the parser reads a DISABLED capability's block too
- * (D84). That is what lets a capability with a required setting join the P3
- * matrix on its registry line alone: the fixture already writes the one key,
- * and `extra` still overrides anything a suite wants to state itself.
+ * A repository configuration enabling exactly the named capabilities, out of
+ * the declarations `known` admits. `mappings` and `principals` are parameters
+ * because a capability's rules can depend on what the document maps or declares.
  */
 export function configEnabling(
-    names: readonly string[],
-    known: readonly string[],
+    enabled: readonly string[],
+    known: readonly AdmittedCapability[],
     extra: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {},
     mappings: Readonly<Record<string, unknown>> = { labels: LABELS },
     principals: Readonly<Record<string, string>> = PRINCIPALS,
 ): RepositoryConfig {
+    for (const name of enabled) {
+        if (known.some((declaration) => declaration.name === name)) continue;
+        throw new Error(
+            `no declaration named "${name}" among the ${String(known.length)} admitted`,
+        );
+    }
     const offered = namesOffered(mappings, principals);
     const capabilities: Record<string, unknown> = {};
-    for (const name of known) {
-        // Flat, as a maintainer writes it: consent, then the capability's own
-        // keys beside it.
-        capabilities[name] = {
-            enabled: names.includes(name),
-            ...smallestValidSettings(shipped(name).settings, offered),
-            ...extra[name],
+    for (const declaration of known) {
+        // Flat, as a maintainer writes it: consent, then the capability's own keys.
+        // Every block starts at its smallest valid settings, enabled or not (D84).
+        capabilities[declaration.name] = {
+            enabled: enabled.includes(declaration.name),
+            ...smallestValidSettings(declaration.settings, offered),
+            ...extra[declaration.name],
         };
     }
     const result = parseConfig(
-        {
-            schemaVersion: 2,
-            mode: "active",
-            capabilities,
-            mappings,
-            principals,
-        },
-        { revision: "rev-1", knownCapabilities: known.map(shipped) },
+        { schemaVersion: 2, mode: "active", capabilities, mappings, principals },
+        { revision: "rev-1", knownCapabilities: known },
     );
     if (!result.ok) {
         throw new Error(`probe config invalid: ${result.errors.map((e) => e.message).join("; ")}`);
@@ -278,14 +208,10 @@ export function subsets<T>(items: readonly T[]): readonly (readonly T[])[] {
 
 /**
  * A record exactly as producer `P` makes one for kind `K`: every group its
- * registry row names is read, every other one is `Unread`.
- *
- * The mirror of the boundary's `FactsFor` from the other side. A builder
- * returning the wide `Facts` union could not be handed to any `evaluate` at
- * all — the view a declaration earns names each group exactly once, read or
- * unread, which is the guarantee doing its job.
+ * registry row names is read, every other one is `Unread`. The mirror of the
+ * boundary's `FactsFor` from the producer's side.
  */
-type RecordFrom<P extends ProducerName, K extends FactKind> = {
+export type RecordFrom<P extends ProducerName, K extends FactKind> = {
     readonly [Key in keyof Extract<Facts, { kind: K }>]: Key extends FactGroup
         ? Key extends GroupsReadBy<P, K>
             ? Exclude<Extract<Facts, { kind: K }>[Key], Unread>
@@ -305,16 +231,13 @@ const OPEN = {
 
 /**
  * What each group holds when its producer read it — the smallest true answer,
- * so a suite that cares about a clock or a link states it as an override and
- * every other suite is not reading a value someone invented for it.
+ * so a suite that cares about a clock or a link states it as an override.
  */
 const READ: { readonly [K in FactKind]: { readonly [G in FactGroup]?: unknown } } = {
     issue: {
         assignees: [],
         links: { openPullRequests: [] },
-        // A read group with nothing in it: this delivery issued no command.
-        // `UNREAD` would be the other thing entirely, which is the whole
-        // point of the group (facts.md §2).
+        // Read and empty: no command issued, which `UNREAD` is not (facts.md §2).
         command: null,
     },
     pullRequest: {
@@ -343,12 +266,9 @@ const NUMBERS: Readonly<Record<string, number>> = {
 };
 
 /**
- * One record as the named producer makes it.
- *
- * The single cast in this file, and what it stands on: the loop fills exactly
- * the groups `RecordFrom` types as read, because both read the same registry.
- * A group nobody enumerated would be a missing property rather than a wrong
- * one, and `FACT_GROUPS` is what stops that.
+ * One record as the named producer makes it. The loop fills exactly the groups
+ * `RecordFrom` types as read, because both read the same registry, and
+ * `FACT_GROUPS` is what stops a group nobody enumerated going missing.
  */
 export function recordFrom<P extends ProducerName, K extends FactKind>(
     producer: P,
@@ -390,6 +310,13 @@ export function sweptIssue(
     return recordFrom("sweep", "issue", over);
 }
 
+/** An issue as a comment delivery produces it: the command read, nothing else. */
+export function commentedIssue(
+    over: Partial<RecordFrom<"issue_comment", "issue">> = {},
+): RecordFrom<"issue_comment", "issue"> {
+    return recordFrom("issue_comment", "issue", over);
+}
+
 /** A pull request as a webhook produces it — `review` unread with the rest. */
 export function webhookPullRequest(
     over: Partial<RecordFrom<"pull_request", "pullRequest">> = {},
@@ -405,24 +332,28 @@ export function sweptPullRequest(
 }
 
 /**
- * One producer's record as one DECLARATION sees it — the erasure `decide()`
- * performs at the boundary (`facts as never`), done once here.
- *
- * `FactsFor` types every group a declaration did not name as `Unread` exactly,
- * so that a capability can do nothing with it. A producer's real record may
- * have read that group anyway — `pull_request` fills `readiness`, and
- * `prQuality` declares no need for it — and the two types are then not
- * assignable in either direction, although the value is right. A unit test
- * calling `evaluate` directly is the one place that meets it; the engine casts
- * for the same reason, at the same seam.
+ * One producer's record as one DECLARATION sees it: the kind must be declared
+ * and every declared need the kind carries must be read, or the projection the
+ * engine performs at the boundary would be a lie the fixture told.
  */
-export function asDeclared<F>(record: unknown): F {
-    return record as F;
-}
-
-/** An issue as a comment delivery produces it: the command read, nothing else. */
-export function commentedIssue(
-    over: Partial<RecordFrom<"issue_comment", "issue">> = {},
-): RecordFrom<"issue_comment", "issue"> {
-    return recordFrom("issue_comment", "issue", over);
+export function factsFor<D extends TypedDeclaration>(declaration: D, record: Facts): FactsFor<D> {
+    const kind: FactKind = record.kind;
+    if (!declaration.facts.includes(kind)) {
+        throw new Error(`capability "${declaration.name}" declares no "${kind}" record`);
+    }
+    const unread = new Set(
+        Object.entries(record)
+            .filter(([, value]) => value === UNREAD)
+            .map(([key]) => key),
+    );
+    for (const group of declaration.needs) {
+        if (!carriesFactGroup(kind, group)) continue;
+        if (!unread.has(group)) continue;
+        throw new Error(
+            `capability "${declaration.name}": "${group}" is unread on this ${kind} record — read by: ${producersReading(kind, group).join(", ")}`,
+        );
+    }
+    // THE ONE CAST, standing on the two checks above: they are `FactsFor`'s own
+    // clauses, asked of a value rather than of a type.
+    return record as FactsFor<D>;
 }

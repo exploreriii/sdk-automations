@@ -108,21 +108,24 @@ a MEASURED or PROBED fact, and a third copy of either breaks one fact, one place
    MOVED here as `design.md` — updating the table in `design/guides/capabilities/README.md` and the
    one-line list in `packages/capabilities/README.md`. Four files is the minimum, not the shape: split by
    concern when a file answers two questions. If the folder already exists it is a seed — promote
-   it in place.
+   it in place. Every file in the folder names core through `@hiero-hackers/automation-core/author`
+   (`packages/core/src/author/index.ts`), the door sized to what an author needs; the root barrel
+   is the engine's, and a dependency rule refuses it from a capability.
 
    The `design.md` title is READ: its first line must be `# <name> — <purpose>`, with a spaced
    em-dash, because `docs/capabilities.md`'s purpose column is the half after it
    (`packages/dev/checks/test/capabilities.test.ts`). Your `capability.test.ts` builds its records
-   from `packages/capabilities/test/world.ts`, and a capability declaring FEWER groups than its
-   producer reads wraps `sweptPullRequest()` in `asDeclared` — the erasure the engine performs at
-   the boundary.
+   from `@hiero-hackers/automation-core/author/testing` (`packages/core/src/author/testing.ts`),
+   and a capability declaring FEWER groups than its
+   producer reads passes `sweptPullRequest()` through `factsFor` — the projection the engine
+   performs at the boundary, checked against your declaration.
 
    Register in `packages/capabilities/src/index.ts`: an import and one entry in `CAPABILITIES`. The
    named `export { … }` block is a third line only if something outside the package names your
    capability. The P3 matrix then covers you, and it writes each block at its own spec's FULLEST
-   valid settings (`test/world.ts`), so work behind an `enabled: true` still runs in the alone-run.
-   A PRINCIPAL your spec requires must be declared under `principals:` by every example that
-   enables you.
+   valid settings (`packages/core/src/author/testing.ts`), so work behind an `enabled: true` still
+   runs in the alone-run. A PRINCIPAL your spec requires must be declared under `principals:` by
+   every example that enables you.
 
    `test/engine-matrix.test.ts` pins every managed comment four fixtures earn, by capability, item
    and topic, and it is hand-written on purpose: derived from the registry it would assert whatever

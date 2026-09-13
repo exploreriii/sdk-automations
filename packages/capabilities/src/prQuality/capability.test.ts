@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import {
     parseConfig,
     projectCapabilityView,
-    type FactsFor,
     type PlatformHandle,
     type PrMeaning,
     type Projection,
@@ -15,7 +14,11 @@ import {
     type WorkItemState,
 } from "@hiero-hackers/automation-core";
 import { prQuality, type PrQualityDeclaration } from "./capability.js";
-import { asDeclared, configEnabling, webhookPullRequest } from "../../test/world.js";
+import {
+    configEnabling,
+    factsFor,
+    webhookPullRequest,
+} from "@hiero-hackers/automation-core/author/testing";
 
 const AT = new Date("2026-08-03T09:00:00.000Z");
 const REPO = { owner: "hiero-hackers", repo: "sandbox" } as const;
@@ -24,7 +27,7 @@ const ITEM = { kind: "pullRequest", number: 12 } as const;
 const view = (settings: Readonly<Record<string, unknown>>) =>
     projectCapabilityView(
         prQuality.declaration,
-        configEnabling(["prQuality"], ["prQuality"], { prQuality: settings }),
+        configEnabling(["prQuality"], [prQuality.declaration], { prQuality: settings }),
     );
 
 /**
@@ -34,7 +37,8 @@ const view = (settings: Readonly<Record<string, unknown>>) =>
 const running = view({ checks: { linkedIssues: { enabled: true } } });
 
 const pullRequest = (state: Partial<WorkItemState<PrMeaning>>) =>
-    asDeclared<FactsFor<PrQualityDeclaration>>(
+    factsFor(
+        prQuality.declaration,
         webhookPullRequest({
             repository: REPO,
             item: ITEM,

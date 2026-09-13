@@ -13,7 +13,7 @@ import type {
     Unread,
 } from "@hiero-hackers/automation-core";
 import type { ClaimedScheduleRow, Store } from "../store/index.js";
-import type { WriteBudget } from "./apply.js";
+import type { WriteBudget } from "./apply/apply.js";
 import { detailOf, type Log } from "./log.js";
 import type { FactRecordInput, ShellRecord } from "./processor.js";
 import { SWEEP_EFFECT, sweptItemId, wantsSweeping } from "./schedule.js";

@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { Store } from "../../store/index.js";
 import { CAPABILITIES } from "@hiero-hackers/automation-capabilities";
-import { createApplier, type Applier } from "../apply.js";
+import { createApplier, type Applier } from "../apply/apply.js";
 import { createShell } from "../shell.js";
 import { CONFIG_PATH, fileConfigSource } from "../config.js";
 import { stubbedExternals } from "../externals.js";

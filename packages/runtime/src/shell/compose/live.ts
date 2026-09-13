@@ -22,7 +22,7 @@ import {
     type ReadBack,
     type WriteVerbs,
 } from "../../adapter/index.js";
-import type { EffectExternalsSource, EffectReader, EffectWriter } from "../apply.js";
+import type { EffectExternalsSource, EffectReader, EffectWriter } from "../apply/apply.js";
 import type { ConfigSource } from "../config.js";
 import type { ExternalsForDelivery, ShellExternals } from "../externals.js";
 import type { Log } from "../log.js";

@@ -25,7 +25,7 @@ import {
     EFFECT_LEASE_STALE_MINUTES,
     type Applier,
     type EffectExternalsSource,
-} from "../../src/shell/apply.js";
+} from "../../src/shell/apply/apply.js";
 import type { EffectOutcome } from "../../src/shell/effects.js";
 import { serializeCall } from "../../src/shell/operations/index.js";
 import { stubbedExternals } from "../../src/shell/externals.js";

@@ -29,7 +29,7 @@ import { Store } from "../../src/store/index.js";
 import { inactivity, intake, intakeDeclaration } from "@hiero-hackers/automation-capabilities";
 import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
 import { createProcessor } from "../../src/shell/processor.js";
-import type { Applier } from "../../src/shell/apply.js";
+import type { Applier } from "../../src/shell/apply/apply.js";
 import { stubbedExternals } from "../../src/shell/externals.js";
 import type { ConfigSource } from "../../src/shell/config.js";
 import type { Log, ShellEvent } from "../../src/shell/log.js";

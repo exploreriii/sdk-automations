@@ -102,8 +102,8 @@ in the vocabulary file lists them, one line per operation. The vocabulary file k
 `JournaledCall`, `Plan`, `EffectOutcome` and the codes; its four exported functions —
 `operationOf`, `serializeCall`, `parseJournaledCall`, `planFor` — become generic walks over the
 registry. In the applier, `send` and `confirm` become one-line dispatches; the choreography around
-them — `journalAndSend`, `resolveOpen`, `runFrom`, `continueOpen`, the brakes and the fresh gate —
-answers the fold's five states (D161).
+them — `sendCall`, `readBack`, the brakes and the fresh gate — answers the fold's five states,
+which `actionFor` reads as a table (D161, D172).
 
 **Payload compatibility is absolute.** A `sent` fact's payload is the serialized call:
 `serializeCall` writes `{capability, item}` then the handler's fields, so insertion order — and

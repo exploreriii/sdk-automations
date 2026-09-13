@@ -15,7 +15,7 @@ import {
 import type { Store } from "../store/index.js";
 import { createReceiver } from "./receiver.js";
 import { createProcessor, STALE_CLAIM_MINUTES } from "./processor.js";
-import { EFFECT_LEASE_STALE_MINUTES, type Applier } from "./apply.js";
+import { EFFECT_LEASE_STALE_MINUTES, type Applier } from "./apply/apply.js";
 import type { ConfigSource } from "./config.js";
 import type { ExternalsForDelivery } from "./externals.js";
 import { contained, createLogger, detailOf, type Log } from "./log.js";

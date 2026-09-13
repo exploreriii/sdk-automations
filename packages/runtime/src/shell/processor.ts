@@ -22,7 +22,7 @@ import {
     type RepositoryRef,
 } from "@hiero-hackers/automation-core";
 import type { ClaimedDelivery, ReleaseDeliveryAfterFailureResult, Store } from "../store/index.js";
-import type { Applier, WriteBudget } from "./apply.js";
+import type { Applier, WriteBudget } from "./apply/apply.js";
 import type { ConfigSource } from "./config.js";
 import { decisionsOf } from "./decisions.js";
 import type { EffectOutcome } from "./effects.js";

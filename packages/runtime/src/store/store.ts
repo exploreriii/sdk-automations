@@ -45,8 +45,8 @@ export class Store {
             `);
             migrateStorageSchema(this.db, injectFault);
         } catch (error) {
-            // Stryker disable next-line BlockStatement,CallExpression: an unclosed handle on the failure path leaks a file descriptor, which no black-box assertion can observe from outside the class — the close is resource hygiene, not visible behavior.
             try {
+                // Stryker disable next-line CallExpression: an unclosed handle on the failure path leaks a file descriptor, which no black-box assertion can observe from outside the class — the close is resource hygiene, not visible behavior.
                 this.db.close();
             } catch {
                 // Preserve the initialization error.

@@ -227,6 +227,35 @@ describe("the states the table names", () => {
         });
     });
 
+    it("treats a reversed fact as the effect's, never a call's", () => {
+        expect(fold([factAt(0, "reversed")], 2)).toEqual({ kind: "neverStarted" });
+    });
+
+    it("names the seq a call fact falls outside the plan at, either side", () => {
+        expect(fold([factAt(0, "sent")], 2)).toEqual({
+            kind: "inconsistent",
+            detail: "seq 0 is outside the plan's 2",
+        });
+        expect(fold([factAt(3, "sent")], 2)).toEqual({
+            kind: "inconsistent",
+            detail: "seq 3 is outside the plan's 2",
+        });
+    });
+
+    it("names the open seq a second send collided with", () => {
+        expect(fold([factAt(1, "sent"), factAt(2, "sent")], 2)).toEqual({
+            kind: "inconsistent",
+            detail: "a send at seq 2 while seq 1 was open",
+        });
+    });
+
+    it("names a closing fact whose seq is not the open one", () => {
+        expect(fold([factAt(1, "sent"), factAt(2, "landed")], 2)).toEqual({
+            kind: "inconsistent",
+            detail: "a landed at seq 2 closes no open send",
+        });
+    });
+
     it("says settled when the last call in the plan landed", () => {
         const facts = [
             factAt(1, "sent"),

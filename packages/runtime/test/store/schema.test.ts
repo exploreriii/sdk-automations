@@ -117,6 +117,17 @@ describe("storage schema versions", () => {
         });
     });
 
+    it("refuses a versioned file whose shape drifted from what it declares", () => {
+        new Store(databasePath).close();
+        const db = new DatabaseSync(databasePath);
+        db.exec("ALTER TABLE schedule ADD COLUMN extra TEXT");
+        db.close();
+
+        expect(() => new Store(databasePath)).toThrow(
+            "storage schema does not match declared version 1",
+        );
+    });
+
     it("refuses an unversioned file that holds anything at all", () => {
         const unknown = new DatabaseSync(databasePath);
         unknown.exec("CREATE TABLE unrelated (value TEXT)");

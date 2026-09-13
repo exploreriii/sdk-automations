@@ -580,6 +580,43 @@ describe("delivery completion and retention", () => {
 });
 
 describe("delivery intake boundaries", () => {
+    it.each(["g" + "0".repeat(63), "0".repeat(63) + "g"])(
+        "refuses a payload digest with a non-hex character at %s",
+        (digest) => {
+            const store = new Store(path);
+            expect(() =>
+                store.inbox.completeDelivery({
+                    deliveryId: FIRST_ID,
+                    eventName: "issues",
+                    payloadDigest: digest,
+                    claimToken: "token",
+                    completedAt: RECEIVED,
+                }),
+            ).toThrow(/payloadDigest/);
+            store.close();
+        },
+    );
+
+    it("refuses to redrive a delivery whose id is not a GUID", () => {
+        const store = new Store(path);
+        expect(() => store.inbox.redriveDelivery("nope" as never)).toThrow(/deliveryId/);
+        store.close();
+    });
+
+    it("rolls back an accept that dies before its commit, and takes it again", () => {
+        let arm = true;
+        const store = new Store(path, {
+            injectFault(point) {
+                if (point === "intake:accepted" && arm) throw new Error("boom");
+            },
+        });
+        expect(() => accept(store)).toThrow("boom");
+        expect(store.inbox.counts().pending).toBe(0);
+        arm = false;
+        expect(accept(store)).toMatchObject({ outcome: "accepted" });
+        store.close();
+    });
+
     it("fails closed on malformed identifiers, empty names, non-bytes, and invalid timestamps", () => {
         expect(asDeliveryGuid("")).toBeUndefined();
         expect(asDeliveryGuid("123")).toBeUndefined();

@@ -28,11 +28,11 @@ export function fold(facts: readonly Fact[], planLength: number): LedgerState {
     const attempts = new Map<number, number>();
     let open: Fact | null = null;
     let settled: LedgerState | null = null;
-    let calls = 0;
+    let anyCall = false;
 
     for (const fact of facts) {
         if (effectLevel(fact.kind)) continue;
-        calls += 1;
+        anyCall = true;
         if (settled !== null) return broken(`a ${fact.kind} arrived after the effect settled`);
         if (fact.seq < 1 || fact.seq > planLength) {
             return broken(`seq ${String(fact.seq)} is outside the plan's ${String(planLength)}`);
@@ -77,6 +77,6 @@ export function fold(facts: readonly Fact[], planLength: number): LedgerState {
         const spent = attempts.get(open.seq)!;
         return { kind: "open", seq: open.seq, payload: open.payload, attempts: spent };
     }
-    if (calls === 0) return { kind: "neverStarted" };
+    if (!anyCall) return { kind: "neverStarted" };
     return { kind: "resumable", nextSeq: landed.size + 1 };
 }

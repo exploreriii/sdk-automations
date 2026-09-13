@@ -25,7 +25,8 @@ import type {
 import { assertNonEmpty, assertUtcInstant } from "./guards.js";
 
 /** A deliberate interruption point in delivery durability work. */
-export type DeliveryFaultPoint = "finalize:deliveryCompleted" | "finalize:committed";
+export type DeliveryFaultPoint =
+    "intake:accepted" | "finalize:deliveryCompleted" | "finalize:committed";
 
 function assertDeliveryGuid(value: DeliveryGuid): void {
     if (asDeliveryGuid(value) === undefined) {
@@ -199,6 +200,7 @@ export class Inbox {
                           };
             }
 
+            this.injectFault("intake:accepted");
             this.db.exec("COMMIT");
             return result;
         } catch (error) {

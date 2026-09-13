@@ -125,9 +125,10 @@ function factOf(row: FactRow): Fact {
 
 /** A `warned` fact's payload read back as the snapshot it stored, or `null`. */
 function warningOf(effectId: string, payload: string | null): StoredWarning | null {
-    let snapshot: unknown = null;
+    if (payload === null) return null;
+    let snapshot: unknown;
     try {
-        snapshot = JSON.parse(payload ?? "");
+        snapshot = JSON.parse(payload);
     } catch {
         return null;
     }

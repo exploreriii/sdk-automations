@@ -265,6 +265,41 @@ describe("the warning that binds", () => {
         store.close();
     });
 
+    it.each([
+        ["a number", "42"],
+        ["null", "null"],
+        ["an array", "[]"],
+        ["not JSON", "{oops"],
+    ])("answers null for a warned payload that is %s", (_what, payload) => {
+        const store = new Store(path);
+        store.ledger.record(closed("warned", AT, { seq: 0, verb: null, payload }));
+        expect(store.ledger.warningFor("effect-a")).toBeNull();
+        store.close();
+    });
+
+    it("names the argument an instant guard refused", () => {
+        const store = new Store(path);
+        expect(() => store.ledger.record(fact({ at: "yesterday" }))).toThrow(/\bat\b/);
+        expect(() => store.ledger.claim("e", "w", "yesterday", AT)).toThrow(/\bnow\b/);
+        expect(() => store.ledger.verdictsSince("yesterday")).toThrow(/\bsince\b/);
+        expect(() =>
+            store.ledger.decide({
+                passId: "p",
+                source: "webhook",
+                sourceId: "p",
+                at: "yesterday",
+                repository: REPOSITORY,
+                item: ITEM,
+                capability: "inactivity",
+                verdict: "info",
+                code: null,
+                detail: null,
+                effectId: null,
+            }),
+        ).toThrow(/\bat\b/);
+        store.close();
+    });
+
     it("answers null for a warned fact that carries no payload", () => {
         const store = new Store(path);
         store.ledger.record(closed("warned", AT, { seq: 0, verb: null, payload: null }));

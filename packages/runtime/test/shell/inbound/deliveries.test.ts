@@ -115,13 +115,15 @@ function laneWith(wiring: Wiring) {
     return createDeliveries({
         store,
         capabilities: wiring.capabilities,
-        configSource: wiring.configSource,
-        decideItem: createItemDecider({
-            store,
-            capabilities: wiring.capabilities,
-            externals,
-            repository,
-            ...(wiring.applier === undefined ? {} : { applier: wiring.applier }),
+        lane: () => ({
+            configSource: wiring.configSource,
+            decideItem: createItemDecider({
+                store,
+                capabilities: wiring.capabilities,
+                externals,
+                repository,
+                ...(wiring.applier === undefined ? {} : { applier: wiring.applier }),
+            }),
         }),
         repository,
         worker: "test-worker",
@@ -255,11 +257,9 @@ describe("a delivery from another repository", () => {
     });
 
     /**
-     * A payload that does not READABLY name a repository cannot be judged
-     * foreign, and every one of these shapes is a way to fall short of
-     * naming one. Each must reach `decide()` and come back a decision — the
-     * shell does not pre-empt that verdict, and must not trip over the
-     * missing fields on its way past them. Which code each draws is core's.
+     * A payload that does not READABLY name a repository names no seams to
+     * read, decide or write through, and every one of these shapes is a way
+     * to fall short of naming one. `observed: "none"` is what each is worth.
      */
     it.each([
         ["not an object at all", "not json at all"],
@@ -271,7 +271,7 @@ describe("a delivery from another repository", () => {
         ["no owner", '{"repository":{"name":"scrubbed-2"}}'],
         ["an owner without a login", '{"repository":{"owner":{},"name":"x"}}'],
         ["no name", '{"repository":{"owner":{"login":"scrubbed-1"}}}'],
-    ])("leaves %s to the decision that names it", async (_shape, payload) => {
+    ])("refuses %s, having read nothing about it", async (_shape, payload) => {
         store.inbox.acceptDelivery({
             deliveryId: SECOND_GUID,
             eventName: "issues",
@@ -281,11 +281,104 @@ describe("a delivery from another repository", () => {
         const serving = servingLane({ owner: "some-other", repo: "repository" });
         await serving.lane.drain();
 
-        // The fixture is foreign and refused; this one is merely unreadable.
+        // The fixture is foreign; this one names nothing at all.
         expect(completions()).toEqual([
             { deliveryId: GUID as string, kind: "repositoryMismatch" },
+            { deliveryId: SECOND_GUID as string, kind: "repositoryMismatch" },
+        ]);
+        expect(details()[1]).toBe("expected some-other/repository, observed none");
+        expect(serving.reads()).toBe(0);
+    });
+});
+
+/**
+ * One process serves the INSTALLATION (D169). No repository is configured:
+ * the payload names one, and that name selects the configuration the pass is
+ * read under, the box it is decided by, and the name every row it writes
+ * carries. Two repositories of one installation, one after the other.
+ */
+describe("deliveries from two repositories", () => {
+    const OTHER = { owner: "scrubbed-1", repo: "other-repo" } as const;
+
+    /** The captured fixture, re-addressed to another repository of the same installation. */
+    function addressedTo(repository: RepositoryRef): Buffer {
+        const payload = JSON.parse(Buffer.from(FIXTURE).toString("utf8")) as {
+            repository: Record<string, unknown>;
+        };
+        return Buffer.from(
+            JSON.stringify({
+                ...payload,
+                repository: {
+                    ...payload.repository,
+                    owner: { login: repository.owner },
+                    name: repository.repo,
+                },
+            }),
+        );
+    }
+
+    /** Only the fixture's own repository announces, so the two configs decide differently. */
+    const configFor = (repository: RepositoryRef): string =>
+        CONFIG_TEXT.replace(
+            "announce: false",
+            `announce: ${String(repository.repo === REPOSITORY.repo)}`,
+        );
+
+    /** A lane serving whatever a payload names, recording which it was asked for. */
+    function installationLane(asked: string[]) {
+        const capabilities = [toEngine(intake)];
+        return createDeliveries({
+            store,
+            capabilities,
+            lane: (repository) => {
+                asked.push(`${repository.owner}/${repository.repo}`);
+                return {
+                    configSource: {
+                        load: async () => ({
+                            ok: true,
+                            document: { revision: "rev-two", text: configFor(repository) },
+                        }),
+                    },
+                    decideItem: createItemDecider({
+                        store,
+                        capabilities,
+                        externals: () => stubbedExternals(),
+                        repository,
+                    }),
+                };
+            },
+            worker: "test-worker",
+            clock: () => new Date(BASE.getTime() + 1000),
+            log,
+        });
+    }
+
+    const wouldApply = (repository: RepositoryRef): number =>
+        store.ledger.decisionsOn(repository, ITEM).filter((row) => row.code === "wouldApply")
+            .length;
+
+    it("decides each under its own configuration and writes rows under its own name", async () => {
+        store.inbox.acceptDelivery({
+            deliveryId: SECOND_GUID,
+            eventName: "issues",
+            payload: addressedTo(OTHER),
+            receivedAt: new Date(BASE.getTime() + 500).toISOString(),
+        });
+        const asked: string[] = [];
+        await installationLane(asked).drain();
+
+        expect(completions()).toEqual([
+            { deliveryId: GUID as string, kind: "decision" },
             { deliveryId: SECOND_GUID as string, kind: "decision" },
         ]);
+        expect(asked).toEqual(["scrubbed-1/scrubbed-2", "scrubbed-1/other-repo"]);
+        // The announcing config plans a comment as well as a label; the other
+        // plans only the label. Same item number, two repositories, two answers.
+        expect(wouldApply(REPOSITORY)).toBe(2);
+        expect(wouldApply(OTHER)).toBe(1);
+        expect(store.ledger.decisionsOn(OTHER, ITEM).map((row) => row.repository)).toEqual(
+            store.ledger.decisionsOn(OTHER, ITEM).map(() => OTHER),
+        );
     });
 });
 
@@ -462,7 +555,12 @@ describe("a crash counts an attempt", () => {
 
 describe("a poison delivery", () => {
     /** A payload the externals seam below is willing to answer for. */
-    const HEALTHY = Buffer.from(JSON.stringify({ action: "healthy" }));
+    const HEALTHY = Buffer.from(
+        JSON.stringify({
+            action: "healthy",
+            repository: { owner: { login: REPOSITORY.owner }, name: REPOSITORY.repo },
+        }),
+    );
     let consulted = 0;
 
     /** One whole drain at one instant, failing everything but HEALTHY. */
@@ -658,7 +756,7 @@ describe("the configuration this lane reads", () => {
         });
 
     it("answers with the parsed configuration", async () => {
-        expect(await reading(configSource.load).configuration()).toMatchObject({
+        expect(await reading(configSource.load).configuration(REPOSITORY)).toMatchObject({
             mode: "dry-run",
             revision: "rev-test-1",
         });
@@ -670,7 +768,7 @@ describe("the configuration this lane reads", () => {
             document: { revision: "rev-x", text: "schemaVersion: 9" },
         });
 
-        expect(await reading(broken).configuration()).toBeNull();
+        expect(await reading(broken).configuration(REPOSITORY)).toBeNull();
     });
 
     it("answers null when the source could not be reached at all", async () => {
@@ -680,7 +778,7 @@ describe("the configuration this lane reads", () => {
             detail: "config read failed: transient",
         });
 
-        expect(await reading(unreachable).configuration()).toBeNull();
+        expect(await reading(unreachable).configuration(REPOSITORY)).toBeNull();
     });
 });
 

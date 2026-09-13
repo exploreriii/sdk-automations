@@ -9,8 +9,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { Store } from "../../store/index.js";
 import { CAPABILITIES } from "@hiero-hackers/automation-capabilities";
-import { createApplier, type Applier } from "../apply/apply.js";
-import { createShell } from "./shell.js";
+import { createShell, type RepositorySeams } from "./shell.js";
 import { CONFIG_PATH, fileConfigSource } from "../decide/config.js";
 import { stubbedExternals } from "../decide/externals.js";
 import { createLogger, detailOf } from "../log.js";
@@ -45,54 +44,42 @@ const live =
         ? null
         : liveGitHub({
               credentials,
-              repository,
               writes,
               killSwitchActive: switches.killSwitch,
               clock,
               knownCapabilities,
               // The seam GitHub's own actor cannot answer: this item's landed calls (D159).
 
-              ownWrites: (item) => store.ledger.landedOn(repository, item),
+              ownWrites: (served) => (item) => store.ledger.landedOn(served, item),
               log,
           });
-const configSource = live?.configSource ?? fileConfigSource(paths.configFile);
-const externals =
-    live?.externals ?? (() => stubbedExternals({ killSwitchActive: switches.killSwitch }));
-const writePath = live?.writePath ?? null;
 
-/**
- * The write path, wired or absent — whether `mode: active` is honourable here.
- * With no applier the delivery lane records `modeUnsupported` before `decide()` runs.
- */
-const applier: Applier | undefined =
-    writePath === null
-        ? undefined
-        : createApplier({
-              ledger: store.ledger,
-              ...writePath,
-              worker: WORKER,
-              clock,
-              log,
-          });
+/** The credential-free composition reads no GitHub, so its sweep lane is never armed. */
+const local: RepositorySeams = {
+    configSource: fileConfigSource(paths.configFile),
+    externals: () => stubbedExternals({ killSwitchActive: switches.killSwitch }),
+    writePath: null,
+    facts: () => {
+        throw new Error("the credential-free composition reads no facts");
+    },
+};
 
 /** The fact sweep, armed or absent — what this process does when nobody is talking. */
 const sweep =
     sweepRecord === null || live === null
         ? undefined
-        : { facts: live.facts, requestsMade: live.requestsMade, ...sweepRecord };
+        : { requestsMade: live.requestsMade, ...sweepRecord };
 
 const shell = createShell({
     secret: endpoint.secret,
     store,
     capabilities: CAPABILITIES,
-    configSource,
-    externals,
-    repository,
+    seams: live === null ? () => local : live.seamsFor,
+    ...(repository === null ? {} : { repository }),
     worker: WORKER,
     clock,
     tickMs,
     suspended: switches.suspended,
-    ...(applier === undefined ? {} : { applier }),
     ...(sweep === undefined ? {} : { sweep }),
     log,
 });
@@ -102,6 +89,14 @@ const shell = createShell({
 void shell.drain().catch((error: unknown) => {
     log({ event: "drainFailed", phase: "startup", detail: detailOf(error) });
 });
+
+/** Which repositories this process serves: the local file's one, or the installation's (D169). */
+const installation = credentials === null ? "none" : credentials.installationId;
+const serving =
+    repository === null
+        ? `any (installation ${installation})`
+        : `${repository.owner}/${repository.repo}`;
+
 // An undefined host is the unnamed case: node reads it as no host at all.
 
 shell.server.listen(endpoint.port, endpoint.host, () => {
@@ -109,7 +104,7 @@ shell.server.listen(endpoint.port, endpoint.host, () => {
         event: "startup",
         port: endpoint.port,
         host: endpoint.host ?? null,
-        repository: `${repository.owner}/${repository.repo}`,
+        repository: serving,
         configSource: live === null ? "local" : "live",
         // Which file, either way: the local copy, or the path on the default branch.
 

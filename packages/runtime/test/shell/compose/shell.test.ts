@@ -16,6 +16,7 @@ import {
     toEngine,
     SIGNATURE_HEADER,
     type EngineCapability,
+    type RepositoryRef,
 } from "@hiero-hackers/automation-core";
 import { Store } from "../../../src/store/index.js";
 import { intake, prQuality } from "@hiero-hackers/automation-capabilities";
@@ -25,6 +26,7 @@ import {
     fileConfigSource,
     stubbedExternals,
     type Log,
+    type RepositorySeams,
     type Shell,
     type ShellEvent,
 } from "../../../src/shell/index.js";
@@ -52,6 +54,16 @@ const REPOSITORY = { owner: "scrubbed-1", repo: "scrubbed-2" } as const;
 const ITEM = { kind: "issue", number: 164 } as const;
 
 const BASE = new Date("2026-08-07T10:00:00.000Z");
+
+/** The credential-free seams: a local file, stubs, no write path and no reader. */
+const seamsOn = (path: string) => (): RepositorySeams => ({
+    configSource: fileConfigSource(path),
+    externals: () => stubbedExternals(),
+    writePath: null,
+    facts: () => {
+        throw new Error("the reader must not be built");
+    },
+});
 
 const temp = useTempDir("shell-test-");
 let store: Store;
@@ -85,8 +97,7 @@ function buildShell(
         secret: SECRET,
         store,
         capabilities: [capability],
-        configSource: fileConfigSource(configFile),
-        externals: () => stubbedExternals(),
+        seams: seamsOn(configFile),
         repository,
         clock: () => new Date(BASE.getTime() + 1000 * tick++),
         tickMs,
@@ -154,8 +165,7 @@ describe("the first slice, end to end", () => {
                     prQualityCapability,
                     prQualityCapability,
                 ],
-                configSource: fileConfigSource(configFile),
-                externals: () => stubbedExternals(),
+                seams: seamsOn(configFile),
                 repository: REPOSITORY,
             }),
         ).toThrow(
@@ -390,8 +400,7 @@ describe("the first slice, end to end", () => {
             secret: SECRET,
             store,
             capabilities: [toEngine(intake)],
-            configSource: fileConfigSource(configFile),
-            externals: () => stubbedExternals(),
+            seams: seamsOn(configFile),
             repository: REPOSITORY,
             clock: () => BASE,
         });
@@ -417,8 +426,7 @@ describe("the first slice, end to end", () => {
             secret: SECRET,
             store,
             capabilities: [toEngine(intake)],
-            configSource: fileConfigSource(configFile),
-            externals: () => stubbedExternals(),
+            seams: seamsOn(configFile),
             repository: REPOSITORY,
             log: () => {
                 throw new Error("the log itself is broken");
@@ -454,6 +462,59 @@ describe("the first slice, end to end", () => {
      * carries): the delivery is decided, and no capability it never enabled
      * writes a row.
      */
+    /**
+     * The other composition (D169): nothing names a repository here, so the
+     * PAYLOAD does — and that name is what selects the seams the pass runs on
+     * and what every row it writes carries.
+     */
+    it("serves whatever repository a payload names when none is configured", async () => {
+        const asked: RepositoryRef[] = [];
+        const shell = createShell({
+            secret: SECRET,
+            store,
+            capabilities: [toEngine(intake)],
+            seams: (repository) => {
+                asked.push(repository);
+                return seamsOn(configFile)();
+            },
+            clock: () => BASE,
+            log,
+        });
+        running.push(shell);
+
+        expect(await deliver(shell)).toBe(202);
+        await shell.drain();
+
+        expect(completions()).toEqual([{ deliveryId: GUID, kind: "decision" }]);
+        expect(asked).toEqual([REPOSITORY]);
+        expect(rows().length).toBeGreaterThan(0);
+    });
+
+    /** With no name there is nothing to select, and nothing to decide under. */
+    it("refuses a payload naming no repository when none is configured", async () => {
+        store.inbox.acceptDelivery({
+            deliveryId: asDeliveryGuid(SECOND_GUID)!,
+            eventName: "issues",
+            payload: Buffer.from('{"action":"opened"}'),
+            receivedAt: BASE.toISOString(),
+        });
+        const shell = createShell({
+            secret: SECRET,
+            store,
+            capabilities: [toEngine(intake)],
+            seams: seamsOn(configFile),
+            clock: () => BASE,
+            log,
+        });
+        running.push(shell);
+        await shell.drain();
+
+        expect(completions()).toEqual([{ deliveryId: SECOND_GUID, kind: "repositoryMismatch" }]);
+        expect(
+            logged.flatMap((event) => (event.event === "deliveryCompleted" ? [event.detail] : [])),
+        ).toEqual(["expected any, observed none"]);
+    });
+
     it("an absent config file decides rather than failing closed", async () => {
         rmSync(configFile);
         const shell = buildShell();

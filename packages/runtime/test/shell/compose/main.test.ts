@@ -83,7 +83,7 @@ const TRIAGE_LABEL = "status: triage";
 const TIMELINE_AT = "2026-08-06T23:10:51Z";
 
 const MISSING_VARIABLES =
-    "WEBHOOK_SECRET, REPO_OWNER and REPO_NAME are required (the sandbox App's secret and the repository this endpoint serves).";
+    "WEBHOOK_SECRET is required; REPO_OWNER and REPO_NAME are required without App credentials (the repository the local file serves).";
 
 const CONFIG = `schemaVersion: 2
 mode: dry-run
@@ -769,6 +769,44 @@ describe("the sandbox entry point, as a process", () => {
     );
 
     /**
+     * The installation is the unit a process serves (D169): GitHub delivers
+     * only for repositories it covers and every payload names its own, so with
+     * credentials no repository need be configured, and the line says `any`.
+     */
+    it(
+        "boots on credentials alone, serving any repository of the installation",
+        async () => {
+            await withPaths(async ({ configFile, privateKeyFile, storeFile }) => {
+                const { privateKey } = generateKeyPairSync("rsa", {
+                    modulusLength: 2048,
+                    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+                    publicKeyEncoding: { type: "spki", format: "pem" },
+                });
+                writeFileSync(privateKeyFile, privateKey);
+                const environment: Record<string, string> = {
+                    ...bootEnvironment(),
+                    APP_ID,
+                    PRIVATE_KEY_PATH: privateKeyFile,
+                    INSTALLATION_ID: "789",
+                    CONFIG_FILE: configFile,
+                    STORE_PATH: storeFile,
+                    PORT: String(await freePort()),
+                };
+                delete environment["REPO_OWNER"];
+                delete environment["REPO_NAME"];
+
+                await withShell(environment, async (shell) => {
+                    expect(await listening(shell)).toMatchObject({
+                        repository: "any (installation 789)",
+                        configSource: "live",
+                    });
+                });
+            });
+        },
+        TEST_TIMEOUT_MS,
+    );
+
+    /**
      * The record names the paths; making them is the start's, and on the
      * machines the default exists for — a fresh container, a volume mounted
      * empty — every segment on the way to the store is missing, not just one.
@@ -857,12 +895,13 @@ describe("the sandbox entry point, as a process", () => {
                             decided.map(() => [{ owner: OWNER, repo: REPO }, "webhook", GUID]),
                         );
 
-                        // An unreadable payload is decided too: the shell does
-                        // not pre-empt the verdict, and no item earns a row.
+                        // An unreadable payload names no repository, so it
+                        // names no seams to read, decide or write through.
                         const bytes = Buffer.from("not json");
                         expect(await post(port, UNREADABLE_GUID, bytes)).toBe(202);
                         expect(await completed(shell, UNREADABLE_GUID)).toMatchObject({
-                            kind: "decision",
+                            kind: "repositoryMismatch",
+                            detail: `expected ${OWNER}/${REPO}, observed none`,
                         });
                     },
                 );

@@ -15,6 +15,14 @@ export function sweepScheduleId(repository: RepositoryRef): string {
     return `${SWEEP_EFFECT}:${repository.owner}/${repository.repo}`;
 }
 
+/** The inverse: which repository a due row is about, or `null` when its id spells none. */
+export function repositoryOfScheduleId(scheduleId: string): RepositoryRef | null {
+    const prefix = `${SWEEP_EFFECT}:`;
+    if (!scheduleId.startsWith(prefix)) return null;
+    const [owner, repo, ...rest] = scheduleId.slice(prefix.length).split("/");
+    return owner && repo && rest.length === 0 ? { owner, repo } : null;
+}
+
 /** Does this repository enable a capability that runs on a clock? */
 export function wantsSweeping(
     config: RepositoryConfig,

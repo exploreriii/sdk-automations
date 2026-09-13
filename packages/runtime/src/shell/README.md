@@ -75,7 +75,7 @@ credential-free path, dry-run reports **overstate** what would apply.
 
 ```
 WEBHOOK_SECRET=…            # the sandbox App's webhook secret
-REPO_OWNER=owner-sandbox    # the repository this endpoint serves
+REPO_OWNER=owner-sandbox    # required without App credentials: the repository the local file serves
 REPO_NAME=automation-sandbox
 APP_ID=…                    # optional App credentials; provide all three together
 PRIVATE_KEY_PATH=…
@@ -151,10 +151,10 @@ points `STORE_PATH` back at it is still writing raw payloads and real repository
   is a second caller of `decide()` rather than a second pipeline: a due `sweep:` row becomes one fact
   record per open item, and each record goes through the same box's mode gate, applier and
   decision rows. `SWEEP_CADENCE_HOURS` is what arms it, and it needs the App credentials for the same
-  reason `APP_SLUG` does — a cadence with nothing to read GitHub with is half a configuration. What
-  is still out: more than the one configured repository. The three reads `design/guides/sweep.md` §1
-  once marked unconfirmed are cited (6.9, 2026-09-12), so the pull-request `review` group is read
-  and the ladder decides.
+  reason `APP_SLUG` does — a cadence with nothing to read GitHub with is half a configuration. Every
+  due row fires, and the repository a firing reads comes from that row's id. The three reads
+  `design/guides/sweep.md` §1 once marked unconfirmed are cited (6.9, 2026-09-12), so the
+  pull-request `review` group is read and the ladder decides.
 - **Config schema migration** — live and local reads intentionally share today's schema; migrations
   remain separate work.
 - **Active mode by default** — with no `APP_SLUG` in the environment, `main.ts` wires no applier and
@@ -166,7 +166,10 @@ points `STORE_PATH` back at it is still writing raw payloads and real repository
   drives them: lease, journal before send, an apply-time re-gate against a live read, and a
   read-back that proves each call landed — and `APP_SLUG` is what arms it (see below). Running a
   repository in `active` for the first time is its own reviewed step.
-- **Multi-repository routing** — one endpoint, one configured repository, matching the sandbox.
+- **Any installation list** — the process serves the installation (D169), and a repository serves
+  itself by delivering: the payload names it, that name selects the seams the pass runs on, and the
+  first delivery declares its sweep row. Nothing enumerates what the installation covers, so a
+  repository that has never delivered is a repository this process has never heard of.
 
 The capture receiver in `packages/dev/lab/src/capture.ts` was this package's embryo: same verify-first line,
 same 202 — it just wrote a file where the shell continues through canonical SQLite completion.

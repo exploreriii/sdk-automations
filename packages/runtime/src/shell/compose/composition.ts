@@ -16,7 +16,7 @@ const DEFAULT_PORT = 8790;
 /** The refusals, word for word: a misconfigured boot has one reader, whoever typed it wrong. */
 export const REFUSAL = {
     required:
-        "WEBHOOK_SECRET, REPO_OWNER and REPO_NAME are required (the sandbox App's secret and the repository this endpoint serves).",
+        "WEBHOOK_SECRET is required; REPO_OWNER and REPO_NAME are required without App credentials (the repository the local file serves).",
     credentials:
         "APP_ID, PRIVATE_KEY_PATH and INSTALLATION_ID must be provided together to use live GitHub access.",
     slug: 'APP_SLUG must be the App\'s URL slug, with no surrounding spaces and no brackets — the bot login is derived from it as "<slug>[bot]".',
@@ -51,7 +51,8 @@ export interface Composition {
         readonly host: string | undefined;
         readonly secret: string;
     };
-    readonly repository: RepositoryRef;
+    /** The one repository the local file serves; `null` serves the whole installation (D169). */
+    readonly repository: RepositoryRef | null;
     readonly credentials: Credentials | null;
     /** The App's URL slug, and the whole of what arms the write path. */
     readonly writes: { readonly appSlug: string } | null;
@@ -99,15 +100,19 @@ function spellsALogin(appSlug: string): boolean {
 
 export function parseComposition(env: Environment): Parsed {
     const errors: string[] = [];
-    const secret = env["WEBHOOK_SECRET"];
-    const owner = env["REPO_OWNER"];
-    const repo = env["REPO_NAME"];
-    const endpoint = secret && owner && repo ? { secret, owner, repo } : null;
-    if (endpoint === null) errors.push(REFUSAL.required);
-
     const credentials = triad(env);
     const named = CREDENTIAL_NAMES.filter((name) => env[name]);
     if (credentials === null && named.length > 0) errors.push(REFUSAL.credentials);
+
+    // The installation names its own repositories as it delivers; a local file cannot.
+
+    const secret = env["WEBHOOK_SECRET"];
+    const owner = env["REPO_OWNER"];
+    const repo = env["REPO_NAME"];
+    const repository = owner && repo ? { owner, repo } : null;
+    const endpoint =
+        secret && (repository !== null || credentials !== null) ? { secret, repository } : null;
+    if (endpoint === null) errors.push(REFUSAL.required);
 
     // A slug that cannot spell a login arms nothing, so it is never also unbacked.
 
@@ -143,7 +148,7 @@ export function parseComposition(env: Environment): Parsed {
         ok: true,
         composition: {
             endpoint: { port, host, secret: endpoint.secret },
-            repository: { owner: endpoint.owner, repo: endpoint.repo },
+            repository: endpoint.repository,
             credentials,
             writes: appSlug === undefined ? null : { appSlug },
             sweep:

@@ -4,6 +4,7 @@
  * composition root's interval is what calls `tick()`.
  */
 
+import type { RepositoryConfig, RepositoryRef } from "@hiero-hackers/automation-core";
 import type { Store } from "../../store/index.js";
 import { EFFECT_LEASE_STALE_MINUTES, type Applier } from "../apply/apply.js";
 import { STALE_CLAIM_MINUTES, type Deliveries } from "../inbound/deliveries.js";
@@ -23,8 +24,8 @@ export interface JobsOptions {
     /** The fact sweep, when a composition has something to read GitHub with. */
     readonly sweep: Sweep | null;
     readonly clock: () => Date;
-    /** The write path, when one is wired; with none, an open send is not even looked for. */
-    readonly applier?: Applier;
+    /** One repository's write path, when it has one; a row names the repository it was sent to. */
+    readonly applierFor: (repository: RepositoryRef) => Applier | null;
     /** The installation switch (D171): the recovery pass does not run at all. */
     readonly suspended: boolean;
     readonly log: Log;
@@ -38,7 +39,7 @@ export interface Jobs {
 }
 
 export function createJobs(options: JobsOptions): Jobs {
-    const { store, deliveries, sweep, clock, suspended, log } = options;
+    const { store, deliveries, sweep, clock, applierFor, suspended, log } = options;
 
     const requeueStale: Job = {
         name: "requeueStale",
@@ -60,21 +61,30 @@ export function createJobs(options: JobsOptions): Jobs {
     };
 
     /**
-     * The sends a worker made and never closed.
-     * Every one is re-driven through the applier's dispatch, which reads GitHub before it resends, so a sweep can never turn a landed write into a second one.
+     * The sends a worker made and never closed, each re-driven under the repository it named.
+     * Every one goes through the applier's dispatch, which reads GitHub before it resends, so a sweep can never turn a landed write into a second one.
      * Suspended, none of it runs: an open send stays open until the switch lifts (D171).
      */
     const recoverOpenSends: Job = {
         name: "recoverOpenSends",
         run: async () => {
-            const applier = options.applier;
-            if (applier === undefined || suspended) return;
+            if (suspended) return;
             const before = new Date(clock().getTime() - EFFECT_LEASE_STALE_MINUTES * 60_000);
             const open = store.ledger.open(before.toISOString());
-            if (open.length === 0) return;
-            const config = await deliveries.configuration();
-            if (config === null) return;
+            // One read of each repository's file for the whole pass, as one row would cost.
+
+            const read = new Map<string, Promise<RepositoryConfig | null>>();
+            const configFor = (repository: RepositoryRef): Promise<RepositoryConfig | null> => {
+                const key = `${repository.owner}/${repository.repo}`;
+                const held = read.get(key) ?? deliveries.configuration(repository);
+                read.set(key, held);
+                return held;
+            };
             for (const row of open) {
+                const applier = applierFor(row.repository);
+                if (applier === null) continue;
+                const config = await configFor(row.repository);
+                if (config === null) continue;
                 try {
                     await applier.recover(row, config);
                 } catch (error) {

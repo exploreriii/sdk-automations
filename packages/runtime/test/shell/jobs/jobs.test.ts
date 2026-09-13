@@ -19,14 +19,16 @@ import { Store } from "../../../src/store/index.js";
 import { intake } from "@hiero-hackers/automation-capabilities";
 import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
 import {
-    createApplier,
     createShell,
     fileConfigSource,
     serializeCall,
     stubbedExternals,
+    type EffectReader,
     type Log,
+    type RepositorySeams,
     type Shell,
     type ShellEvent,
+    type WritePath,
 } from "../../../src/shell/index.js";
 import { fakeGitHub } from "../apply/effect-harness.js";
 
@@ -53,6 +55,18 @@ const BASE = new Date("2026-08-07T10:00:00.000Z");
 
 /** Short enough that a tick has fired several times before a `waitFor` gives up. */
 const TICK_MS = 5;
+
+/** The credential-free seams: a local file, stubs, no write path and no reader. */
+const seamsOn =
+    (path: string, writePath: WritePath | null = null) =>
+    (): RepositorySeams => ({
+        configSource: fileConfigSource(path),
+        externals: () => stubbedExternals(),
+        writePath,
+        facts: () => {
+            throw new Error("the reader must not be built");
+        },
+    });
 
 const temp = useTempDir("jobs-test-");
 let store: Store;
@@ -82,8 +96,7 @@ function buildShell(capability: EngineCapability = toEngine(intake), tickMs = TI
         secret: SECRET,
         store,
         capabilities: [capability],
-        configSource: fileConfigSource(configFile),
-        externals: () => stubbedExternals(),
+        seams: seamsOn(configFile),
         repository: REPOSITORY,
         clock: () => new Date(BASE.getTime() + 1000 * tick++),
         tickMs,
@@ -190,8 +203,7 @@ describe("one tick, four jobs", () => {
                 secret: SECRET,
                 store: doomed,
                 capabilities: [toEngine(intake)],
-                configSource: fileConfigSource(configFile),
-                externals: () => stubbedExternals(),
+                seams: seamsOn(configFile),
                 repository: REPOSITORY,
                 tickMs: TICK_MS,
                 log,
@@ -222,18 +234,12 @@ describe("one tick, four jobs", () => {
                 secret: SECRET,
                 store,
                 capabilities: [toEngine(intake)],
-                configSource: fileConfigSource(configFile),
-                externals: () => stubbedExternals(),
+                seams: seamsOn(configFile),
                 repository: REPOSITORY,
                 tickMs: TICK_MS,
                 // The reader is never reached: `intake` runs on events, so the
                 // repository wants no sweeping and the firing reads nothing.
-                sweep: {
-                    facts: () => {
-                        throw new Error("the reader must not be built");
-                    },
-                    requestsMade: () => 0,
-                },
+                sweep: { requestsMade: () => 0 },
                 log,
             }),
         );
@@ -301,29 +307,35 @@ mappings:
     const openRows = (): number =>
         store.ledger.open(new Date(BASE.getTime() + 60 * 60_000).toISOString()).length;
 
-    function shellWithWritePath(github: ReturnType<typeof fakeGitHub>, suspended = false): Shell {
+    /** A read-back that dies on one item, so the pass has a row to step over. */
+    const brittle = (reader: EffectReader, failing: number): EffectReader => ({
+        ...reader,
+        labelPresence: (item, label) =>
+            item.number === failing
+                ? Promise.reject(new Error("the read-back is closed"))
+                : reader.labelPresence(item, label),
+    });
+
+    function shellWithWritePath(
+        github: Pick<ReturnType<typeof fakeGitHub>, "writer" | "reader">,
+        suspended = false,
+    ): Shell {
         let tick = 0;
         const clock = (): Date => new Date(BASE.getTime() + 1000 * tick++);
         const shell = createShell({
             secret: SECRET,
             store,
             capabilities: [toEngine(intake)],
-            configSource: fileConfigSource(configFile),
-            externals: () => stubbedExternals(),
+            seams: seamsOn(configFile, {
+                writer: github.writer,
+                reader: github.reader,
+                externals: () => stubbedExternals(),
+            }),
             repository: REPOSITORY,
             clock,
             tickMs: TICK_MS,
             suspended,
             log,
-            applier: createApplier({
-                ledger: store.ledger,
-                writer: github.writer,
-                reader: github.reader,
-                externals: () => stubbedExternals(),
-                worker: "sweep-worker",
-                clock,
-                log,
-            }),
         });
         running.push(shell);
         return shell;
@@ -397,40 +409,25 @@ mappings:
         writeFileSync(configFile, ACTIVE_CONFIG);
         orphanRow();
         orphanRow("second-orphan", 165);
-        const recovered: string[] = [];
-        running.push(
-            createShell({
-                secret: SECRET,
-                store,
-                capabilities: [toEngine(intake)],
-                configSource: fileConfigSource(configFile),
-                externals: () => stubbedExternals(),
-                repository: REPOSITORY,
-                clock: () => BASE,
-                tickMs: TICK_MS,
-                log,
-                applier: {
-                    applyAll: () => Promise.resolve([]),
-                    recover: (row) => {
-                        recovered.push(row.effectId);
-                        return row.effectId === EFFECT_ID
-                            ? Promise.reject(new Error("the store is closed"))
-                            : Promise.resolve();
-                    },
-                },
-            }),
-        );
+        const github = fakeGitHub();
+        // The older row is read back first, and its read is the one that dies.
+        shellWithWritePath({ ...github, reader: brittle(github.reader, 164) });
 
         await vi.waitFor(() => {
-            expect(recovered).toContain("second-orphan");
             expect(logged).toContainEqual(
                 expect.objectContaining({
                     event: "sweepFailed",
-                    detail: expect.stringContaining("the store is closed") as string,
+                    detail: expect.stringContaining("the read-back is closed") as string,
                 }),
             );
+            expect(logged).toContainEqual({
+                event: "effectApplied",
+                effectId: "second-orphan",
+                seq: 1,
+            });
         });
-        expect(openRows()).toBe(2);
+        // The row whose read died is left for a later tick; the other closed.
+        expect(openRows()).toBe(1);
     });
 
     /**
@@ -455,17 +452,16 @@ mappings:
         expect(openRows()).toBe(1);
     });
 
-    it("does not even look for open rows when no write path was wired", async () => {
+    /** The row is found and passed over: no repository here has anything to resend with. */
+    it("neither resends nor closes a row when no write path was wired", async () => {
         writeFileSync(configFile, ACTIVE_CONFIG);
         orphanRow();
         const requeues = vi.spyOn(store.inbox, "requeueStuckDeliveries");
-        const worklist = vi.spyOn(store.ledger, "open");
 
         buildShell();
 
         // Two ticks of the same sweep that would have found the row.
         await vi.waitFor(() => expect(requeues.mock.calls.length).toBeGreaterThan(1));
-        expect(worklist).not.toHaveBeenCalled();
         expect(logged.filter((event) => event.event.startsWith("effect"))).toEqual([]);
         expect(openRows()).toBe(1);
     });

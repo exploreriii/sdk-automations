@@ -15,7 +15,9 @@ Whoever takes the operator role must be able to:
 - suspend processing without uninstalling the App;
 - prove whether one or several application processes are active.
 
-- One deployment gives every repository the same configuration, permissions, adapter, and upgrades.
+- One process serves one installation and owns one store; every repository the installation covers is
+  served by it, and each is decided under its own `automations.yml` (D169).
+- One deployment gives every repository the same permissions, adapter, and upgrades.
 - It needs an organization-owned operator, not one contributor's personal account (Q1, Q13).
 - A personal development App is separate from the production App (P8).
 - The personal App is only ever used for sandbox work.

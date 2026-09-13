@@ -57,7 +57,7 @@ interface Refusal {
 }
 
 const REQUIRED =
-    "WEBHOOK_SECRET, REPO_OWNER and REPO_NAME are required (the sandbox App's secret and the repository this endpoint serves).";
+    "WEBHOOK_SECRET is required; REPO_OWNER and REPO_NAME are required without App credentials (the repository the local file serves).";
 const PARTIAL_TRIAD =
     "APP_ID, PRIVATE_KEY_PATH and INSTALLATION_ID must be provided together to use live GitHub access.";
 const SLUG =
@@ -80,6 +80,11 @@ const TABLE: readonly Refusal[] = [
     { title: "REPO_OWNER absent", env: absent("REPO_OWNER"), sentence: REQUIRED },
     { title: "REPO_NAME absent", env: absent("REPO_NAME"), sentence: REQUIRED },
     { title: "WEBHOOK_SECRET empty", env: { WEBHOOK_SECRET: "" }, sentence: REQUIRED },
+    {
+        title: "WEBHOOK_SECRET absent with credentials",
+        env: { ...CREDENTIALS, ...absent("WEBHOOK_SECRET") },
+        sentence: REQUIRED,
+    },
     { title: "APP_ID alone", env: { APP_ID: "1" }, sentence: PARTIAL_TRIAD },
     { title: "INSTALLATION_ID alone", env: { INSTALLATION_ID: "1" }, sentence: PARTIAL_TRIAD },
     {
@@ -189,6 +194,33 @@ describe("an environment the composition refuses", () => {
      */
     it("collects every refusal rather than stopping at the first", () => {
         expect(refusals({ PORT: "0", HOST: "", TICK_SECONDS: "soon" })).toEqual([PORT, HOST, TICK]);
+    });
+});
+
+describe("what a process serves", () => {
+    /**
+     * The installation is the unit a process serves (D169): with credentials
+     * GitHub delivers only for repositories it covers, and each names itself.
+     * The local file cannot, so without them the two variables are required.
+     */
+    it("takes credentials with no repository named, and serves the installation", () => {
+        const composition = composed({
+            ...CREDENTIALS,
+            ...absent("REPO_OWNER"),
+            ...absent("REPO_NAME"),
+        });
+
+        expect(composition.repository).toBeNull();
+        expect(composition.credentials).toMatchObject({ installationId: "789" });
+    });
+
+    it.each(["REPO_OWNER", "REPO_NAME"])("takes credentials with only %s named", (name) => {
+        expect(composed({ ...CREDENTIALS, ...absent(name) }).repository).toBeNull();
+    });
+
+    /** The other shape: the one repository the local file serves. */
+    it("names the repository when there are no credentials to serve without one", () => {
+        expect(composed().repository).toEqual({ owner: OWNER, repo: REPO });
     });
 });
 

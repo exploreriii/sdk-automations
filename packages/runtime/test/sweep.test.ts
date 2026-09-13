@@ -41,6 +41,7 @@ import {
     serializeCall,
     stubbedExternals,
     SWEEP_EFFECT,
+    repositoryOfScheduleId,
     SWEEP_READ_BUDGET,
     SWEEP_WRITE_CAP,
     sweepScheduleId,
@@ -50,6 +51,8 @@ import {
     type ItemInput,
     type ShellEvent,
     type SweepFacts,
+    type SweepFactsSource,
+    type SweepOptions,
     type SweepProcessor,
     type SweptItem,
     type SweptItems,
@@ -116,6 +119,14 @@ const events = (name: ShellEvent["event"]): ShellEvent[] =>
 function armed(dueAt = DUE_AT): void {
     store.ledger.schedule(SCHEDULE, dueAt, SWEEP_EFFECT);
 }
+
+/** The half of a processor a case scripts; its reader is supplied beside it. */
+type Deciding = Omit<SweepProcessor, "facts">;
+
+/** Every schedule row in this file is one repository's, so one processor answers for all. */
+const sweeping =
+    (processor: Deciding, facts: SweepFactsSource): SweepOptions["processorFor"] =>
+    () => ({ ...processor, facts });
 
 // ─── The scripted halves ─────────────────────────────────────────────
 
@@ -208,7 +219,7 @@ interface Handed {
 }
 
 interface ScriptedProcessor {
-    readonly processor: SweepProcessor;
+    readonly processor: Deciding;
     readonly decided: Handed[];
 }
 
@@ -272,8 +283,7 @@ function driven(script: Script = {}, config = configFrom(CONFIG_TEXT, CAPABILITI
     const sweep = createSweep({
         store,
         capabilities: CAPABILITIES,
-        processor,
-        facts: reader.facts,
+        processorFor: sweeping(processor, reader.facts),
         clock: () => NOW,
         cadenceMs: DAY_MS,
         writeCap: SWEEP_WRITE_CAP,
@@ -285,6 +295,29 @@ function driven(script: Script = {}, config = configFrom(CONFIG_TEXT, CAPABILITI
 }
 
 // ─── The driver ──────────────────────────────────────────────────────
+
+/** A row's id is the only place its repository is written down, so it must read back. */
+describe("the repository a sweep row names", () => {
+    it.each([
+        { owner: "hiero-hackers", repo: "sdk-automations" },
+        { owner: "o", repo: "r" },
+        { owner: "Mixed-Case", repo: "dots.and-dashes" },
+    ])("survives the round trip for $owner/$repo", (repository) => {
+        expect(repositoryOfScheduleId(sweepScheduleId(repository))).toEqual(repository);
+    });
+
+    it.each([
+        ["another effect's row", "retention:nightly"],
+        ["no prefix", "hiero-hackers/sdk-automations"],
+        ["no repository", "sweep:"],
+        ["no name", "sweep:hiero-hackers"],
+        ["an empty name", "sweep:hiero-hackers/"],
+        ["an empty owner", "sweep:/sdk-automations"],
+        ["a third segment", "sweep:hiero-hackers/sdk-automations/main"],
+    ])("reads %s as no repository at all", (_shape, scheduleId) => {
+        expect(repositoryOfScheduleId(scheduleId)).toBeNull();
+    });
+});
 
 describe("a due sweep row", () => {
     it("builds one record per open item and hands each to the box once", async () => {
@@ -381,8 +414,7 @@ describe("a firing that reads nothing", () => {
         const sweep = createSweep({
             store,
             capabilities: CAPABILITIES,
-            processor,
-            facts: reader.facts,
+            processorFor: sweeping(processor, reader.facts),
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
@@ -419,8 +451,7 @@ describe("a firing that reads nothing", () => {
         const sweep = createSweep({
             store,
             capabilities: CAPABILITIES,
-            processor,
-            facts: reader.facts,
+            processorFor: sweeping(processor, reader.facts),
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
@@ -448,13 +479,12 @@ describe("the claim", () => {
         const sweep = createSweep({
             store,
             capabilities: CAPABILITIES,
-            processor,
             // The redrive happens while the list is being read, which is the
             // only window a takeover can open in.
-            facts: (config) => {
+            processorFor: sweeping(processor, (config) => {
                 store.ledger.requeueStuck(NOW.toISOString());
                 return reader.facts(config);
-            },
+            }),
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
@@ -499,13 +529,97 @@ describe("the claim", () => {
         );
     });
 
+    /**
+     * One process serves the installation (D169), so a tick may find a due row
+     * for each repository in it. Each is read through its OWN facts source and
+     * decided by its own box: the id is where the repository comes from.
+     */
+    it("fires every due row through its own repository's reader and box", async () => {
+        const OTHER = { owner: "hiero-hackers", repo: "other-sdk" } as const;
+        armed();
+        store.ledger.schedule(sweepScheduleId(OTHER), DUE_AT, SWEEP_EFFECT);
+        const config = configFrom(CONFIG_TEXT, CAPABILITIES);
+        const decided: Handed[] = [];
+        const record = handedIn(decided);
+        const read: string[] = [];
+        const sweep = createSweep({
+            store,
+            capabilities: CAPABILITIES,
+            processorFor: (repository) => ({
+                configuration: () => Promise.resolve(config),
+                decideItem: (input, under, at, budget) => {
+                    record(input, under, at, budget);
+                    return Promise.resolve(decidedAs(under, []));
+                },
+                facts: () => ({
+                    openItems: () => {
+                        read.push(`${repository.owner}/${repository.repo}`);
+                        return Promise.resolve({ ok: true, items: [listedItem(ISSUE)] });
+                    },
+                    issueFacts: (listed, links) =>
+                        Promise.resolve({
+                            kind: "issue",
+                            repository,
+                            item: listed.item,
+                            observedAt: NOW,
+                            trigger: { kind: "sweep" },
+                            author: listed.author,
+                            actor: null,
+                            position: POSITION,
+                            alerts: { carried: [], arrived: [] },
+                            assignees: CLOCK,
+                            links: links === UNREAD ? UNREAD : { openPullRequests: links },
+                            command: UNREAD,
+                        }),
+                    pullRequestFacts: () => Promise.reject(new Error("none is listed")),
+                }),
+            }),
+            clock: () => NOW,
+            cadenceMs: DAY_MS,
+            writeCap: SWEEP_WRITE_CAP,
+            readBudget: SWEEP_READ_BUDGET,
+            requestsMade: () => 0,
+            log,
+        });
+
+        await sweep.runDue();
+
+        // One reader each, and the record each decided names its own repository.
+        expect(new Set(read)).toEqual(
+            new Set([`${REPOSITORY.owner}/${REPOSITORY.repo}`, `${OTHER.owner}/${OTHER.repo}`]),
+        );
+        expect(new Set(decided.map(({ input }) => input.scheduleId))).toEqual(
+            new Set([SCHEDULE, sweepScheduleId(OTHER)]),
+        );
+        expect(decided.map(({ input }) => input.facts.repository)).toEqual(
+            decided.map(({ input }) => repositoryOfScheduleId(input.scheduleId)),
+        );
+    });
+
+    it("hands back a sweep row whose id names no repository", async () => {
+        store.ledger.schedule("sweep:nonsense", DUE_AT, SWEEP_EFFECT);
+        const { decided, run } = driven();
+
+        await run();
+
+        expect(decided).toEqual([]);
+        expect(events("sweepFailed")).toMatchObject([
+            { detail: 'schedule "sweep:nonsense" names no repository' },
+        ]);
+        expect(store.ledger.claimDue(new Date(NOW.getTime() + DAY_MS).toISOString())).toMatchObject(
+            [{ scheduleId: "sweep:nonsense" }],
+        );
+    });
+
     it("shares one pass between overlapping ticks, and a shutdown joins it", async () => {
         armed();
         const sweep = createSweep({
             store,
             capabilities: CAPABILITIES,
-            processor: scriptedProcessor(configFrom(CONFIG_TEXT, CAPABILITIES)).processor,
-            facts: scriptedReader().facts,
+            processorFor: sweeping(
+                scriptedProcessor(configFrom(CONFIG_TEXT, CAPABILITIES)).processor,
+                scriptedReader().facts,
+            ),
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
@@ -543,7 +657,7 @@ const effectOn = (
 });
 
 interface Spending {
-    readonly processor: SweepProcessor;
+    readonly processor: Deciding;
     /** Every call the firing handed down, to see whether they shared one budget. */
     readonly handed: Handed[];
     /** The item numbers a write landed on, in order. */
@@ -594,8 +708,7 @@ describe("the writes one firing may send", () => {
         const sweep = createSweep({
             store,
             capabilities: CAPABILITIES,
-            processor,
-            facts: reader.facts,
+            processorFor: sweeping(processor, reader.facts),
             clock: () => now,
             cadenceMs: DAY_MS,
             writeCap: 2,
@@ -627,16 +740,18 @@ describe("the writes one firing may send", () => {
         const sweep = createSweep({
             store,
             capabilities: CAPABILITIES,
-            processor: {
-                configuration: () => Promise.resolve(configFrom(CONFIG_TEXT, CAPABILITIES)),
-                // The shipped composition wires no applier, so active mode ends here.
-                decideItem: () =>
-                    Promise.resolve({
-                        kind: "modeUnsupported",
-                        reason: "active mode is unsupported by the runnable shell",
-                    }),
-            },
-            facts: reader.facts,
+            processorFor: sweeping(
+                {
+                    configuration: () => Promise.resolve(configFrom(CONFIG_TEXT, CAPABILITIES)),
+                    // The shipped composition wires no applier, so active mode ends here.
+                    decideItem: () =>
+                        Promise.resolve({
+                            kind: "modeUnsupported",
+                            reason: "active mode is unsupported by the runnable shell",
+                        }),
+                },
+                reader.facts,
+            ),
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: 2,
@@ -698,8 +813,7 @@ function budgeted(readBudget: number): Budgeted {
     const sweep = createSweep({
         store,
         capabilities: CAPABILITIES,
-        processor,
-        facts: counted,
+        processorFor: sweeping(processor, counted),
         clock: () => now,
         cadenceMs: DAY_MS,
         writeCap: SWEEP_WRITE_CAP,
@@ -981,12 +1095,11 @@ describe("what one firing prunes", () => {
         const sweep = createSweep({
             store,
             capabilities: CAPABILITIES,
-            processor,
             // Closed as the list is read; the prune is the next thing to touch the file.
-            facts: (config) => {
+            processorFor: sweeping(processor, (config) => {
                 store.close();
                 return reader.facts(config);
-            },
+            }),
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
@@ -1013,7 +1126,7 @@ describe("what one firing prunes", () => {
  */
 describe("a firing under a suspended installation", () => {
     /** A firing may reach neither of these: a suspension reads nothing. */
-    const untouchable: SweepProcessor = {
+    const untouchable: Deciding = {
         configuration: () => {
             throw new Error("the configuration was consulted");
         },
@@ -1026,10 +1139,9 @@ describe("a firing under a suspended installation", () => {
         return createSweep({
             store,
             capabilities: CAPABILITIES,
-            processor: untouchable,
-            facts: () => {
+            processorFor: sweeping(untouchable, () => {
                 throw new Error("the repository was read");
-            },
+            }),
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
@@ -1174,8 +1286,7 @@ describe("the reader and the driver together", () => {
         const lane = createDeliveries({
             store,
             capabilities,
-            configSource,
-            decideItem,
+            lane: () => ({ configSource, decideItem }),
             repository: REPOSITORY,
             worker: "sweep-1",
             clock: () => NOW,
@@ -1187,23 +1298,25 @@ describe("the reader and the driver together", () => {
         const sweep = createSweep({
             store,
             capabilities,
-            processor: {
-                configuration: () => lane.configuration(),
-                decideItem: async (...args) => {
-                    record(...args);
-                    const answer = await decideItem(...args);
-                    answers.push(answer);
-                    return answer;
+            processorFor: sweeping(
+                {
+                    configuration: () => lane.configuration(REPOSITORY),
+                    decideItem: async (input, config, at, budget) => {
+                        record(input, config, at, budget);
+                        const answer = await decideItem(input, config, at, budget);
+                        answers.push(answer);
+                        return answer;
+                    },
                 },
-            },
-            facts: (config) =>
-                createFactsReader({
-                    http: http.client,
-                    repository: REPOSITORY,
-                    config,
-                    knownCapabilities: [],
-                    clock: () => NOW,
-                }),
+                (config) =>
+                    createFactsReader({
+                        http: http.client,
+                        repository: REPOSITORY,
+                        config,
+                        knownCapabilities: [],
+                        clock: () => NOW,
+                    }),
+            ),
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,
@@ -1361,14 +1474,16 @@ describe("an item the platform released within the minute", () => {
         const lane = createDeliveries({
             store: into,
             capabilities,
-            configSource: {
-                load: () =>
-                    Promise.resolve({
-                        ok: true,
-                        document: { revision: "rev-sweep-1", text: CONFIG_TEXT },
-                    }),
-            },
-            decideItem,
+            lane: () => ({
+                configSource: {
+                    load: () =>
+                        Promise.resolve({
+                            ok: true,
+                            document: { revision: "rev-sweep-1", text: CONFIG_TEXT },
+                        }),
+                },
+                decideItem,
+            }),
             repository: REPOSITORY,
             worker: "sweep-1",
             clock: () => NOW,
@@ -1378,22 +1493,24 @@ describe("an item the platform released within the minute", () => {
         const sweep = createSweep({
             store: into,
             capabilities,
-            processor: {
-                configuration: () => lane.configuration(),
-                decideItem: async (...args) => {
-                    const answer = await decideItem(...args);
-                    answers.push(answer);
-                    return answer;
+            processorFor: sweeping(
+                {
+                    configuration: () => lane.configuration(REPOSITORY),
+                    decideItem: async (input, config, at, budget) => {
+                        const answer = await decideItem(input, config, at, budget);
+                        answers.push(answer);
+                        return answer;
+                    },
                 },
-            },
-            facts: (config) =>
-                createFactsReader({
-                    http: http.client,
-                    repository: REPOSITORY,
-                    config,
-                    knownCapabilities: [],
-                    clock: () => NOW,
-                }),
+                (config) =>
+                    createFactsReader({
+                        http: http.client,
+                        repository: REPOSITORY,
+                        config,
+                        knownCapabilities: [],
+                        clock: () => NOW,
+                    }),
+            ),
             clock: () => NOW,
             cadenceMs: DAY_MS,
             writeCap: SWEEP_WRITE_CAP,

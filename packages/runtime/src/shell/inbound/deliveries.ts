@@ -47,15 +47,21 @@ function retryDelayMs(attempts: number): number {
     return Math.min(RETRY_BASE_MS * 2 ** attempts, RETRY_CEILING_MS);
 }
 
+/** What one repository's deliveries are read and decided through. */
+export interface DeliveryLane {
+    readonly configSource: ConfigSource;
+    /** The shared box: this lane decides nothing itself (D172). */
+    readonly decideItem: DecideItem;
+}
+
 /** Dependencies and operator hooks for one durable delivery worker. */
 export interface DeliveriesOptions {
     readonly store: Store;
     readonly capabilities: readonly EngineCapability[];
-    readonly configSource: ConfigSource;
-    /** The shared box: this lane decides nothing itself (D172). */
-    readonly decideItem: DecideItem;
-    /** The one repository this endpoint serves, and the name every payload is held to. */
-    readonly repository: RepositoryRef;
+    /** One repository's lane; the payload names which, and every one is served (D169). */
+    readonly lane: (repository: RepositoryRef) => DeliveryLane;
+    /** The one repository a credential-free process serves; absent, every named one is. */
+    readonly repository?: RepositoryRef;
     readonly worker: string;
     readonly clock: () => Date;
     /** Every line here names its delivery: this is the lane that retries. */
@@ -92,9 +98,9 @@ export type ShellRecord =
           readonly reason: string;
       })
     | (RecordIdentity & {
-          /** The payload names a repository this endpoint does not serve. */
+          /** The payload names no repository, or one this endpoint does not serve. */
           readonly kind: "repositoryMismatch";
-          /** `owner/repo`, as configured and as the payload named it. */
+          /** `owner/repo`, or `"any"` served and `"none"` named. */
           readonly expected: string;
           readonly observed: string;
       })
@@ -116,10 +122,13 @@ function parsePayload(bytes: Uint8Array): unknown {
     }
 }
 
-/** The `owner/repo` a payload names, read via core's `repositoryNamedBy`. */
-function repositorySpelledBy(payload: unknown): string | null {
-    const named = repositoryNamedBy(payload);
-    return named === null ? null : `${named.owner}/${named.repo}`;
+/** What a process serving the whole installation expects, and what a nameless payload observed. */
+const ANY_REPOSITORY = "any";
+const NO_REPOSITORY = "none";
+
+/** The one spelling every comparison and every record uses. */
+function repositorySpelledBy(repository: RepositoryRef): string {
+    return `${repository.owner}/${repository.repo}`;
 }
 
 /** Case-insensitively, because GitHub's names are: no two repositories differ only in case. */
@@ -137,7 +146,7 @@ export interface Deliveries {
      * The current configuration as this lane reads it, or `null` when it cannot be read.
      * Exposed for the sweep, so a firing is gated on the same file: two readers could disagree about active mode, and that disagreement writes to GitHub.
      */
-    configuration(): Promise<RepositoryConfig | null>;
+    configuration(repository: RepositoryRef): Promise<RepositoryConfig | null>;
 }
 
 /**
@@ -202,8 +211,7 @@ export function createDeliveries(options: DeliveriesOptions): Deliveries {
     const {
         store,
         capabilities,
-        configSource,
-        decideItem,
+        lane,
         repository,
         worker,
         clock,
@@ -219,7 +227,9 @@ export function createDeliveries(options: DeliveriesOptions): Deliveries {
     };
 
     /** Station 4: fetch the text, parse it. Every rejection is a value. */
-    const loadConfig = async (): Promise<{
+    const loadConfig = async (
+        configSource: ConfigSource,
+    ): Promise<{
         readonly revision: string;
         readonly result: ConfigResult;
     }> => {
@@ -273,22 +283,28 @@ export function createDeliveries(options: DeliveriesOptions): Deliveries {
         configRevision,
     });
 
-    const served = `${repository.owner}/${repository.repo}`;
+    const served = repository === undefined ? ANY_REPOSITORY : repositorySpelledBy(repository);
 
     /**
      * Build one delivery's canonical record, stations ③ to ⑤ in reading order.
-     * The repository comes FIRST, before the configuration is read: a payload naming another is a permanent property of the bytes, so a config outage cannot turn a refusal into four retries and a dead letter.
+     * The repository comes FIRST, before the configuration is read: which one a payload names is a permanent property of the bytes and selects the seams the rest of the pass runs on, so a config outage cannot turn a refusal into four retries and a dead letter.
      * The suspension comes next, for the same reason in reverse: a suspended process reads nothing.
      */
     const recordFor = async (claimed: ClaimedDelivery): Promise<ShellRecord> => {
         const payload = parsePayload(claimed.payload);
-        const named = repositorySpelledBy(payload);
-        if (named !== null && !sameRepository(named, served)) {
+        const spelled = repositoryNamedBy(payload);
+        const observed = spelled === null ? NO_REPOSITORY : repositorySpelledBy(spelled);
+        // A nameless payload names no seams to run on, whoever is served; a configured
+        // process is held to the one repository it was given.
+
+        const unserved =
+            spelled === null || (repository !== undefined && !sameRepository(observed, served));
+        if (unserved) {
             return {
                 kind: "repositoryMismatch",
                 ...identityFor(claimed, CONFIG_NOT_CONSULTED_REVISION, clock()),
                 expected: served,
-                observed: named,
+                observed,
             };
         }
         if (suspended) {
@@ -297,7 +313,12 @@ export function createDeliveries(options: DeliveriesOptions): Deliveries {
                 ...identityFor(claimed, CONFIG_NOT_CONSULTED_REVISION, clock()),
             };
         }
-        const config = await loadConfig();
+        // The served spelling wins where there is one: GitHub's names are case-blind,
+        // and every row about this pass carries one of them.
+
+        const named = repository ?? spelled;
+        const { configSource, decideItem } = lane(named);
+        const config = await loadConfig(configSource);
         // One instant is the record's `decidedAt` AND the rows' `at`, so the ledger
         // never disagrees with the record it holds.
 
@@ -312,7 +333,7 @@ export function createDeliveries(options: DeliveriesOptions): Deliveries {
         // The one thing this lane does for the OTHER one: the sweep row is declared
         // here, because this is where the file is read (sweep.md §2, step 1).
 
-        declareSweep({ store, repository, config: parsed, capabilities, now: clock() });
+        declareSweep({ store, repository: named, config: parsed, capabilities, now: clock() });
         const decided = await decideItem(
             {
                 kind: "delivery",
@@ -436,9 +457,9 @@ export function createDeliveries(options: DeliveriesOptions): Deliveries {
          * A read, never a decision: an unanswerable source and an unparsable file are both
          * `null`, because the sweep's response to either is the same.
          */
-        async configuration(): Promise<RepositoryConfig | null> {
+        async configuration(repository: RepositoryRef): Promise<RepositoryConfig | null> {
             try {
-                const loaded = await loadConfig();
+                const loaded = await loadConfig(lane(repository).configSource);
                 return loaded.result.ok ? loaded.result.config : null;
             } catch {
                 return null;

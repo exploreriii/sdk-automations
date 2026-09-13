@@ -10,13 +10,14 @@ import type {
     ItemRef,
     PullRequestFacts,
     RepositoryConfig,
+    RepositoryRef,
     Unread,
 } from "@hiero-hackers/automation-core";
 import type { ClaimedScheduleRow, Store } from "../../store/index.js";
 import type { WriteBudget } from "../apply/apply.js";
 import type { DecideItem, Decided } from "../decide/item.js";
 import { detailOf, type Log } from "../log.js";
-import { SWEEP_EFFECT, wantsSweeping } from "./schedule.js";
+import { repositoryOfScheduleId, SWEEP_EFFECT, wantsSweeping } from "./schedule.js";
 
 // ─── The seams ───────────────────────────────────────────────────────
 
@@ -54,17 +55,18 @@ export interface SweepFacts {
  */
 export type SweepFactsSource = (config: RepositoryConfig) => SweepFacts;
 
-/** What this lane decides through: the shared box, and the file both lanes gate on. */
+/** How ONE repository is swept: its reader, the shared box, and the file both lanes gate on. */
 export interface SweepProcessor {
     configuration(): Promise<RepositoryConfig | null>;
     decideItem: DecideItem;
+    facts: SweepFactsSource;
 }
 
 export interface SweepOptions {
     readonly store: Store;
     readonly capabilities: readonly EngineCapability[];
-    readonly processor: SweepProcessor;
-    readonly facts: SweepFactsSource;
+    /** One repository's processor; a due row's id names which (D169). */
+    readonly processorFor: (repository: RepositoryRef) => SweepProcessor;
     readonly clock: () => Date;
     /** How long until the next firing. sweep.md §2 step 4; the default is hourly. */
     readonly cadenceMs: number;
@@ -150,12 +152,18 @@ function afterCursor(items: readonly SweptItem[], after: number | null): readonl
         .sort((left, right) => left.item.number - right.item.number);
 }
 
+/** Why a claimed row is handed straight back: no driver here, or no repository in its id. */
+function undrivable(row: ClaimedScheduleRow): string {
+    return row.effect === SWEEP_EFFECT
+        ? `schedule "${row.scheduleId}" names no repository`
+        : `schedule "${row.scheduleId}" carries the unknown effect "${row.effect}"`;
+}
+
 export function createSweep(options: SweepOptions): Sweep {
     const {
         store,
         capabilities,
-        processor,
-        facts,
+        processorFor,
         clock,
         cadenceMs,
         writeCap,
@@ -174,10 +182,11 @@ export function createSweep(options: SweepOptions): Sweep {
     const readRecords = async (
         row: ClaimedScheduleRow,
         config: RepositoryConfig,
+        processor: SweepProcessor,
     ): Promise<Swept> => {
         const before = requestsMade();
         const spent = (): number => requestsMade() - before;
-        const reader = facts(config);
+        const reader = processor.facts(config);
         const listed = await reader.openItems();
         if (!listed.ok) {
             log({ event: "sweepUnreadable", scheduleId: row.scheduleId, detail: listed.detail });
@@ -300,7 +309,10 @@ export function createSweep(options: SweepOptions): Sweep {
      * What this firing read — nothing, where a suspension or the file says so (D171).
      * Contained: the reading is the only half of a firing that may fail, and the re-arm below has to happen anyway.
      */
-    const readingOf = async (row: ClaimedScheduleRow): Promise<Swept> => {
+    const readingOf = async (
+        row: ClaimedScheduleRow,
+        processor: SweepProcessor,
+    ): Promise<Swept> => {
         if (suspended) {
             log({ event: "sweepSuspended", scheduleId: row.scheduleId });
             return nothingRead(row);
@@ -311,7 +323,7 @@ export function createSweep(options: SweepOptions): Sweep {
             // reason to read twenty items: re-arm and ask again.
 
             if (config !== null && wantsSweeping(config, capabilities)) {
-                return await readRecords(row, config);
+                return await readRecords(row, config, processor);
             }
         } catch (error) {
             log({ event: "sweepFailed", detail: detailOf(error) });
@@ -323,9 +335,9 @@ export function createSweep(options: SweepOptions): Sweep {
      * One firing, from claim to re-arm.
      * The re-arm happens whatever the reading came to: a row left `running` is one only a stale-claim redrive could free.
      */
-    const fire = async (row: ClaimedScheduleRow): Promise<void> => {
+    const fire = async (row: ClaimedScheduleRow, repository: RepositoryRef): Promise<void> => {
         log({ event: "sweepClaimed", scheduleId: row.scheduleId, dueAt: row.dueAt });
-        const swept = await readingOf(row);
+        const swept = await readingOf(row, processorFor(repository));
         pruneRetained();
         const nextDueAt = nextDue();
         if (
@@ -353,17 +365,15 @@ export function createSweep(options: SweepOptions): Sweep {
         try {
             const due: readonly ClaimedScheduleRow[] = store.ledger.claimDue(clock().toISOString());
             for (const row of due) {
-                if (row.effect === SWEEP_EFFECT) {
-                    await fire(row);
+                const repository = repositoryOfScheduleId(row.scheduleId);
+                if (row.effect === SWEEP_EFFECT && repository !== null) {
+                    await fire(row, repository);
                     continue;
                 }
-                // `claimDue` claims every due row and `schedule.ts` is the only declarer, so
-                // this is a future effect's row with no driver here. Hand the claim back.
+                // `claimDue` claims every due row, so this is a future effect's row with no
+                // driver here, or a sweep row whose id lost its name. Hand the claim back.
 
-                log({
-                    event: "sweepFailed",
-                    detail: `schedule "${row.scheduleId}" carries the unknown effect "${row.effect}"`,
-                });
+                log({ event: "sweepFailed", detail: undrivable(row) });
                 store.ledger.scheduleAgain(
                     row.scheduleId,
                     row.claimToken,

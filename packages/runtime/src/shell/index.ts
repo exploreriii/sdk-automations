@@ -14,9 +14,9 @@ export * from "./decide/config.js";
 export * from "./decide/externals.js";
 /** Published because the sweep's seam names its shapes. */
 export * from "./decide/item.js";
+export * from "./decide/schedule.js";
 export * from "./inbound/deliveries.js";
 export * from "./inbound/receiver.js";
 export * from "./log.js";
 export * from "./sweep/budgets.js";
-export * from "./sweep/schedule.js";
 export * from "./sweep/sweep.js";

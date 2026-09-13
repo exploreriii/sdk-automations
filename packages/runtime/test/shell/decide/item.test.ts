@@ -25,7 +25,7 @@ import {
     stubbedExternals,
     type ExternalsForDelivery,
 } from "../../../src/shell/decide/externals.js";
-import { sweepScheduleId } from "../../../src/shell/sweep/schedule.js";
+import { sweepScheduleId } from "../../../src/shell/decide/schedule.js";
 
 const REPOSITORY = { owner: "scrubbed-1", repo: "scrubbed-2" } as const;
 const ITEM = { kind: "issue", number: 164 } as const;

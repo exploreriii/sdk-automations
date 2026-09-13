@@ -16,8 +16,8 @@ import type {
 import type { ClaimedScheduleRow, Store } from "../../store/index.js";
 import type { WriteBudget } from "../apply/apply.js";
 import type { DecideItem, Decided } from "../decide/item.js";
+import { repositoryOfScheduleId, SWEEP_EFFECT, wantsSweeping } from "../decide/schedule.js";
 import { detailOf, type Log } from "../log.js";
-import { repositoryOfScheduleId, SWEEP_EFFECT, wantsSweeping } from "./schedule.js";
 
 // ─── The seams ───────────────────────────────────────────────────────
 

@@ -26,7 +26,7 @@ const ROOT = "root";
 const ALLOWED: Readonly<Record<string, readonly string[]>> = {
     compose: ["jobs", "inbound", "sweep", "decide", "apply", "observe", ROOT],
     jobs: ["inbound", "sweep", "decide", "apply", ROOT],
-    inbound: ["sweep", "decide", ROOT],
+    inbound: ["decide", ROOT],
     sweep: ["decide", "apply", ROOT],
     decide: ["apply", ROOT],
     apply: ["apply/operations", ROOT],

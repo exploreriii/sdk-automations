@@ -50,8 +50,8 @@ Three directions hold inside those packages. The shell's directories are the box
 |---|---|
 | `compose/` | the environment read into one record, the live seams, and the start |
 | `inbound/` | the webhook lane: the receiver, and the delivery it claims and completes |
-| `sweep/` | the sweep lane: the schedule row, one firing's budgets, and the driver |
-| `decide/` | the one box both lanes call — decide one item, apply, write the rows |
+| `sweep/` | the sweep lane: one firing's budgets and the driver |
+| `decide/` | the one box both lanes call — the schedule row, decide one item, apply, write the rows |
 | `apply/` | the applier as a loop over a five-row table, one module per operation below it |
 | `jobs/` | the tick's four named jobs, and the shutdown order |
 | `observe/` | the read-only commands |

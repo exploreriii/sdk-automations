@@ -108,8 +108,9 @@ module.exports = {
             name: "adapter-imported-at-shell-main-only",
             severity: "error",
             comment:
-                "GitHub credentials enter at the runnable composition root. No other package, " +
-                "and no other directory of the runtime, may reach into the adapter. The " +
+                "GitHub credentials enter at the runnable composition root: the start, and the " +
+                "live fill it builds. Not the record they read, which is pure; not another " +
+                "directory of the runtime; and no other package. The " +
                 "runtime's own `src/index.ts` is absent from the FROM side because it is the " +
                 "package's public surface rather than a consumer of the adapter: it re-exports " +
                 "three barrels and reaches into none of them.",
@@ -118,7 +119,7 @@ module.exports = {
                     `${P}(?:core|capabilities|checks|lab|testkit)/(?:src|test)/`,
                     R("store|shell"),
                 ],
-                pathNot: ["^packages/runtime/src/shell/main\\.ts$"],
+                pathNot: ["^packages/runtime/src/shell/compose/(?:live|main)\\.ts$"],
             },
             to: { path: R("adapter") },
         },

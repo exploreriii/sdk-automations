@@ -17,7 +17,7 @@
         "test": "tsc --noEmit && vitest run",
         "test:coverage": "tsc --noEmit && vitest run --coverage --testTimeout=15000",
         "test:watch": "vitest",
-        "start": "tsx src/shell/main.ts",
+        "start": "tsx src/shell/compose/main.ts",
         "explain": "tsx src/shell/explain-cli.ts",
         "status": "tsx src/shell/status-cli.ts"
     },

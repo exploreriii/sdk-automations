@@ -9,15 +9,17 @@ export default defineConfig({
             reporter: ["text", "html"],
             include: ["src/**/*.ts"],
             // The composed barrel and the three it composes re-export and
-            // hold nothing. `src/shell/main.ts` is exercised as a real
-            // process in test/shell/main.test.ts, and v8 attributes nothing
-            // across a spawn — the barrels' reason exactly.
+            // hold nothing. `src/shell/compose/main.ts` and the live fill it
+            // builds are exercised as a real process in
+            // test/shell/main.test.ts, and v8 attributes nothing across a
+            // spawn — the barrels' reason exactly.
             exclude: [
                 "src/index.ts",
                 "src/adapter/index.ts",
                 "src/shell/index.ts",
                 "src/store/index.ts",
-                "src/shell/main.ts",
+                "src/shell/compose/main.ts",
+                "src/shell/compose/live.ts",
                 "src/shell/explain-cli.ts",
                 "src/shell/status-cli.ts",
             ],

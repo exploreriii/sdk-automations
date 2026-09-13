@@ -15,7 +15,7 @@ The barrel re-exports the three; a consumer sees one package. Tests mirror the t
 with one exception that proves the rule: `test/sweep.test.ts` is about the seam BETWEEN the adapter
 and the shell, which neither directory may import the other across, so it sits above both and
 reaches each through its barrel — the way the composition root does. Run it from the repository
-root: `node --import tsx packages/runtime/src/shell/main.ts`.
+root: `node --import tsx packages/runtime/src/shell/compose/main.ts`.
 
 **The package mutation break threshold is 90**, the gate the adapter and shell carried before the
 merge. CI also enforces the store's existing 96 threshold from the same mutation report, so merging

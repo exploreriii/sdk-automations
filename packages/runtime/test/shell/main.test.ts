@@ -1,16 +1,16 @@
 /**
  * The composition root run as the real process: `node --import tsx
- * src/main.ts`, an environment, a socket and a SQLite file. Everything
- * main.ts owns is observable from outside it. The
- * refusal to boot without its three variables, the startup event naming the
- * port and both file paths, and a signed delivery coming back as a persisted
- * report under exactly the store path that event announced.
+ * src/shell/compose/main.ts`, an environment, a socket and a SQLite file.
+ * Everything the start owns is observable from outside it: the startup event
+ * naming the port and both file paths, and a signed delivery coming back as a
+ * persisted report under exactly the store path that event announced.
  *
  * Every case here costs a spawn, so a case belongs here only if a spawn is
  * the ONLY thing that can prove it: what the environment refuses at boot,
  * what the startup line announces, what leaves the process on the wire, and
  * what a signal does to it. Whatever a seam can answer is answered at the
- * seam — `shell.test.ts` for composition, `processor.test.ts` for the lane,
+ * seam — `composition.test.ts` for every variable the environment is refused
+ * for, `shell.test.ts` for composition, `processor.test.ts` for the lane,
  * `externals.test.ts` for the live adapter, `log.test.ts` for the event
  * vocabulary — and is not rehearsed here at process cost.
  *
@@ -18,10 +18,11 @@
  * packages and all three sibling modules, so it could only prove that main
  * calls what main calls. Rewiring the composition would not have failed it.
  *
- * v8 attributes nothing across a spawn, so src/main.ts is excluded from
- * coverage in vitest.config.ts. The Stryker harness below forwards the
- * active mutant into the child and folds its coverage back into the parent,
- * so the process boundary does not make main.ts a mutation blind spot.
+ * v8 attributes nothing across a spawn, so `compose/main.ts` and the live
+ * fill it builds are excluded from coverage in vitest.config.ts. The Stryker
+ * harness below forwards the active mutant into the child and folds its
+ * coverage back into the parent, so the process boundary does not make them
+ * a mutation blind spot.
  *
  * Every child is killed twice over: a hard timer inside `withShell`, and
  * the wrapper's own `finally`. A boot that never reaches `listen` has to
@@ -38,12 +39,7 @@ import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-    asDeliveryGuid,
-    signBody,
-    SIGNATURE_HEADER,
-    type Report,
-} from "@hiero-hackers/automation-core";
+import { signBody, SIGNATURE_HEADER, type Report } from "@hiero-hackers/automation-core";
 import { Store } from "../../src/store/index.js";
 import { capture, useTempDir } from "@hiero-hackers/automation-testkit";
 
@@ -58,8 +54,6 @@ const PACKAGE_DIR = fileURLToPath(new URL("../../", import.meta.url));
 const state = useTempDir("shell-main-state-");
 
 const LOOPBACK = "127.0.0.1";
-/** An address no machine owns: bindable nowhere, routable nowhere (RFC 5737). */
-const UNBINDABLE = "203.0.113.1";
 
 const SECRET = "main-test-secret";
 /**
@@ -74,8 +68,6 @@ const GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a69";
 const UNREADABLE_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6a";
 const FIXTURE = capture("issues.opened.json").bytes();
 const READ_ONLY_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6c";
-/** Seeded straight into a running child's store, where only a sweep can find it. */
-const SWEPT_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6d";
 /** The one active-mode delivery, whose effects reach the fake GitHub below. */
 const ACTIVE_GUID = "83e4273f-dd89-22f4-92bc-5da478ed1a6e";
 
@@ -287,7 +279,7 @@ function absorbCoverage(drop: CoverageDrop): void {
 }
 
 /**
- * Boot `src/shell/main.ts` for the duration of `body`, then take it down.
+ * Boot `src/shell/compose/main.ts` for the duration of `body`, then stop it.
  *
  * The parent environment is inherited rather than replaced — it carries
  * the module resolution the child needs — and only the shell's own
@@ -309,7 +301,7 @@ async function withShell<T>(
             "tsx",
             ...(drop === undefined ? [] : ["--import", pathToFileURL(drop.hook).href]),
             ...(preload === undefined ? [] : ["--import", pathToFileURL(preload).href]),
-            "src/shell/main.ts",
+            "src/shell/compose/main.ts",
         ],
         {
             cwd: PACKAGE_DIR,
@@ -729,13 +721,18 @@ async function withLiveGitHub(
         );
     });
 }
-
 describe("the sandbox entry point, as a process", () => {
-    it.each(["WEBHOOK_SECRET", "REPO_OWNER", "REPO_NAME"])(
-        "fails closed and listens for nothing when %s is absent",
-        async (missing) => {
+    /**
+     * One case, not one per variable: WHICH variable is missing, and every
+     * other sentence the environment can earn, is the parser's table in
+     * `test/shell/compose/composition.test.ts`. A spawn is needed only to
+     * prove that a refusal reaches stderr and that nothing starts listening.
+     */
+    it(
+        "fails closed and listens for nothing when a required variable is absent",
+        async () => {
             const environment = bootEnvironment();
-            delete environment[missing];
+            delete environment["WEBHOOK_SECRET"];
 
             await withShell(environment, async (shell) => {
                 await until(
@@ -750,241 +747,10 @@ describe("the sandbox entry point, as a process", () => {
         TEST_TIMEOUT_MS,
     );
 
-    it.each([
-        { title: "APP_ID only", credentials: { APP_ID: "1" } },
-        { title: "PRIVATE_KEY_PATH only", credentials: { PRIVATE_KEY_PATH: "missing.pem" } },
-        { title: "INSTALLATION_ID only", credentials: { INSTALLATION_ID: "1" } },
-        {
-            title: "APP_ID and PRIVATE_KEY_PATH",
-            credentials: { APP_ID: "1", PRIVATE_KEY_PATH: "missing.pem" },
-        },
-        { title: "APP_ID and INSTALLATION_ID", credentials: { APP_ID: "1", INSTALLATION_ID: "1" } },
-        {
-            title: "PRIVATE_KEY_PATH and INSTALLATION_ID",
-            credentials: { PRIVATE_KEY_PATH: "missing.pem", INSTALLATION_ID: "1" },
-        },
-    ])(
-        "fails closed when $title are present",
-        async ({ credentials }) => {
-            await withShell(
-                {
-                    ...bootEnvironment(),
-                    ...credentials,
-                },
-                async (shell) => {
-                    await until(
-                        () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                        "the partial credential set to be refused",
-                    );
-                    expect(shell.stdout()).toBe("");
-                    expect(await shell.exit).toBe(1);
-                    expect(shell.stderr().trim()).toBe(
-                        "APP_ID, PRIVATE_KEY_PATH and INSTALLATION_ID must be provided together to use live GitHub access.",
-                    );
-                },
-            );
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    it.each(["0", "-1", "1.5", "soon"])(
-        "fails closed when TICK_SECONDS is %j",
-        async (tick) => {
-            await withShell({ ...bootEnvironment(), TICK_SECONDS: tick }, async (shell) => {
-                await until(
-                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                    "the tick to be refused",
-                );
-                expect(shell.stdout()).toBe("");
-                expect(await shell.exit).toBe(1);
-                expect(shell.stderr().trim()).toBe(
-                    "TICK_SECONDS must be a whole number of seconds, 1 or more.",
-                );
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    it.each(["0", "-1", "1.5", "daily"])(
-        "fails closed when SWEEP_CADENCE_HOURS is %j",
-        async (cadence) => {
-            await withShell(
-                { ...bootEnvironment(), SWEEP_CADENCE_HOURS: cadence },
-                async (shell) => {
-                    await until(
-                        () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                        "the sweep cadence to be refused",
-                    );
-                    expect(shell.stdout()).toBe("");
-                    expect(await shell.exit).toBe(1);
-                    expect(shell.stderr().trim()).toBe(
-                        "SWEEP_CADENCE_HOURS must be a whole number of hours, 1 or more.",
-                    );
-                },
-            );
-        },
-        TEST_TIMEOUT_MS,
-    );
-
     /**
-     * The cap is a whole number of writes like the cadence is of hours, and it
-     * asks for no credentials: it arms nothing, it only narrows a firing.
+     * The one refusal to boot that is not the parser's, because it is a READ:
+     * the key file is opened by the live fill, after the record is in hand.
      */
-    it.each(["0", "-1", "1.5", "twenty"])(
-        "fails closed when SWEEP_WRITE_CAP is %j",
-        async (cap) => {
-            await withShell({ ...bootEnvironment(), SWEEP_WRITE_CAP: cap }, async (shell) => {
-                await until(
-                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                    "the write cap to be refused",
-                );
-                expect(shell.stdout()).toBe("");
-                expect(await shell.exit).toBe(1);
-                expect(shell.stderr().trim()).toBe(
-                    "SWEEP_WRITE_CAP must be a whole number of writes, 1 or more.",
-                );
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    /** The read budget is the same shape for the other half of a firing (D170). */
-    it.each(["0", "-1", "1.5", "all"])(
-        "fails closed when SWEEP_READ_BUDGET is %j",
-        async (budget) => {
-            await withShell({ ...bootEnvironment(), SWEEP_READ_BUDGET: budget }, async (shell) => {
-                await until(
-                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                    "the read budget to be refused",
-                );
-                expect(shell.stdout()).toBe("");
-                expect(await shell.exit).toBe(1);
-                expect(shell.stderr().trim()).toBe(
-                    "SWEEP_READ_BUDGET must be a whole number of requests, 1 or more.",
-                );
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    /**
-     * The mirror of the `APP_SLUG` rule, for the same reason: a cadence is an
-     * instruction to READ GitHub, and a composition with no credentials has
-     * nothing to read it with. Half a live configuration fails closed rather
-     * than booting a sweep that could never fire.
-     */
-    it(
-        "fails closed when SWEEP_CADENCE_HOURS is set with no credentials to read with",
-        async () => {
-            await withShell({ ...bootEnvironment(), SWEEP_CADENCE_HOURS: "24" }, async (shell) => {
-                await until(
-                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                    "the unbacked cadence to be refused",
-                );
-                expect(await shell.exit).toBe(1);
-                expect(shell.stderr().trim()).toBe(
-                    "SWEEP_CADENCE_HOURS arms the fact sweep and needs APP_ID, PRIVATE_KEY_PATH and INSTALLATION_ID to read GitHub with.",
-                );
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    /**
-     * `Number("nope")` is NaN, and node reads NaN as "any free port": the
-     * unvalidated version bound a port nobody could predict and announced
-     * it as `:NaN`. 0 is the same request spelled deliberately, and is
-     * refused for the same reason — an endpoint GitHub cannot reach.
-     */
-    it.each(["nope", "", "0", "-1", "8790.5", "65536", " "])(
-        "fails closed when PORT is %j",
-        async (port) => {
-            await withShell({ ...bootEnvironment(), PORT: port }, async (shell) => {
-                await until(
-                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                    "the port to be refused",
-                );
-                expect(shell.stdout()).toBe("");
-                expect(await shell.exit).toBe(1);
-                expect(shell.stderr().trim()).toBe(
-                    "PORT must be a whole number between 1 and 65535.",
-                );
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    /**
-     * Both ends of the range are IN it. A privileged 1 and the last port
-     * 65535 are values an operator may legitimately be handed, and what
-     * happens to them next is the operating system's business — a refusal
-     * here would be this shell inventing a narrower range than it documents.
-     */
-    it.each(["1", "65535"])(
-        "does not refuse PORT %j: the range includes both its ends",
-        async (port) => {
-            await withShell({ ...bootEnvironment(), PORT: port }, async (shell) => {
-                await until(
-                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                    "the boot to settle",
-                );
-                expect(shell.stderr()).not.toContain("PORT must be");
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    /**
-     * An empty HOST is a typo for absent, and node answers it by resolving
-     * the empty host rather than by refusing. Whitespace is the same typo
-     * with a space in it, and reads the same way.
-     */
-    it.each(["", "   "])(
-        "fails closed when HOST is %j",
-        async (host) => {
-            await withShell({ ...bootEnvironment(), HOST: host }, async (shell) => {
-                await until(
-                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                    "the empty host to be refused",
-                );
-                expect(shell.stdout()).toBe("");
-                expect(await shell.exit).toBe(1);
-                expect(shell.stderr().trim()).toBe(
-                    "HOST must be a host name or address, or unset to bind every interface.",
-                );
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    /**
-     * An UNSET host is the unnamed bind — the one value that is not a typo
-     * — so the boot has to walk past that check and reach the ones below
-     * it. Proved by refusing the next variable instead of by listening: a
-     * suite that bound every interface is a suite the machine asks its
-     * operator about.
-     */
-    it(
-        "reads an unset HOST as the unnamed bind and goes on to the next check",
-        async () => {
-            const environment = bootEnvironment();
-            delete environment["HOST"];
-
-            await withShell({ ...environment, TICK_SECONDS: "0" }, async (shell) => {
-                await until(
-                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                    "the tick to be refused",
-                );
-                expect(shell.stdout()).toBe("");
-                expect(await shell.exit).toBe(1);
-                expect(shell.stderr().trim()).toBe(
-                    "TICK_SECONDS must be a whole number of seconds, 1 or more.",
-                );
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
     it(
         "fails closed when PRIVATE_KEY_PATH names no readable file",
         async () => {
@@ -1013,72 +779,103 @@ describe("the sandbox entry point, as a process", () => {
         TEST_TIMEOUT_MS,
     );
 
-    // ── APP_SLUG: the variable that arms the write path ──────────────
-
     /**
-     * The slug becomes `"<slug>[bot]"`, the login a read-back recognises the
-     * App's own comment by. A value that cannot spell one is a typo that
-     * would otherwise be discovered as the App failing to recognise its own
-     * writing — which is how a capability posts a second comment.
+     * The record names the paths; making them is the start's, and on the
+     * machines the default exists for — a fresh container, a volume mounted
+     * empty — every segment on the way to the store is missing, not just one.
      */
-    it.each(["", "   ", "sandbox[bot]", " sandbox"])(
-        "fails closed when APP_SLUG is %j",
-        async (slug) => {
-            await withShell({ ...bootEnvironment(), APP_SLUG: slug }, async (shell) => {
-                await until(
-                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                    "the slug to be refused",
-                );
-                expect(shell.stdout()).toBe("");
-                expect(await shell.exit).toBe(1);
-                expect(shell.stderr().trim()).toBe(
-                    'APP_SLUG must be the App\'s URL slug, with no surrounding spaces and no brackets — the bot login is derived from it as "<slug>[bot]".',
-                );
-            });
+    it(
+        "creates the whole path to a state home that is not there yet",
+        async () => {
+            const home = join(state.dir, "not", "created", "yet");
+            const port = await freePort();
+
+            await withShell(
+                { ...bootEnvironment(), XDG_STATE_HOME: home, PORT: String(port) },
+                async (shell) => {
+                    const store = join(home, "sdk-automations", "shell.sqlite");
+                    expect(await listening(shell)).toMatchObject({ storePath: store });
+                    expect(existsSync(store)).toBe(true);
+                },
+            );
         },
         TEST_TIMEOUT_MS,
     );
 
-    /** An identity with nothing to write with is a half-typed live setup. */
     it(
-        "fails closed when APP_SLUG arrives without the credentials to write with",
+        "announces where it listens, then turns a signed delivery into that store's report",
         async () => {
-            await withShell({ ...bootEnvironment(), APP_SLUG }, async (shell) => {
-                await until(
-                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                    "the credential-free slug to be refused",
-                );
-                expect(shell.stdout()).toBe("");
-                expect(await shell.exit).toBe(1);
-                expect(shell.stderr().trim()).toBe(
-                    "APP_SLUG arms the write path and needs APP_ID, PRIVATE_KEY_PATH and INSTALLATION_ID to write with.",
-                );
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
+            await withPaths(async ({ configFile, storeFile }) => {
+                const port = await freePort();
+                await withShell(
+                    {
+                        ...bootEnvironment(),
+                        CONFIG_FILE: configFile,
+                        STORE_PATH: storeFile,
+                        PORT: String(port),
+                        // The fastest tick the validation accepts, so a
+                        // boot that ticked every second is proved to work.
+                        TICK_SECONDS: "1",
+                    },
+                    async (shell) => {
+                        const startup = await listening(shell);
+                        expect(startup).toEqual({
+                            // A real line, parsed as JSON, carrying the two
+                            // fields every line carries.
+                            at: expect.stringMatching(/^\d{4}-\d\d-\d\dT[\d:.]+Z$/),
+                            event: "startup",
+                            port,
+                            host: LOOPBACK,
+                            repository: `${OWNER}/${REPO}`,
+                            configSource: "local",
+                            configPath: configFile,
+                            storePath: storeFile,
+                            // No credentials, so no identity, so no applier:
+                            // the shipped composition writes nothing.
+                            writes: "absent",
+                            // And no cadence, so it reads nothing on a clock
+                            // either: this process waits to be told.
+                            sweep: "absent",
+                            // And it is awake: this one decides what arrives.
+                            suspended: false,
+                        });
 
-    /**
-     * The credential triad buys READS. Without a slug there is no identity, so
-     * no read-back can verify authorship, so no applier exists — and `active`
-     * is still refused before a decision, exactly as it shipped. The startup
-     * line says so before any delivery arrives.
-     */
-    it(
-        "boots the live read path with no slug, and still refuses active mode",
-        async () => {
-            await withLiveGitHub({ config: ACTIVE_CONFIG }, async ({ port, shell, storeFile }) => {
-                expect(await listening(shell)).toMatchObject({
-                    configSource: "live",
-                    writes: "absent",
-                });
-                expect(await post(port, ACTIVE_GUID, FIXTURE)).toBe(202);
+                        expect(await post(port, GUID, FIXTURE)).toBe(202);
+                        // The delivery's whole passage, under its own id.
+                        await awaitEvent(shell, "deliveryCompleted");
+                        expect(
+                            events(shell.stdout())
+                                .filter((event) => event["deliveryId"] === GUID)
+                                .map((event) => event["event"]),
+                        ).toEqual(["deliveryAccepted", "deliveryClaimed", "deliveryCompleted"]);
+                        const decided = await persisted(storeFile, GUID);
+                        expect(decided).toMatchObject({
+                            kind: "decision",
+                            deliveryId: GUID,
+                            event: "issues",
+                        });
+                        expect(decided.report?.mode).toBe("dry-run");
+                        expect(codes(decided)).toEqual([
+                            "capabilityExplained",
+                            "modeRecordsOnly",
+                            "wouldApply",
+                            "capabilityExplained",
+                            "modeRecordsOnly",
+                            "wouldApply",
+                        ]);
 
-                const record = await persisted(storeFile, ACTIVE_GUID);
-                expect(record).toMatchObject({
-                    kind: "modeUnsupported",
-                    deliveryId: ACTIVE_GUID,
-                });
+                        // An unreadable payload is the one report that has to
+                        // name the repository this endpoint was started for.
+                        const bytes = Buffer.from("not json");
+                        expect(await post(port, UNREADABLE_GUID, bytes)).toBe(202);
+                        const unreadable = await persisted(storeFile, UNREADABLE_GUID);
+                        expect(codes(unreadable)).toEqual(["payloadNotObject"]);
+                        expect(unreadable.report?.repository).toEqual({
+                            owner: OWNER,
+                            repo: REPO,
+                        });
+                    },
+                );
             });
         },
         TEST_TIMEOUT_MS,
@@ -1181,208 +978,9 @@ describe("the sandbox entry point, as a process", () => {
     );
 
     /**
-     * The state home is the operator's directory, and on the machines this
-     * default exists for — a fresh container, a volume mounted empty — none
-     * of it is there yet. Every missing segment on the way to the store is
-     * this process's to create, not just the last one.
-     */
-    it(
-        "creates the whole path to a state home that is not there yet",
-        async () => {
-            const home = join(state.dir, "not", "created", "yet");
-            const port = await freePort();
-
-            await withShell(
-                { ...bootEnvironment(), XDG_STATE_HOME: home, PORT: String(port) },
-                async (shell) => {
-                    const store = join(home, "sdk-automations", "shell.sqlite");
-                    expect(await listening(shell)).toMatchObject({ storePath: store });
-                    expect(existsSync(store)).toBe(true);
-                },
-            );
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    /**
-     * TICK_SECONDS is seconds. A shell told to tick hourly and
-     * ticking every few milliseconds instead looks like working software
-     * — the recovery is only ever early — while running a timer against
-     * the store a thousand times faster than the operator asked for.
-     */
-    it(
-        "ticks on the interval in SECONDS, so an hour is not four milliseconds",
-        async () => {
-            await withPaths(async ({ configFile, storeFile }) => {
-                const port = await freePort();
-                await withShell(
-                    {
-                        ...bootEnvironment(),
-                        CONFIG_FILE: configFile,
-                        STORE_PATH: storeFile,
-                        PORT: String(port),
-                        TICK_SECONDS: "3600",
-                    },
-                    async (shell) => {
-                        await listening(shell);
-                        // One delivery the ordinary way, so the drain a
-                        // start performs is demonstrably over before the
-                        // queue below is seeded behind the child's back.
-                        expect(await post(port, GUID, FIXTURE)).toBe(202);
-                        await persisted(storeFile, GUID);
-
-                        // Nothing will wake the child for this one: no
-                        // webhook arrives, and the next sweep is an hour off.
-                        const seeded = await until(
-                            () => ifUnlocked(() => new Store(storeFile)),
-                            `the store at ${storeFile}`,
-                        );
-                        try {
-                            expect(
-                                seeded.inbox.acceptDelivery({
-                                    deliveryId: asDeliveryGuid(SWEPT_GUID)!,
-                                    eventName: "issues",
-                                    payload: FIXTURE,
-                                    receivedAt: new Date().toISOString(),
-                                }),
-                            ).toMatchObject({ outcome: "accepted" });
-                        } finally {
-                            seeded.close();
-                        }
-                        await new Promise<void>((resolve) => {
-                            setTimeout(resolve, 1_000);
-                        });
-
-                        const store = await until(
-                            () => ifUnlocked(() => new Store(storeFile)),
-                            `the store at ${storeFile}`,
-                        );
-                        try {
-                            expect(
-                                store.inbox
-                                    .deliveryReports()
-                                    .map((report) => String(report.deliveryId)),
-                            ).toEqual([GUID]);
-                        } finally {
-                            store.close();
-                        }
-                    },
-                );
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    it(
-        "announces where it listens, then turns a signed delivery into that store's report",
-        async () => {
-            await withPaths(async ({ configFile, storeFile }) => {
-                const port = await freePort();
-                await withShell(
-                    {
-                        ...bootEnvironment(),
-                        CONFIG_FILE: configFile,
-                        STORE_PATH: storeFile,
-                        PORT: String(port),
-                        // The fastest tick the validation accepts, so a
-                        // boot that ticked every second is proved to work.
-                        TICK_SECONDS: "1",
-                    },
-                    async (shell) => {
-                        const startup = await listening(shell);
-                        expect(startup).toEqual({
-                            // A real line, parsed as JSON, carrying the two
-                            // fields every line carries.
-                            at: expect.stringMatching(/^\d{4}-\d\d-\d\dT[\d:.]+Z$/),
-                            event: "startup",
-                            port,
-                            host: LOOPBACK,
-                            repository: `${OWNER}/${REPO}`,
-                            configSource: "local",
-                            configPath: configFile,
-                            storePath: storeFile,
-                            // No credentials, so no identity, so no applier:
-                            // the shipped composition writes nothing.
-                            writes: "absent",
-                            // And no cadence, so it reads nothing on a clock
-                            // either: this process waits to be told.
-                            sweep: "absent",
-                            // And it is awake: this one decides what arrives.
-                            suspended: false,
-                        });
-
-                        expect(await post(port, GUID, FIXTURE)).toBe(202);
-                        // The delivery's whole passage, under its own id.
-                        await awaitEvent(shell, "deliveryCompleted");
-                        expect(
-                            events(shell.stdout())
-                                .filter((event) => event["deliveryId"] === GUID)
-                                .map((event) => event["event"]),
-                        ).toEqual(["deliveryAccepted", "deliveryClaimed", "deliveryCompleted"]);
-                        const decided = await persisted(storeFile, GUID);
-                        expect(decided).toMatchObject({
-                            kind: "decision",
-                            deliveryId: GUID,
-                            event: "issues",
-                        });
-                        expect(decided.report?.mode).toBe("dry-run");
-                        expect(codes(decided)).toEqual([
-                            "capabilityExplained",
-                            "modeRecordsOnly",
-                            "wouldApply",
-                            "capabilityExplained",
-                            "modeRecordsOnly",
-                            "wouldApply",
-                        ]);
-
-                        // An unreadable payload is the one report that has to
-                        // name the repository this endpoint was started for.
-                        const bytes = Buffer.from("not json");
-                        expect(await post(port, UNREADABLE_GUID, bytes)).toBe(202);
-                        const unreadable = await persisted(storeFile, UNREADABLE_GUID);
-                        expect(codes(unreadable)).toEqual(["payloadNotObject"]);
-                        expect(unreadable.report?.repository).toEqual({
-                            owner: OWNER,
-                            repo: REPO,
-                        });
-                    },
-                );
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    it(
-        "KILL_SWITCH=1 reaches the decision: every write is refused as killSwitch",
-        async () => {
-            await withPaths(async ({ configFile, storeFile }) => {
-                const port = await freePort();
-                await withShell(
-                    {
-                        ...bootEnvironment(),
-                        CONFIG_FILE: configFile,
-                        STORE_PATH: storeFile,
-                        PORT: String(port),
-                        KILL_SWITCH: "1",
-                    },
-                    async (shell) => {
-                        await listening(shell);
-                        expect(await post(port, GUID, FIXTURE)).toBe(202);
-
-                        const decided = await persisted(storeFile, GUID);
-                        expect(decided.kind).toBe("decision");
-                        expect(codes(decided)).toEqual(["killSwitch", "killSwitch"]);
-                    },
-                );
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    /**
-     * The other switch, and the difference between them. Suspension still
-     * verifies and accepts — the 202 is what keeps P9's loss window shut —
-     * and then finishes the delivery without reading or deciding anything.
+     * The switch the record carries into the shell. Suspension still verifies
+     * and accepts — the 202 is what keeps P9's loss window shut — and then
+     * finishes the delivery without reading or deciding anything.
      */
     it(
         "SUSPENDED=1 accepts the delivery and records it undecided",
@@ -1452,93 +1050,6 @@ describe("the sandbox entry point, as a process", () => {
                         expect(shell.stderr()).toBe("");
                     },
                 );
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    /**
-     * Why the exit is explicit rather than a hope. A handle something else
-     * in the process left open — a library's timer, a socket nobody closed
-     * — would keep a shut-down shell alive until the platform lost patience
-     * and killed it, which is a SIGKILL in the logs for a clean stop. The
-     * last line has left; the process goes.
-     */
-    it(
-        "leaves on time even when something else is still holding the event loop",
-        async () => {
-            await withPaths(async ({ configFile, storeFile }) => {
-                const port = await freePort();
-                const lingering = `${storeFile}.lingering.mjs`;
-                // Referenced on purpose: an unref'd timer would let node end
-                // the process on its own, which is the thing not being tested.
-                writeFileSync(lingering, "setInterval(() => undefined, 60_000);\n");
-
-                await withShell(
-                    {
-                        ...bootEnvironment(),
-                        CONFIG_FILE: configFile,
-                        STORE_PATH: storeFile,
-                        PORT: String(port),
-                    },
-                    async (shell) => {
-                        await listening(shell);
-                        shell.signal("SIGTERM");
-
-                        expect(await shell.exit).toBe(0);
-                        expect(events(shell.stdout()).at(-1)).toMatchObject({ event: "shutdown" });
-                    },
-                    lingering,
-                );
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    it(
-        "binds the HOST it was handed, and dies on an address this machine has not got",
-        async () => {
-            await withShell({ ...bootEnvironment(), HOST: UNBINDABLE }, async (shell) => {
-                await until(
-                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                    "the bind to be refused",
-                );
-                expect(shell.stdout()).toBe("");
-                expect(shell.stderr()).toMatch(/EADDRNOTAVAIL/);
-            });
-        },
-        TEST_TIMEOUT_MS,
-    );
-
-    /**
-     * The store's default is under the operator's state home, never inside
-     * this package: in a container `packages/runtime/data/` is an image layer,
-     * and a redeploy would take the canonical reports with it.
-     */
-    it(
-        "with only the three required variables it takes :8790 and the state home's paths",
-        async () => {
-            await withShell(bootEnvironment(), async (shell) => {
-                const outcome = await until(
-                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                    "the default-port boot",
-                );
-                expect(outcome).toBe(true);
-                // 8790 is machine-wide, and mutation runs boot several
-                // sandboxes at once. A child that lost the race names the
-                // port it wanted in its own error, which is the claim here.
-                if (shell.exited()) {
-                    expect(shell.stderr()).toMatch(/EADDRINUSE[^\n]*8790/);
-                    return;
-                }
-                const home = join(state.dir, "sdk-automations");
-                expect(await listening(shell)).toMatchObject({
-                    port: 8790,
-                    configSource: "local",
-                    configPath: join(home, "automations.yml"),
-                    storePath: join(home, "shell.sqlite"),
-                });
-                expect(existsSync(join(home, "shell.sqlite"))).toBe(true);
             });
         },
         TEST_TIMEOUT_MS,

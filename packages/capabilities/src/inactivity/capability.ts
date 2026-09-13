@@ -10,7 +10,7 @@ import {
     type Capability,
     type CapabilityView,
     type MappableMeaning,
-} from "@hiero-hackers/automation-core";
+} from "@hiero-hackers/automation-core/author";
 import { ladderContext, type InactivitySettings } from "./context.js";
 import { inactivityDeclaration, type InactivityDeclaration } from "./declaration.js";
 import { onIssue } from "./issues.js";

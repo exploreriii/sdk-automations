@@ -22,7 +22,7 @@ const ROOT = "root";
 /**
  * Who sits above whom. The engine composes and the report renders what it
  * decided; `capability/` names the effects an author returns and `intents/`
- * never names back.
+ * never names back; `author/` is the door onto everything below it.
  */
 const RANK: Readonly<Record<string, number>> = {
     github: 0,
@@ -33,9 +33,10 @@ const RANK: Readonly<Record<string, number>> = {
     "intents/operations": 5,
     intents: 6,
     capability: 7,
-    report: 8,
-    "engine/normalize": 9,
-    engine: 10,
+    author: 8,
+    report: 9,
+    "engine/normalize": 10,
+    engine: 11,
 };
 
 /** One core file, as the checks read every file they do not import. */

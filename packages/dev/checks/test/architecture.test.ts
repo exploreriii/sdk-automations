@@ -411,8 +411,10 @@ describe("source imports follow the layer policy, checked by dependency-cruiser"
         expect([...fired].sort()).toEqual([
             "adapter-imported-at-shell-main-only",
             "adapter-imports-core-only",
+            "capabilities-enter-by-the-author-door",
             "core-and-capabilities-stay-pure",
             "core-imports-no-internal-package",
+            "harness-is-test-only",
             "no-circular",
             "no-import-past-the-barrel",
             "not-to-unresolvable",

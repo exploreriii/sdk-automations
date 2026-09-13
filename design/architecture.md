@@ -63,6 +63,7 @@ Core's are an AUDIENCE (D175):
 |---|---|
 | `catalogue.ts` | both audiences: the closed vocabulary — refs, facts, resolvers, operations, comment kinds |
 | `capability/` | an author: declaration, settings, facts, producers, boundary, factory, guards |
+| `author/` | an author, at the door: `index.ts` is the named surface a capability folder imports (`@hiero-hackers/automation-core/author`), `testing.ts` the fixture harness its tests import, and nothing that ships may name the second |
 | `intents/` | an effect once decided: the intent, the platform's managed comment, one module per operation |
 | `config/`, `workflow/`, `safety/`, `github/` | what the repository asked for and the spec it is read against, the states, the write rules, what we measured of GitHub |
 | `engine/` | the composition — normalize, call, screen, gate |
@@ -85,7 +86,7 @@ name each other. A nested directory is named only by its parent: `apply/operatio
 | Lock | The rule it states | Enforced by |
 |---|---|---|
 | shell | `log.ts`, `paths.ts`, `effects.ts` < `observe` = `apply/operations` < `apply` < `decide` < `inbound` = `sweep` < `jobs` < `compose`; `apply/actions.ts` alone names the fold's five states, and `decide/item.ts` alone calls the applier | `packages/dev/checks/test/shell-layering.test.ts` |
-| core | `github` < `config` < `workflow` < `safety` < `catalogue.ts` < `intents/operations` < `intents` < `capability` < `report` < `engine/normalize` < `engine`; `intents/` never names `capability/`, so the check that an intent names the capability that returned it lives in `packages/core/src/engine/invoke.ts`, where intents are collected; nothing below the engine names `engine/` or `report/` | `packages/dev/checks/test/core-layering.test.ts` |
+| core | `github` < `config` < `workflow` < `safety` < `catalogue.ts` < `intents/operations` < `intents` < `capability` < `author` < `report` < `engine/normalize` < `engine`; `intents/` never names `capability/`, so the check that an intent names the capability that returned it lives in `packages/core/src/engine/invoke.ts`, where intents are collected; nothing below the engine names `engine/` or `report/` | `packages/dev/checks/test/core-layering.test.ts` |
 | adapter | `client` < `reads` < `writes/operations` < `writes`, the writes above the reads because a read-back proves a write through the facts reader; the client names neither, which is why the admission gate reads the confirmed shapes from `packages/runtime/src/adapter/client/endpoints.ts` and never from the writes; nothing inside names the barrel | `packages/dev/checks/test/adapter-layering.test.ts` |
 
 *Each lock reads every import under its own directory and proves each of its rules can fail over

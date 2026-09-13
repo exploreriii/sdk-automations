@@ -1,6 +1,6 @@
 /** Everything inactivity says, and the words it says it in. */
 
-import { lasting, mentions, on } from "@hiero-hackers/automation-core";
+import { lasting, mentions, on } from "@hiero-hackers/automation-core/author";
 import { deadlineOf, graceHoursOf, reaps, type Ladder } from "./ladder.js";
 
 /** The three contributor-side modes, in the order the design reads them. */

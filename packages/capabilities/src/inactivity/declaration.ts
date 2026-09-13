@@ -3,7 +3,7 @@
  * shapes that declaration earns it. The folder's root, below the ladders.
  */
 
-import { declareCapability, type FactsFor } from "@hiero-hackers/automation-core";
+import { declareCapability, type FactsFor } from "@hiero-hackers/automation-core/author";
 import { INACTIVITY_SETTINGS } from "./settings.js";
 
 export const inactivityDeclaration = declareCapability({

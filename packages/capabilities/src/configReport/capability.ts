@@ -11,7 +11,7 @@ import {
     isOpen,
     skipped,
     type Capability,
-} from "@hiero-hackers/automation-core";
+} from "@hiero-hackers/automation-core/author";
 import { renderReport } from "./render.js";
 import { CONFIG_REPORT_SETTINGS } from "./settings.js";
 

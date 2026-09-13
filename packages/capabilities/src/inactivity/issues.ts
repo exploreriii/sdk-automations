@@ -14,7 +14,7 @@ import {
     REVERSES_WITH,
     type AssigneeClock,
     type IntentFor,
-} from "@hiero-hackers/automation-core";
+} from "@hiero-hackers/automation-core/author";
 import type { LadderContext, MakeIntent } from "./context.js";
 import type { InactivityDeclaration, IssueLadderFacts } from "./declaration.js";
 import {

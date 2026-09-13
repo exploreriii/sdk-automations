@@ -3,7 +3,7 @@
  * capability's settings. The platform, not a ladder, holds the grace.
  */
 
-import { HOUR_MS, isConflicted, isOpen, isPaused } from "@hiero-hackers/automation-core";
+import { HOUR_MS, isConflicted, isOpen, isPaused } from "@hiero-hackers/automation-core/author";
 import type { InactivitySettings } from "./context.js";
 import type { InactivityFacts } from "./declaration.js";
 

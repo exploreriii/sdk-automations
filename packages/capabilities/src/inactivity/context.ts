@@ -9,7 +9,7 @@ import {
     type PlatformHandle,
     type RepositoryRef,
     type SettingsOf,
-} from "@hiero-hackers/automation-core";
+} from "@hiero-hackers/automation-core/author";
 import { inactivityDeclaration, type InactivityDeclaration } from "./declaration.js";
 import { INACTIVITY_SETTINGS } from "./settings.js";
 

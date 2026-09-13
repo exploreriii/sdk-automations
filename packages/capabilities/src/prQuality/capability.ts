@@ -11,7 +11,7 @@ import {
     isOpen,
     skipped,
     type Capability,
-} from "@hiero-hackers/automation-core";
+} from "@hiero-hackers/automation-core/author";
 import { PR_QUALITY_SETTINGS } from "./settings.js";
 
 export const prQualityDeclaration = declareCapability({

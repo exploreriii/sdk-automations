@@ -11,7 +11,7 @@ import {
     type ConfigError,
     type ConfigResult,
     type RepositoryConfig,
-} from "@hiero-hackers/automation-core";
+} from "@hiero-hackers/automation-core/author";
 
 /** Two spaces a level, the indentation every example in `docs/` uses. */
 const indent = (depth: number): string => "  ".repeat(depth);

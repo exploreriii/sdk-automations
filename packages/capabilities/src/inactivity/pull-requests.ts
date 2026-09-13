@@ -16,7 +16,7 @@ import {
     REVERSES_WITH,
     type ClaimedFacts,
     type IntentFor,
-} from "@hiero-hackers/automation-core";
+} from "@hiero-hackers/automation-core/author";
 import type { InactivitySettings, LadderContext, MakeIntent } from "./context.js";
 import type { InactivityDeclaration, PullLadderFacts } from "./declaration.js";
 import {

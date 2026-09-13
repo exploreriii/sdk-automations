@@ -12,7 +12,7 @@ import {
     skipped,
     type Capability,
     type IntentFor,
-} from "@hiero-hackers/automation-core";
+} from "@hiero-hackers/automation-core/author";
 import { INTAKE_SETTINGS } from "./settings.js";
 
 export const intakeDeclaration = declareCapability({

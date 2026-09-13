@@ -28,7 +28,7 @@ import {
 } from "./sweep.js";
 
 /** How often the shell requeues stale claims and drains, absent an override. */
-export const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
+export const DEFAULT_TICK_MS = 60_000;
 
 /**
  * How long one connection may hold the edge open; Node's defaults are a slow-loris budget.
@@ -46,7 +46,7 @@ export interface ShellOptions {
     readonly repository: RepositoryRef;
     readonly worker?: string;
     readonly clock?: () => Date;
-    readonly sweepIntervalMs?: number;
+    readonly tickMs?: number;
     /** The write path, when one is wired; with none, active mode is refused before `decide()`. */
     readonly applier?: Applier;
     /** The fact sweep, when a composition has something to read GitHub with. Absent is the shipped composition: due `sweep:` rows are simply never claimed. */
@@ -192,7 +192,7 @@ export function createShell(options: ShellOptions): Shell {
 
         void factSweep?.runDue();
     };
-    const ticking = setInterval(reconcile, options.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS);
+    const ticking = setInterval(reconcile, options.tickMs ?? DEFAULT_TICK_MS);
     // Stryker disable next-line CallExpression: unref only decides whether an otherwise-idle event loop keeps running; nothing in this process can observe it, and the shell's own exit is explicit.
     // The sweep is recovery, never a reason for the process to stay alive.
 

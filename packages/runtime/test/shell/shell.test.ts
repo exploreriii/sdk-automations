@@ -81,7 +81,7 @@ afterEach(() => {
 
 function buildShell(
     capability: EngineCapability = toEngine(intake),
-    sweepIntervalMs = 60_000,
+    tickMs = 60_000,
     repository: { owner: string; repo: string } = REPOSITORY,
 ): Shell {
     let tick = 0;
@@ -93,7 +93,7 @@ function buildShell(
         externals: () => stubbedExternals(),
         repository,
         clock: () => new Date(BASE.getTime() + 1000 * tick++),
-        sweepIntervalMs,
+        tickMs,
         log,
     });
     running.push(shell);
@@ -479,7 +479,7 @@ describe("the first slice, end to end", () => {
                 configSource: fileConfigSource(configFile),
                 externals: () => stubbedExternals(),
                 repository: REPOSITORY,
-                sweepIntervalMs: 5,
+                tickMs: 5,
                 log,
             }),
         );
@@ -511,7 +511,7 @@ describe("the first slice, end to end", () => {
                 configSource: fileConfigSource(configFile),
                 externals: () => stubbedExternals(),
                 repository: REPOSITORY,
-                sweepIntervalMs: 5,
+                tickMs: 5,
                 // The reader is never reached: `intake` runs on events, so the
                 // repository wants no sweeping and the firing reads nothing.
                 sweep: {
@@ -704,7 +704,7 @@ mappings:
             externals: () => stubbedExternals(),
             repository: REPOSITORY,
             clock,
-            sweepIntervalMs: 5,
+            tickMs: 5,
             suspended,
             log,
             applier: createApplier({
@@ -799,7 +799,7 @@ mappings:
                 externals: () => stubbedExternals(),
                 repository: REPOSITORY,
                 clock: () => BASE,
-                sweepIntervalMs: 5,
+                tickMs: 5,
                 log,
                 applier: {
                     applyAll: () => Promise.resolve([]),

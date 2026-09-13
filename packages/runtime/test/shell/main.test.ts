@@ -150,7 +150,7 @@ const SHELL_VARIABLES = [
     "HOST",
     "KILL_SWITCH",
     "SUSPENDED",
-    "SWEEP_INTERVAL_SECONDS",
+    "TICK_SECONDS",
     "SWEEP_CADENCE_HOURS",
     "SWEEP_WRITE_CAP",
     "SWEEP_READ_BUDGET",
@@ -687,7 +687,7 @@ async function withLiveGitHub(
         /** How many requests one firing may spend reading, over the sweep's own budget. */
         readonly readBudget?: string;
         /** How often the reconciliation tick runs — the sweep rides it. */
-        readonly intervalSeconds?: string;
+        readonly tickSeconds?: string;
     },
     body: (live: LiveShell) => Promise<void>,
 ): Promise<void> {
@@ -722,9 +722,7 @@ async function withLiveGitHub(
                 ...(github.readBudget === undefined
                     ? {}
                     : { SWEEP_READ_BUDGET: github.readBudget }),
-                ...(github.intervalSeconds === undefined
-                    ? {}
-                    : { SWEEP_INTERVAL_SECONDS: github.intervalSeconds }),
+                ...(github.tickSeconds === undefined ? {} : { TICK_SECONDS: github.tickSeconds }),
             },
             (shell) => body({ shell, port, storeFile, fetchLog }),
             preload,
@@ -790,22 +788,19 @@ describe("the sandbox entry point, as a process", () => {
     );
 
     it.each(["0", "-1", "1.5", "soon"])(
-        "fails closed when SWEEP_INTERVAL_SECONDS is %j",
-        async (interval) => {
-            await withShell(
-                { ...bootEnvironment(), SWEEP_INTERVAL_SECONDS: interval },
-                async (shell) => {
-                    await until(
-                        () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                        "the sweep interval to be refused",
-                    );
-                    expect(shell.stdout()).toBe("");
-                    expect(await shell.exit).toBe(1);
-                    expect(shell.stderr().trim()).toBe(
-                        "SWEEP_INTERVAL_SECONDS must be a whole number of seconds, 1 or more.",
-                    );
-                },
-            );
+        "fails closed when TICK_SECONDS is %j",
+        async (tick) => {
+            await withShell({ ...bootEnvironment(), TICK_SECONDS: tick }, async (shell) => {
+                await until(
+                    () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
+                    "the tick to be refused",
+                );
+                expect(shell.stdout()).toBe("");
+                expect(await shell.exit).toBe(1);
+                expect(shell.stderr().trim()).toBe(
+                    "TICK_SECONDS must be a whole number of seconds, 1 or more.",
+                );
+            });
         },
         TEST_TIMEOUT_MS,
     );
@@ -975,15 +970,15 @@ describe("the sandbox entry point, as a process", () => {
             const environment = bootEnvironment();
             delete environment["HOST"];
 
-            await withShell({ ...environment, SWEEP_INTERVAL_SECONDS: "0" }, async (shell) => {
+            await withShell({ ...environment, TICK_SECONDS: "0" }, async (shell) => {
                 await until(
                     () => (shell.exited() || shell.stdout() !== "" ? true : undefined),
-                    "the sweep interval to be refused",
+                    "the tick to be refused",
                 );
                 expect(shell.stdout()).toBe("");
                 expect(await shell.exit).toBe(1);
                 expect(shell.stderr().trim()).toBe(
-                    "SWEEP_INTERVAL_SECONDS must be a whole number of seconds, 1 or more.",
+                    "TICK_SECONDS must be a whole number of seconds, 1 or more.",
                 );
             });
         },
@@ -1113,7 +1108,7 @@ describe("the sandbox entry point, as a process", () => {
                     cadenceHours: "24",
                     writeCap: "5",
                     readBudget: "50",
-                    intervalSeconds: "1",
+                    tickSeconds: "1",
                 },
                 async ({ port, shell }) => {
                     expect(await listening(shell)).toMatchObject({
@@ -1210,13 +1205,13 @@ describe("the sandbox entry point, as a process", () => {
     );
 
     /**
-     * SWEEP_INTERVAL_SECONDS is seconds. A shell told to sweep hourly and
-     * sweeping every few milliseconds instead looks like working software
+     * TICK_SECONDS is seconds. A shell told to tick hourly and
+     * ticking every few milliseconds instead looks like working software
      * — the recovery is only ever early — while running a timer against
      * the store a thousand times faster than the operator asked for.
      */
     it(
-        "sweeps on the interval in SECONDS, so an hour is not four milliseconds",
+        "ticks on the interval in SECONDS, so an hour is not four milliseconds",
         async () => {
             await withPaths(async ({ configFile, storeFile }) => {
                 const port = await freePort();
@@ -1226,7 +1221,7 @@ describe("the sandbox entry point, as a process", () => {
                         CONFIG_FILE: configFile,
                         STORE_PATH: storeFile,
                         PORT: String(port),
-                        SWEEP_INTERVAL_SECONDS: "3600",
+                        TICK_SECONDS: "3600",
                     },
                     async (shell) => {
                         await listening(shell);
@@ -1289,9 +1284,9 @@ describe("the sandbox entry point, as a process", () => {
                         CONFIG_FILE: configFile,
                         STORE_PATH: storeFile,
                         PORT: String(port),
-                        // The fastest interval the validation accepts, so a
-                        // boot that swept every second is proved to work.
-                        SWEEP_INTERVAL_SECONDS: "1",
+                        // The fastest tick the validation accepts, so a
+                        // boot that ticked every second is proved to work.
+                        TICK_SECONDS: "1",
                     },
                     async (shell) => {
                         const startup = await listening(shell);

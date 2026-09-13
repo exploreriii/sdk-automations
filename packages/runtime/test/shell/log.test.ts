@@ -105,10 +105,6 @@ const ROUTING: Record<
         problem: false,
     },
     shutdown: { event: { event: "shutdown", signal: "SIGTERM" }, problem: false },
-    legacyStoreFound: {
-        event: { event: "legacyStoreFound", legacyPath: "old", storePath: "new" },
-        problem: true,
-    },
     deliveryAccepted: {
         event: { event: "deliveryAccepted", deliveryId: "guid-1", eventName: "issues" },
         problem: false,

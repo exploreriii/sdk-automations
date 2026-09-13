@@ -30,12 +30,6 @@ export type ShellEvent =
       }
     | { readonly event: "shutdown"; readonly signal: string }
     | {
-          /** The superseded default holds a store this run will not read. */
-          readonly event: "legacyStoreFound";
-          readonly legacyPath: string;
-          readonly storePath: string;
-      }
-    | {
           readonly event: "deliveryAccepted";
           readonly deliveryId: string;
           readonly eventName: string;
@@ -184,7 +178,6 @@ export type Log = (event: ShellEvent) => void;
  * Each is a repository change this platform decided on, recorded, then did not make.
  */
 const PROBLEM_EVENTS: ReadonlySet<ShellEvent["event"]> = new Set([
-    "legacyStoreFound",
     "deliveryConflict",
     "acceptFailed",
     "deliveryAttemptFailed",

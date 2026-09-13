@@ -34,11 +34,11 @@ import {
     type EffectReader,
     type EffectWriter,
 } from "./apply.js";
-import { createShell, DEFAULT_SWEEP_INTERVAL_MS } from "./shell.js";
+import { createShell, DEFAULT_TICK_MS } from "./shell.js";
 import { CONFIG_PATH, fileConfigSource, type ConfigSource } from "./config.js";
 import { stubbedExternals, type ExternalsForDelivery, type ShellExternals } from "./externals.js";
 import { createLogger, detailOf } from "./log.js";
-import { defaultDataDir, strandedStore } from "./paths.js";
+import { defaultDataDir } from "./paths.js";
 import { createShutdown } from "./shutdown.js";
 import type { SweepFacts, SweepFactsSource } from "./sweep.js";
 
@@ -107,7 +107,6 @@ mkdirSync(dataDir, { recursive: true });
 const configFile = env["CONFIG_FILE"] ?? join(dataDir, "automations.yml");
 const storeFile = env["STORE_PATH"] ?? join(dataDir, "shell.sqlite");
 
-const stranded = strandedStore({ env, storePath: storeFile });
 // Validated rather than coerced: `Number("nope")` is NaN, which node reads as
 // "any free port" — so a typo would bind a port nobody can find.
 
@@ -129,12 +128,10 @@ if (host !== undefined && host.trim() === "") {
 // How often stale claims are requeued and the queue re-drained. Validated
 // rather than coerced: a 0ms or NaN tick would take out the recovery.
 
-const sweepSeconds =
-    env["SWEEP_INTERVAL_SECONDS"] === undefined
-        ? DEFAULT_SWEEP_INTERVAL_MS / 1000
-        : Number(env["SWEEP_INTERVAL_SECONDS"]);
-if (!Number.isInteger(sweepSeconds) || sweepSeconds < 1) {
-    console.error("SWEEP_INTERVAL_SECONDS must be a whole number of seconds, 1 or more.");
+const tickSeconds =
+    env["TICK_SECONDS"] === undefined ? DEFAULT_TICK_MS / 1000 : Number(env["TICK_SECONDS"]);
+if (!Number.isInteger(tickSeconds) || tickSeconds < 1) {
+    console.error("TICK_SECONDS must be a whole number of seconds, 1 or more.");
     process.exit(1);
 }
 
@@ -314,14 +311,6 @@ const configSource = live?.configSource ?? fileConfigSource(configFile);
 const externals = live?.externals ?? (() => stubbedExternals({ killSwitchActive }));
 const writePath = live?.writePath ?? null;
 
-// Stryker disable next-line all: reachable only by creating the operator's real store at the superseded default; the judgement behind it is covered in paths.test.ts.
-// The judgement is `strandedStore`, unit-tested against an injected `exists`.
-// This branch runs only where the superseded default really holds a store.
-
-if (stranded !== null) {
-    // Stryker disable next-line all: as above — unreachable without writing packages/runtime/data/shell.sqlite.
-    log({ event: "legacyStoreFound", legacyPath: stranded, storePath: storeFile });
-}
 const store = new Store(storeFile);
 
 /**
@@ -363,7 +352,7 @@ const shell = createShell({
     repository,
     worker: WORKER,
     clock,
-    sweepIntervalMs: sweepSeconds * 1000,
+    tickMs: tickSeconds * 1000,
     suspended,
     ...(applier === undefined ? {} : { applier }),
     ...(sweep === undefined ? {} : { sweep }),

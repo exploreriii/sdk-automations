@@ -85,7 +85,7 @@ PORT=8790                   # optional
 HOST=127.0.0.1              # optional; omit to use Node's default bind host
 CONFIG_FILE=…               # credential-free fallback; default <state home>/automations.yml
 STORE_PATH=…                # optional; default <state home>/shell.sqlite
-SWEEP_INTERVAL_SECONDS=60   # optional; requeue stale claims and drain on this clock
+TICK_SECONDS=60             # optional; the reconciliation tick: requeue, recover, drain, fire
 SWEEP_CADENCE_HOURS=1       # optional; arms the fact sweep and sets how often a repository is read
 SWEEP_WRITE_CAP=20          # optional; how many writes one sweep firing may send
 SWEEP_READ_BUDGET=2000      # optional; how many requests one sweep firing may spend reading
@@ -122,9 +122,7 @@ pulling the brake stops effects a decision already approved.
 
 The **state home** is `$XDG_STATE_HOME/sdk-automations`, or `~/.local/state/sdk-automations` when that
 variable is unset or relative. It is deliberately outside the package: in a container
-`packages/runtime/data/` is an image layer, and a redeploy would take the canonical reports with it. A
-sandbox that ran before this default moved keeps its old store — nothing is copied automatically, and
-startup writes a `legacyStoreFound` line naming both paths so the choice is the operator's.
+`packages/runtime/data/` is an image layer, and a redeploy would take the canonical reports with it.
 
 ```bash
 pnpm --filter @hiero-hackers/automation-runtime start

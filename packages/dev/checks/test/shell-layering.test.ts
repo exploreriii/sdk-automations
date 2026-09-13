@@ -1,8 +1,9 @@
 /**
- * The shell's directories are a direction (D172): every import goes down the
- * table below or stays in its own directory, only the applier's table names
- * the fold's five states, and only the shared box calls the applier. Read as
- * text, like every check about another package (D85). One invariant per file (D89).
+ * The shell's directories are a direction (D172): each carries a rank no import
+ * climbs to, and a nested directory is named only by its parent. Only the
+ * applier's table names the fold's five states, and only the shared box calls
+ * the applier. Read as text, like every check about another package (D85). One
+ * invariant per file (D89).
  */
 
 import { describe, expect, it } from "vitest";
@@ -19,20 +20,20 @@ const BARREL = `${SHELL}/index.ts`;
 const ROOT = "root";
 
 /**
- * Who may name whom. `compose` composes; the lanes and the tick's jobs reach
+ * Who sits above whom. `compose` composes; the lanes and the tick's jobs reach
  * the shared box and the applier; `apply` reaches only its operations and the
  * root; `observe` reads. Nothing at all names `compose`.
  */
-const ALLOWED: Readonly<Record<string, readonly string[]>> = {
-    compose: ["jobs", "inbound", "sweep", "decide", "apply", "observe", ROOT],
-    jobs: ["inbound", "sweep", "decide", "apply", ROOT],
-    inbound: ["decide", ROOT],
-    sweep: ["decide", "apply", ROOT],
-    decide: ["apply", ROOT],
-    apply: ["apply/operations", ROOT],
-    "apply/operations": [ROOT],
-    observe: [ROOT],
-    [ROOT]: [],
+const RANK: Readonly<Record<string, number>> = {
+    [ROOT]: 0,
+    observe: 1,
+    "apply/operations": 1,
+    apply: 2,
+    decide: 3,
+    inbound: 4,
+    sweep: 4,
+    jobs: 5,
+    compose: 6,
 };
 
 /** One shell file, as the checks read every file they do not import. */
@@ -59,7 +60,7 @@ function targetOf(path: string, specifier: string): string | null {
     return landed.startsWith(`${SHELL}/`) ? directoryOf(landed) : null;
 }
 
-/** Every edge a file draws out of its own directory, as the table spells one. */
+/** Every edge a file draws out of its own directory, as the rank ranks one. */
 function edgesIn({ path, text }: Source): string[] {
     const from = directoryOf(path);
     return specifiersIn(text)
@@ -68,15 +69,28 @@ function edgesIn({ path, text }: Source): string[] {
         .map((to) => `${from} -> ${to}`);
 }
 
-/** The edges the table refuses, including any drawn from a directory it never named. */
-function forbiddenEdges(sources: readonly Source[]): string[] {
-    const found = sources.flatMap(edgesIn);
-    return [...new Set(found)]
-        .filter((edge) => {
-            const [from, to] = edge.split(" -> ") as [string, string];
-            return !(ALLOWED[from] ?? []).includes(to);
-        })
-        .sort();
+/** Every edge the tree draws, each once. */
+function edges(sources: readonly Source[]): string[] {
+    return [...new Set(sources.flatMap(edgesIn))].sort();
+}
+
+/** Every edge that fails to fall: a landing at or above the start, or an end the rank never named. */
+function climbingEdges(sources: readonly Source[]): string[] {
+    return edges(sources).filter((edge) => {
+        const [from, to] = edge.split(" -> ") as [string, string];
+        const start = RANK[from];
+        const landing = RANK[to];
+        return start === undefined || landing === undefined || landing >= start;
+    });
+}
+
+/** Every reach into a nested directory from something other than its parent. */
+function nestedEdges(sources: readonly Source[]): string[] {
+    return edges(sources).filter((edge) => {
+        const [from, to] = edge.split(" -> ") as [string, string];
+        const cut = to.lastIndexOf("/");
+        return cut !== -1 && to.slice(0, cut) !== from;
+    });
 }
 
 /** The five the fold hands the applier, as a case names one. */
@@ -120,7 +134,7 @@ function shellSources(): Source[] {
         .map((path) => ({ path, text: readFileSync(join(repoRoot, path), "utf8") }));
 }
 
-describe("the shell's imports flow one way", () => {
+describe("the shell's imports fall", () => {
     const sources = shellSources();
 
     it("finds the shell's files", () => {
@@ -128,26 +142,37 @@ describe("the shell's imports flow one way", () => {
         expect(sources.map(({ path }) => directoryOf(path))).toContain("apply/operations");
     });
 
-    it("draws no edge the table refuses", () => {
-        expect(forbiddenEdges(sources)).toEqual([]);
+    it("draws no edge that climbs", () => {
+        expect(climbingEdges(sources)).toEqual([]);
     });
 
-    it("catches an import that climbs, and one that stays in the table", () => {
+    it("names a nested directory only from its parent", () => {
+        expect(nestedEdges(sources)).toEqual([]);
+    });
+
+    it("catches a climb, an edge at one rank, and a nested reach from a non-parent", () => {
         const climbing = {
             path: `${SHELL}/apply/gates.ts`,
             text: 'import { warn } from "../decide/externals.js";',
         };
-        expect(forbiddenEdges([climbing])).toEqual(["apply -> decide"]);
-        const naming = {
-            path: `${SHELL}/observe/status.ts`,
-            text: 'import { createShell } from "../compose/shell.js";',
+        expect(climbingEdges([climbing])).toEqual(["apply -> decide"]);
+        const level = {
+            path: `${SHELL}/inbound/deliveries.ts`,
+            text: 'import { fire } from "../sweep/sweep.js";',
         };
-        expect(forbiddenEdges([naming])).toEqual(["observe -> compose"]);
-        const allowed = {
+        expect(climbingEdges([level])).toEqual(["inbound -> sweep"]);
+        const outside = {
+            path: `${SHELL}/decide/decisions.ts`,
+            text: 'import { assign } from "../apply/operations/assign.js";',
+        };
+        expect(nestedEdges([outside])).toEqual(["decide -> apply/operations"]);
+        expect(climbingEdges([outside])).toEqual([]);
+        const falling = {
             path: `${SHELL}/decide/item.ts`,
             text: 'import { a } from "../apply/apply.js";\nimport { b } from "../log.js";',
         };
-        expect(forbiddenEdges([allowed])).toEqual([]);
+        expect(climbingEdges([falling])).toEqual([]);
+        expect(nestedEdges([falling])).toEqual([]);
     });
 });
 

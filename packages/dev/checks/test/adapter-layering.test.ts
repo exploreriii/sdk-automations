@@ -1,9 +1,9 @@
 /**
  * The adapter's directories are a job (D176): `client/` talks to GitHub,
- * `reads/` reads it, `writes/` changes it, and every import goes down the table
- * below or stays in its own directory. Nothing names the barrel, and the client
- * names neither side above it. Read as text, like every check about another
- * package (D85). One invariant per file (D89).
+ * `reads/` reads it, `writes/` changes it, and each carries a rank no import
+ * climbs to, nested ones named only by their parent. Nothing names the barrel,
+ * and the client names neither side above it. Read as text, like every check
+ * about another package (D85). One invariant per file (D89).
  */
 
 import { describe, expect, it } from "vitest";
@@ -17,15 +17,15 @@ const ADAPTER = "packages/runtime/src/adapter";
 const BARREL = `${ADAPTER}/index.ts`;
 
 /**
- * Who may name whom. The reads sit on the client; the writes sit on both,
+ * Who sits above whom. The reads sit on the client; the writes sit on both,
  * because a read-back proves a write through the facts reader; the client sits
  * on nothing here, which is what lets the admission gate hold the shapes.
  */
-const ALLOWED: Readonly<Record<string, readonly string[]>> = {
-    client: [],
-    reads: ["client"],
-    writes: ["client", "reads", "writes/operations"],
-    "writes/operations": ["writes", "client"],
+const RANK: Readonly<Record<string, number>> = {
+    client: 0,
+    reads: 1,
+    "writes/operations": 2,
+    writes: 3,
 };
 
 /** One adapter file, as the checks read every file they do not import. */
@@ -52,7 +52,7 @@ function landingOf(path: string, specifier: string): string | null {
     return landed.startsWith(`${ADAPTER}/`) ? landed.replace(/\.js$/, ".ts") : null;
 }
 
-/** Every edge a file draws out of its own directory, as the table spells one. */
+/** Every edge a file draws out of its own directory, as the rank ranks one. */
 function edgesIn({ path, text }: Source): string[] {
     const from = directoryOf(path);
     return specifiersIn(text)
@@ -68,11 +68,22 @@ function edges(sources: readonly Source[]): string[] {
     return [...new Set(sources.flatMap(edgesIn))].sort();
 }
 
-/** The edges the table refuses, including any drawn from a directory it never named. */
-function forbiddenEdges(sources: readonly Source[]): string[] {
+/** Every edge that fails to fall: a landing at or above the start, or an end the rank never named. */
+function climbingEdges(sources: readonly Source[]): string[] {
     return edges(sources).filter((edge) => {
         const [from, to] = edge.split(" -> ") as [string, string];
-        return !(ALLOWED[from] ?? []).includes(to);
+        const start = RANK[from];
+        const landing = RANK[to];
+        return start === undefined || landing === undefined || landing >= start;
+    });
+}
+
+/** Every reach into a nested directory from something other than its parent. */
+function nestedEdges(sources: readonly Source[]): string[] {
+    return edges(sources).filter((edge) => {
+        const [from, to] = edge.split(" -> ") as [string, string];
+        const cut = to.lastIndexOf("/");
+        return cut !== -1 && to.slice(0, cut) !== from;
     });
 }
 
@@ -101,7 +112,7 @@ function adapterSources(): Source[] {
         .map((path) => ({ path, text: readFileSync(join(repoRoot, path), "utf8") }));
 }
 
-describe("the adapter's imports flow one way", () => {
+describe("the adapter's imports fall", () => {
     const sources = adapterSources();
 
     it("finds the adapter's files, and none outside the three jobs", () => {
@@ -110,26 +121,36 @@ describe("the adapter's imports flow one way", () => {
         expect(directories).toEqual(["client", "reads", "writes", "writes/operations"]);
     });
 
-    it("draws no edge the table refuses", () => {
-        expect(forbiddenEdges(sources)).toEqual([]);
+    it("draws no edge that climbs", () => {
+        expect(climbingEdges(sources)).toEqual([]);
     });
 
-    it("catches an import that climbs, and one that stays in the table", () => {
+    it("names a nested directory only from its parent", () => {
+        expect(nestedEdges(sources)).toEqual([]);
+    });
+
+    it("catches a climb, an edge from a directory the rank never named, and a nested reach from a non-parent", () => {
         const climbing = {
             path: `${ADAPTER}/reads/facts.ts`,
             text: 'import { createReadBack } from "../writes/readback.js";',
         };
-        expect(forbiddenEdges([climbing])).toEqual(["reads -> writes"]);
-        const deeper = {
-            path: `${ADAPTER}/writes/operations/assign.ts`,
-            text: 'import { createFactsReader } from "../../reads/facts.js";',
+        expect(climbingEdges([climbing])).toEqual(["reads -> writes"]);
+        const unranked = {
+            path: `${ADAPTER}/scratch/probe.ts`,
+            text: 'import { a } from "../client/contract.js";',
         };
-        expect(forbiddenEdges([deeper])).toEqual(["writes/operations -> reads"]);
-        const allowed = {
+        expect(climbingEdges([unranked])).toEqual(["scratch -> client"]);
+        const outside = {
+            path: `${ADAPTER}/reads/facts.ts`,
+            text: 'import { assign } from "../writes/operations/assign.js";',
+        };
+        expect(nestedEdges([outside])).toEqual(["reads -> writes/operations"]);
+        const falling = {
             path: `${ADAPTER}/writes/readback.ts`,
             text: 'import { a } from "../client/contract.js";\nimport { b } from "../reads/facts.js";',
         };
-        expect(forbiddenEdges([allowed])).toEqual([]);
+        expect(climbingEdges([falling])).toEqual([]);
+        expect(nestedEdges([falling])).toEqual([]);
     });
 });
 

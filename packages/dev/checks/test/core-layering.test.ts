@@ -1,8 +1,9 @@
 /**
  * Core's directories are an audience and a direction (D175): `capability/` is
  * what an author writes against, `intents/` what an effect is once decided, and
- * every import goes down the table below or stays in its own directory. Read as
- * text, like every check about another package (D85). One invariant per file (D89).
+ * each directory carries a rank no import climbs to, nested ones named only by
+ * their parent. Read as text, like every check about another package (D85). One
+ * invariant per file (D89).
  */
 
 import { describe, expect, it } from "vitest";
@@ -19,32 +20,22 @@ const BARREL = `${CORE}/index.ts`;
 const ROOT = "root";
 
 /**
- * Who may name whom. The engine composes and the report renders what it
+ * Who sits above whom. The engine composes and the report renders what it
  * decided; `capability/` names the effects an author returns and `intents/`
  * never names back.
  */
-const ALLOWED: Readonly<Record<string, readonly string[]>> = {
-    engine: [
-        "engine/normalize",
-        "capability",
-        "intents",
-        "report",
-        "config",
-        "safety",
-        "workflow",
-        "github",
-        ROOT,
-    ],
-    "engine/normalize": ["capability", "config", "workflow", ROOT],
-    report: ["intents", "config", "safety", ROOT],
-    capability: ["intents", "config", "safety", "workflow", ROOT],
-    intents: ["intents/operations", "safety", ROOT],
-    "intents/operations": [ROOT],
-    config: [],
-    safety: ["config", "github", "workflow"],
-    workflow: ["config"],
-    github: [],
-    [ROOT]: ["config", "safety", "workflow", "github"],
+const RANK: Readonly<Record<string, number>> = {
+    github: 0,
+    config: 1,
+    workflow: 2,
+    safety: 3,
+    [ROOT]: 4,
+    "intents/operations": 5,
+    intents: 6,
+    capability: 7,
+    report: 8,
+    "engine/normalize": 9,
+    engine: 10,
 };
 
 /** One core file, as the checks read every file they do not import. */
@@ -71,7 +62,7 @@ function targetOf(path: string, specifier: string): string | null {
     return landed.startsWith(`${CORE}/`) ? directoryOf(landed) : null;
 }
 
-/** Every edge a file draws out of its own directory, as the table spells one. */
+/** Every edge a file draws out of its own directory, as the rank ranks one. */
 function edgesIn({ path, text }: Source): string[] {
     const from = directoryOf(path);
     return specifiersIn(text)
@@ -85,11 +76,22 @@ function edges(sources: readonly Source[]): string[] {
     return [...new Set(sources.flatMap(edgesIn))].sort();
 }
 
-/** The edges the table refuses, including any drawn from a directory it never named. */
-function forbiddenEdges(sources: readonly Source[]): string[] {
+/** Every edge that fails to fall: a landing at or above the start, or an end the rank never named. */
+function climbingEdges(sources: readonly Source[]): string[] {
     return edges(sources).filter((edge) => {
         const [from, to] = edge.split(" -> ") as [string, string];
-        return !(ALLOWED[from] ?? []).includes(to);
+        const start = RANK[from];
+        const landing = RANK[to];
+        return start === undefined || landing === undefined || landing >= start;
+    });
+}
+
+/** Every reach into a nested directory from something other than its parent. */
+function nestedEdges(sources: readonly Source[]): string[] {
+    return edges(sources).filter((edge) => {
+        const [from, to] = edge.split(" -> ") as [string, string];
+        const cut = to.lastIndexOf("/");
+        return cut !== -1 && to.slice(0, cut) !== from;
     });
 }
 
@@ -116,7 +118,7 @@ function coreSources(): Source[] {
         .map((path) => ({ path, text: readFileSync(join(repoRoot, path), "utf8") }));
 }
 
-describe("core's imports flow one way", () => {
+describe("core's imports fall", () => {
     const sources = coreSources();
 
     it("finds core's files", () => {
@@ -126,26 +128,37 @@ describe("core's imports flow one way", () => {
         expect(directories).toContain(ROOT);
     });
 
-    it("draws no edge the table refuses", () => {
-        expect(forbiddenEdges(sources)).toEqual([]);
+    it("draws no edge that climbs", () => {
+        expect(climbingEdges(sources)).toEqual([]);
     });
 
-    it("catches an import that climbs, and one that stays in the table", () => {
+    it("names a nested directory only from its parent", () => {
+        expect(nestedEdges(sources)).toEqual([]);
+    });
+
+    it("catches a climb, an edge from a directory the rank never named, and a nested reach from a non-parent", () => {
         const climbing = {
             path: `${CORE}/safety/rules.ts`,
             text: 'import { decide } from "../engine/decide.js";',
         };
-        expect(forbiddenEdges([climbing])).toEqual(["safety -> engine"]);
-        const naming = {
-            path: `${CORE}/workflow/state.ts`,
-            text: 'import { finding } from "../report/index.js";',
+        expect(climbingEdges([climbing])).toEqual(["safety -> engine"]);
+        const unranked = {
+            path: `${CORE}/scratch/state.ts`,
+            text: 'import { finding } from "../config/index.js";',
         };
-        expect(forbiddenEdges([naming])).toEqual(["workflow -> report"]);
-        const allowed = {
+        expect(climbingEdges([unranked])).toEqual(["scratch -> config"]);
+        const outside = {
+            path: `${CORE}/report/convert.ts`,
+            text: 'import { assign } from "../intents/operations/assign.js";',
+        };
+        expect(nestedEdges([outside])).toEqual(["report -> intents/operations"]);
+        expect(climbingEdges([outside])).toEqual([]);
+        const falling = {
             path: `${CORE}/report/convert.ts`,
             text: 'import { a } from "../intents/index.js";\nimport { b } from "../catalogue.js";',
         };
-        expect(forbiddenEdges([allowed])).toEqual([]);
+        expect(climbingEdges([falling])).toEqual([]);
+        expect(nestedEdges([falling])).toEqual([]);
     });
 });
 

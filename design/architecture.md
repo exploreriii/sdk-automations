@@ -76,13 +76,17 @@ The adapter's are a JOB (D176):
 | `reads/` | reads it: the configuration, the sweep's facts, the resolvers, the live externals |
 | `writes/` | changes it: the send-and-classify, the read-back, one transport per operation |
 
-Each of the three is one lock:
+Each of the three is one lock. Each directory carries a rank, written below as a chain from the
+bottom up; every import lands strictly to the LEFT of its own directory, so two at one rank never
+name each other. A nested directory is named only by its parent: `apply/operations` from `apply`,
+`engine/normalize` from `engine`, `intents/operations` from `intents`, `writes/operations` from
+`writes`.
 
 | Lock | The rule it states | Enforced by |
 |---|---|---|
-| shell | imports run `compose/` → the lanes and the jobs → `decide/` → `apply/` → `apply/operations/` and never back up, the root files nameable from anywhere and `compose/` from nowhere; `apply/actions.ts` alone names the fold's five states, and `decide/item.ts` alone calls the applier | `packages/dev/checks/test/shell-layering.test.ts` |
-| core | `intents/` never names `capability/`, so the check that an intent names the capability that returned it lives in `packages/core/src/engine/invoke.ts`, where intents are collected; nothing below the engine names `engine/` or `report/` | `packages/dev/checks/test/core-layering.test.ts` |
-| adapter | `reads/` names the client; `writes/` names the client and the reads, because a read-back proves a write through the facts reader; the client names neither, which is why the admission gate reads the confirmed shapes from `packages/runtime/src/adapter/client/endpoints.ts` and never from the writes; nothing inside names the barrel | `packages/dev/checks/test/adapter-layering.test.ts` |
+| shell | `log.ts`, `paths.ts`, `effects.ts` < `observe` = `apply/operations` < `apply` < `decide` < `inbound` = `sweep` < `jobs` < `compose`; `apply/actions.ts` alone names the fold's five states, and `decide/item.ts` alone calls the applier | `packages/dev/checks/test/shell-layering.test.ts` |
+| core | `github` < `config` < `workflow` < `safety` < `catalogue.ts` < `intents/operations` < `intents` < `capability` < `report` < `engine/normalize` < `engine`; `intents/` never names `capability/`, so the check that an intent names the capability that returned it lives in `packages/core/src/engine/invoke.ts`, where intents are collected; nothing below the engine names `engine/` or `report/` | `packages/dev/checks/test/core-layering.test.ts` |
+| adapter | `client` < `reads` < `writes/operations` < `writes`, the writes above the reads because a read-back proves a write through the facts reader; the client names neither, which is why the admission gate reads the confirmed shapes from `packages/runtime/src/adapter/client/endpoints.ts` and never from the writes; nothing inside names the barrel | `packages/dev/checks/test/adapter-layering.test.ts` |
 
 *Each lock reads every import under its own directory and proves each of its rules can fail over
 fixture text.*

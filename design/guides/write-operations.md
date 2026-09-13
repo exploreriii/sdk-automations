@@ -11,9 +11,9 @@ Adding a write operation touches exactly this, and nothing else:
 
 | Layer | Adds | The compiler catches |
 |---|---|---|
-| core | `capability/operations/<op>` — the platform's facts and the change wording — plus one key in `IntentCatalogue` | a key with no module, at the core registry |
-| shell | `operations/<op>` — plan · serialize · parse · send · confirm — plus its call type in the `Call` union | a key with no handler, at the shell registry; a call the union does not hold, at `plan` |
-| adapter | `operations/<op>` — endpoint shapes · verb builders — plus its endpoint names in the `WriteEndpoint` union | a key with no transport, at the adapter registry |
+| core | `core/src/intents/operations/<op>` — the platform's facts and the change wording — plus one key in `IntentCatalogue` | a key with no module, at the core registry |
+| shell | `runtime/src/shell/apply/operations/<op>` — plan · serialize · parse · send · confirm — plus its call type in the `Call` union | a key with no handler, at the shell registry; a call the union does not hold, at `plan` |
+| adapter | `runtime/src/adapter/writes/operations/<op>` — the verb builders — plus any endpoint it reaches in the client's confirmed table | a key with no transport, at the adapter registry |
 
 Each registry is typed `{ readonly [K in IntentOperation]: <Contract><K> }` and is the only place
 the operations are listed. A module never imports its same-named sibling in another package; the
@@ -25,13 +25,13 @@ One obligation stands over the whole shape: the FX-gate protocol
 (`packages/dev/lab/protocols/8.2-first-effects.md`) has not been re-run armed since the operations
 moved into it, and no graced act ships against a repository until it has.
 
-## 2. Core — `capability/operations/<op>`
+## 2. Core — `intents/operations/<op>`
 
-**Location.** The plan named `engine/operations`; the modules live under `capability/` instead,
-because the facts table is consumed BELOW the engine — `idempotencyOf` in `intent.ts` and the
-declaration screen in `declaration.ts` both read it — and `engine/` imports `capability/`, never
-the reverse. Putting the registry in the engine would mint the cycle the placement skill forbids.
-The engine keeps the generic recipe (`change.ts`), which is what D128 asked of it.
+**Location.** The modules live beside the intent they describe, because the facts table is consumed
+BELOW the engine — `idempotencyOf` in `intent.ts` and the declaration screen in `declaration.ts`
+both read it — and `engine/` imports `intents/`, never the reverse. Putting the registry in the
+engine would mint the cycle the placement skill forbids. The engine keeps the generic recipe
+(`change.ts`), which is what D128 asked of it.
 
 **The module contract.**
 
@@ -55,7 +55,7 @@ where the registry's union is called — the same bivariance the engine already 
 imports types from the catalogue only; `intent.ts` and `declaration.ts` import the registry. That
 is the import direction: catalogue → operations → intent/declaration → engine.
 
-**The registry** (`capability/operations/index`): `OPERATIONS`, typed by the mapped type above;
+**The registry** (`intents/operations/index`): `OPERATIONS`, typed by the mapped type above;
 `INTENT_OPERATIONS` is DERIVED from it (`facts` per key) and keeps its name, its type and its place
 in the public barrel — the slice test, the boundary test and the catalogue drift lock read it
 unchanged. `IntentCatalogue` and `IntentOperation` stay in the catalogue file: the desired-outcome
@@ -66,7 +66,7 @@ shape is vocabulary a capability sees, and the key list is what the registry is 
 `intent.operation` with its module is written once, in `change.ts`, with the argument beside it —
 the pattern `invoke.ts` established for erased capability types.
 
-## 3. Shell — `operations/<op>`
+## 3. Shell — `apply/operations/<op>`
 
 **The handler contract.** Keyed by operation, because the ledger, the brakes and the report all
 speak in operations; a handler owns every call verb its operation sends.
@@ -98,12 +98,12 @@ export interface SendContext {
 ```
 
 `CallOf<K>` is the member of `Call` a handler owns; each module exports its call type and the union
-in the vocabulary file lists them, one line per operation. The vocabulary file keeps `Call`,
-`JournaledCall`, `Plan`, `EffectOutcome` and the codes; its four exported functions —
-`operationOf`, `serializeCall`, `parseJournaledCall`, `planFor` — become generic walks over the
-registry. In the applier, `send` and `confirm` become one-line dispatches; the choreography around
-them — `sendCall`, `readBack`, the brakes and the fresh gate — answers the fold's five states,
-which `actionFor` reads as a table (D161, D172).
+in the vocabulary file lists them, one line per operation. The vocabulary file (`effects.ts`) keeps
+`Call`, `JournaledCall`, `Plan`, `EffectOutcome` and the codes; the four functions over them —
+`operationOf`, `serializeCall`, `parseJournaledCall`, `planFor` — are generic walks over the
+registry, in `apply/operations/index.ts`. In the applier, `send` and `confirm` are one-line
+dispatches; the choreography around them — `sendCall`, `readBack`, the brakes and the fresh gate —
+answers the fold's five states, which `actionFor` reads as a table (D161, D172).
 
 **Payload compatibility is absolute.** A `sent` fact's payload is the serialized call:
 `serializeCall` writes `{capability, item}` then the handler's fields, so insertion order — and
@@ -112,23 +112,12 @@ handler may ADD a verb, and may never rename a verb, rename or reorder a field, 
 `parse` refuses. The proof is the per-verb pins of the literal payload strings in
 `packages/runtime/test/shell/effects.test.ts`, which are unchanged.
 
-## 4. Adapter — `operations/<op>`
+## 4. Adapter — `writes/operations/<op>`
 
 **The transport contract.** Keyed by the same operation names, which the adapter already imports
 from core.
 
 ```ts
-/** The endpoint names the gate admits — the adapter's "one union member", kept below both readers. */
-export type WriteEndpoint = "addLabel" | "removeLabel" | "createComment" | "updateComment";
-
-export interface EndpointShape {
-    readonly endpoint: WriteEndpoint;
-    /** Structural match on method and the path's tail — never derived from the builder below. */
-    matches(method: string, rest: readonly string[]): boolean;
-    /** Cache keys a landed write makes untrustworthy. */
-    invalidates(url: URL): readonly string[];
-}
-
 /** What a builder may use: the repository, and the one shared send-and-classify mechanism. */
 export interface VerbContext {
     readonly repository: RepositoryRef;
@@ -136,30 +125,30 @@ export interface VerbContext {
 }
 
 export interface OperationTransport {
-    /** The endpoints this operation is allowed to reach — empty is a legal, refusing transport. */
-    readonly endpoints: readonly EndpointShape[];
-    /** The verbs this operation contributes to the write surface. */
+    /** The verbs this operation contributes — none at all is a legal, refusing transport. */
     verbs(context: VerbContext): Partial<WriteVerbs>;
 }
 ```
 
-The admission gate keeps its origin pin, its GraphQL gate, its body rule and the grant precheck;
-`writeEndpointOf` and `invalidatedBy` become one walk over the registry's shapes, which keeps the
-preamble every shape shares — no query or fragment, `repos/{owner}/{repo}/issues`, encoded names —
-in one place and hands each shape only its method and the path's tail. The send-and-classify
-mechanism stays one function in the writes file and reaches the builders as `apply`. The vocabulary the
-builders return in — `WriteResult`, `WriteVerbs`, `NotFoundMeaning` — sits in the transport file with
-`WriteEndpoint`, below both readers, because the writes file imports the registry and a type that stayed
-behind would close a cycle the cruiser refuses. `createWriteVerbs`
-composes the verbs the transports contribute, and the `WriteVerbs` interface stays the closed
-surface the shell sees. A transport holds both the matcher and the builder for its endpoints, and
-they stay two spellings: the D129 rule that a gate must not trust the builder's string is kept, now
-as a one-screen review rather than a two-file one. `unassign` is a transport with no endpoints and
-no verbs today, which is exactly why the shell refuses it at send; the real unassign lands as an
-endpoint in that module, not as a new file. `assign`, `lockIssue` and `unlockIssue` were added in
-that shape and no other: each is three files per §1, its `send` refuses naming the endpoint the
-matrix has no row for, and its `confirm` answers `"unknown"` because nothing reads an assignee list
-or a lock state either.
+A transport declares verbs only; the endpoints they may reach are the client's table.
+`WriteEndpoint`, `EndpointShape` and `writeEndpointOf` sit in
+`packages/runtime/src/adapter/client/endpoints.ts`, one shape per confirmed endpoint with the grant
+it needs and the keys its landing stales (D176). The admission gate keeps its origin pin, its
+GraphQL gate, its body rule and the grant precheck, and matches a built URL against those shapes in
+one walk, which keeps the preamble every shape shares — no query or fragment,
+`repos/{owner}/{repo}/issues`, encoded names — in one place and hands each shape only its method and
+the path's tail. The send-and-classify mechanism stays one function in the writes file and reaches
+the builders as `apply`. The vocabulary the builders return in — `WriteResult`, `WriteVerbs`,
+`NotFoundMeaning` — sits in the transport file below both readers, because the writes file imports
+the registry and a type that stayed behind would close a cycle the cruiser refuses.
+`createWriteVerbs` composes the verbs the transports contribute, and the `WriteVerbs` interface
+stays the closed surface the shell sees. The matcher and the builder stay two spellings in two
+files: the D129 rule that a gate must not trust the builder's string is kept. `unassign` is a
+transport with no verbs today, which is exactly why the shell refuses it at send; the real unassign
+lands as a verb in that module and a shape in the client's table, not as a new file. `assign`,
+`lockIssue` and `unlockIssue` were added in that shape and no other: each is three files per §1, its
+`send` refuses naming the endpoint the matrix has no row for, and its `confirm` answers `"unknown"`
+because nothing reads an assignee list or a lock state either.
 
 The read-back stays whole in R2: two resources do not earn a split (D89), and the third — an
 assignee read — arrives with the real unassign and is the trigger to move each operation's reader

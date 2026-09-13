@@ -47,7 +47,7 @@ flowchart LR
 | `reads/facts.ts` | What are a repository's open items, and what does each one's record say? |
 | `writes/writes.ts` | How does one write travel, and what does its answer mean? |
 | `writes/readback.ts` | Did the write land — is the postcondition observably true? |
-| `writes/operations/` | Which endpoints does one write operation reach, and how does it build them? |
+| `writes/operations/` | Which verbs does one write operation contribute, and how does it build each request? |
 
 Every outside dependency — fetch, the clock, the mint call — is injected, so no test reaches the
 network. The client exposes only the REST and GraphQL reads this stage has proved, pins credentials to GitHub's

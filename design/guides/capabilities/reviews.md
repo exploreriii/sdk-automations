@@ -5,7 +5,7 @@ Not built: phases 1, 2, 3, 4, 5.
 ## What the output looks like
 
 Both are addressed by the platform, which prefixes the principal's handle
-(`capability/managed.ts` → `addressManagedComment`), so neither body names anybody itself.
+(`intents/managed.ts` → `addressManagedComment`), so neither body names anybody itself.
 
 The reminder:
 
@@ -122,7 +122,7 @@ on, and the author is who the wait is costing.
 | `resolvers` | none. `isAutomationActor` is Phase 2's, and it has no input until the record carries review activity |
 | `intents` | `postManagedComment` (`notice`; topics `review` and `escalation`) |
 | `requiredMappings` | none. `needsRevision` is a guard over what this repository happens to have mapped: unmapped means never observed, never a refused file. `exemptWhen` is the other way round — a meaning listed there and not mapped is `settingInvalid` and the file is rejected, which is the meaning list's own rule (`design/guides/capability-kits.md` §3) rather than a declaration demand |
-| Permissions | repository: `pull_requests:read` (the sweep's own reads) and `issues:write` (the comment, `capability/operations/postManagedComment.ts`) · organization: none |
+| Permissions | repository: `pull_requests:read` (the sweep's own reads) and `issues:write` (the comment, `intents/operations/postManagedComment.ts`) · organization: none |
 | `operationalNeeds` | schedule: true · durableState: none — one comment per topic per item is the platform's own identity · crossItemCoordination: false · externalDelivery: false |
 
 `sweep` reads `assignees`, `links`, `review` and `readiness` on a pull request, so both needed

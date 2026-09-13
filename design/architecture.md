@@ -43,7 +43,7 @@ than packages, and the layer policy did not change when they were filed that way
 *Enforced by `packages/dev/checks/test/architecture.test.ts`, which cruises the real tree with these
 rules and a deliberately-violating fixture tree to prove they still fire.*
 
-The shell has a second direction rule of its own, inside the one directory that composes everything
+Three directions hold inside those packages. The shell's directories are the boxes of its drawing
 (D172):
 
 | Directory | What it owns |
@@ -57,15 +57,7 @@ The shell has a second direction rule of its own, inside the one directory that 
 | `observe/` | the read-only commands |
 | `log.ts`, `paths.ts`, `effects.ts` | the vocabulary every directory above may name |
 
-Imports run down that list and never back up — `compose` → the lanes and the jobs → `decide` →
-`apply` → `apply/operations` — with the root files nameable from anywhere and `compose` from
-nowhere. Two more rules ride with it: `apply/actions.ts` is the only file that names the fold's five
-states, and `decide/item.ts` the only caller of the applier.
-
-*Enforced by `packages/dev/checks/test/shell-layering.test.ts`, which reads every import under
-`src/shell/` and proves each of the three rules can fail over fixture text.*
-
-Core has a direction of its own, and its directories are an AUDIENCE (D175):
+Core's are an AUDIENCE (D175):
 
 | Directory | Who arrives there |
 |---|---|
@@ -76,15 +68,7 @@ Core has a direction of its own, and its directories are an AUDIENCE (D175):
 | `engine/` | the composition — normalize, call, screen, gate |
 | `report/` | what happened, and who must act |
 
-`intents/` never names `capability/`, so the check that an intent names the capability that returned
-it lives in `packages/core/src/engine/invoke.ts`, where intents are collected. Nothing below the
-engine names `engine/` or `report/`, and `config/` reaches one file of `capability/` — the settings
-reader — and nothing else there.
-
-*Enforced by `packages/dev/checks/test/core-layering.test.ts`, which reads every import under
-`packages/core/src/`, writes the table from them, and proves each direction can fail over fixture text.*
-
-The adapter has one too, and its directories are a JOB (D176):
+The adapter's are a JOB (D176):
 
 | Directory | What it does |
 |---|---|
@@ -92,13 +76,16 @@ The adapter has one too, and its directories are a JOB (D176):
 | `reads/` | reads it: the configuration, the sweep's facts, the resolvers, the live externals |
 | `writes/` | changes it: the send-and-classify, the read-back, one transport per operation |
 
-`reads/` names the client; `writes/` names the client and the reads, because a read-back proves a
-write through the facts reader; the client names neither, which is why the admission gate reads the
-confirmed shapes from `packages/runtime/src/adapter/client/endpoints.ts` and never from the writes.
-Nothing inside names the barrel.
+Each of the three is one lock:
 
-*Enforced by `packages/dev/checks/test/adapter-layering.test.ts`, which reads every import under
-`packages/runtime/src/adapter/` and proves each of the three rules can fail over fixture text.*
+| Lock | The rule it states | Enforced by |
+|---|---|---|
+| shell | imports run `compose/` → the lanes and the jobs → `decide/` → `apply/` → `apply/operations/` and never back up, the root files nameable from anywhere and `compose/` from nowhere; `apply/actions.ts` alone names the fold's five states, and `decide/item.ts` alone calls the applier | `packages/dev/checks/test/shell-layering.test.ts` |
+| core | `intents/` never names `capability/`, so the check that an intent names the capability that returned it lives in `packages/core/src/engine/invoke.ts`, where intents are collected; nothing below the engine names `engine/` or `report/`; `config/` reaches one file of `capability/`, the settings reader, and nothing else there | `packages/dev/checks/test/core-layering.test.ts` |
+| adapter | `reads/` names the client; `writes/` names the client and the reads, because a read-back proves a write through the facts reader; the client names neither, which is why the admission gate reads the confirmed shapes from `packages/runtime/src/adapter/client/endpoints.ts` and never from the writes; nothing inside names the barrel | `packages/dev/checks/test/adapter-layering.test.ts` |
+
+*Each lock reads every import under its own directory and proves each of its rules can fail over
+fixture text.*
 
 ## 2. One item is the unit of decision
 
@@ -154,7 +141,7 @@ sequenceDiagram
         P->>P: record 'configRejected' or 'modeUnsupported' — before decide()
     else disabled, observe, dry-run, or active with an applier
         P->>E: decide(facts, config, capabilities, externals)
-        E-->>P: report → record 'decision'; approved effects go to the applier
+        E-->>P: report → record 'decision', and the approved effects go to the applier
     end
     P->>S: completeDelivery — 'done', one transaction
     note over P,S: any failure before commit releases the claim

@@ -1,7 +1,7 @@
 /**
  * The confirmed write endpoints, as shapes: what method and path tail each one
  * is, the grant it needs, and the keys its landing stales. The admission gate
- * matches against these, and each operation's transport names its own from here.
+ * matches every built request against these; the transports build, never match.
  */
 
 import type { PermissionGrant } from "@hiero-hackers/automation-core";

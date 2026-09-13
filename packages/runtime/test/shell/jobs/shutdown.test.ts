@@ -11,8 +11,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { createShutdown, type ShutdownParts } from "../../src/shell/shutdown.js";
-import type { ShellEvent } from "../../src/shell/log.js";
+import { createShutdown, type ShutdownParts } from "../../../src/shell/jobs/shutdown.js";
+import type { ShellEvent } from "../../../src/shell/log.js";
 
 /** Longer than any of these takes, short enough that a hang is a failure. */
 const TEST_TIMEOUT_MS = 2_000;
@@ -49,7 +49,7 @@ function watched(
                 },
                 closeIdleConnections: () => steps.push("server.closeIdleConnections"),
             },
-            stopSweep: () => steps.push("stopSweep"),
+            stopTick: () => steps.push("stopTick"),
             settled: async () => {
                 await Promise.resolve();
                 steps.push("settled");
@@ -87,7 +87,7 @@ async function stop(shutdown: (signal: NodeJS.Signals) => void): Promise<void> {
 
 describe("stopping in the order that loses nothing", () => {
     it(
-        "closes the edge, stops the sweep, joins the pass, then closes the store",
+        "closes the edge, stops the tick, joins the pass, then closes the store",
         async () => {
             const world = watched();
 
@@ -96,7 +96,7 @@ describe("stopping in the order that loses nothing", () => {
             expect(world.steps).toEqual([
                 "server.close",
                 "server.closeIdleConnections",
-                "stopSweep",
+                "stopTick",
                 "settled",
                 "store.close",
                 "log:shutdown",

@@ -15,8 +15,9 @@ import {
 import type { Store } from "../store/index.js";
 import { createReceiver } from "./receiver.js";
 import { createItemDecider } from "./decide/item.js";
-import { createDeliveries, STALE_CLAIM_MINUTES } from "./inbound/deliveries.js";
-import { EFFECT_LEASE_STALE_MINUTES, type Applier } from "./apply/apply.js";
+import { createDeliveries } from "./inbound/deliveries.js";
+import { createJobs } from "./jobs/jobs.js";
+import type { Applier } from "./apply/apply.js";
 import type { ConfigSource } from "./config.js";
 import type { ExternalsForDelivery } from "./externals.js";
 import { contained, createLogger, detailOf, type Log } from "./log.js";
@@ -75,7 +76,7 @@ export interface Shell {
     /** The drain in flight, if there is one. Starts no work. */
     settled(): Promise<void>;
     /** Stop the sweep. The server stays the caller's to close. */
-    stopSweep(): void;
+    stopTick(): void;
 }
 
 export function createShell(options: ShellOptions): Shell {
@@ -142,64 +143,16 @@ export function createShell(options: ShellOptions): Shell {
             });
         },
     });
-    /**
-     * The sends a worker made and never closed.
-     * Every one is re-driven through the applier's dispatch, which reads GitHub before it resends, so a sweep can never turn a landed write into a second one.
-     * Suspended, none of it runs: an open send stays open until the switch lifts (D171).
-     */
-    const recoverEffects = async (): Promise<void> => {
-        const applier = options.applier;
-        if (applier === undefined || suspended) return;
-        const before = new Date(clock().getTime() - EFFECT_LEASE_STALE_MINUTES * 60_000);
-        const open = options.store.ledger.open(before.toISOString());
-        if (open.length === 0) return;
-        const config = await deliveries.configuration();
-        if (config === null) return;
-        for (const row of open) {
-            try {
-                await applier.recover(row, config);
-            } catch (error) {
-                log({
-                    event: "sweepFailed",
-                    detail: `effect "${row.effectId}" recovery failed: ${detailOf(error)}`,
-                });
-            }
-        }
-    };
-
-    /**
-     * One tick: hand back dead claims, resolve unclosed effects, pump, fire any due sweep row.
-     * Contained, because a throw inside a timer callback takes the process down.
-     */
-    const reconcile = (): void => {
-        try {
-            const staleBefore = new Date(clock().getTime() - STALE_CLAIM_MINUTES * 60_000);
-            const requeued = options.store.inbox.requeueStuckDeliveries(staleBefore.toISOString());
-            // A line every interval forever would bury the sweeps that requeued something.
-
-            if (requeued.length > 0) {
-                log({
-                    event: "sweepRequeued",
-                    requeued: requeued.length,
-                    deliveryIds: requeued.map(String),
-                });
-            }
-        } catch (error) {
-            log({ event: "sweepFailed", detail: detailOf(error) });
-            return;
-        }
-        void recoverEffects().catch((error: unknown) => {
-            log({ event: "sweepFailed", detail: detailOf(error) });
-        });
-        void deliveries.drain().catch((error: unknown) => {
-            log({ event: "drainFailed", phase: "sweep", detail: detailOf(error) });
-        });
-        // No `.catch`: `runDue` contains its own failures, and a rejection would also
-        // reach `settled()`, where a shutdown awaiting it has nowhere to put it.
-
-        void factSweep?.runDue();
-    };
-    const ticking = setInterval(reconcile, options.tickMs ?? DEFAULT_TICK_MS);
+    const jobs = createJobs({
+        store: options.store,
+        deliveries,
+        sweep: factSweep,
+        clock,
+        suspended,
+        log,
+        ...(options.applier === undefined ? {} : { applier: options.applier }),
+    });
+    const ticking = setInterval(jobs.tick, options.tickMs ?? DEFAULT_TICK_MS);
     // Stryker disable next-line CallExpression: unref only decides whether an otherwise-idle event loop keeps running; nothing in this process can observe it, and the shell's own exit is explicit.
     // The sweep is recovery, never a reason for the process to stay alive.
 
@@ -212,11 +165,8 @@ export function createShell(options: ShellOptions): Shell {
     return {
         server,
         drain: () => deliveries.drain(),
-        /** BOTH passes, because both hold a claim: the delivery lane's, and the sweep's row. */
-        settled: async () => {
-            await Promise.all([deliveries.settled(), factSweep?.settled()]);
-        },
-        stopSweep: () => {
+        settled: () => jobs.settled(),
+        stopTick: () => {
             clearInterval(ticking);
         },
     };

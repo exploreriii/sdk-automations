@@ -1,11 +1,11 @@
 /**
- * Stop in the order that loses nothing: the socket, then the sweep, then the passes
+ * Stop in the order that loses nothing: the socket, then the tick, then the passes
  * already in flight, then the store. The join is NOT a new drain, which would claim
  * exactly the work being abandoned. A claim the process dies holding is invisible for
  * the full stale window, and that is the cost this ordering buys off.
  */
 
-import { detailOf, type Log } from "./log.js";
+import { detailOf, type Log } from "../log.js";
 
 /** Everything a shutdown touches, in the order it touches them. */
 export interface ShutdownParts {
@@ -14,7 +14,7 @@ export interface ShutdownParts {
         close(done: () => void): void;
         closeIdleConnections(): void;
     };
-    readonly stopSweep: () => void;
+    readonly stopTick: () => void;
     /** The pass already in flight, if any. Never one this starts. */
     readonly settled: () => Promise<void>;
     readonly store: { close(): void };
@@ -25,7 +25,7 @@ export interface ShutdownParts {
 }
 
 export function createShutdown(parts: ShutdownParts): (signal: NodeJS.Signals) => void {
-    const { server, stopSweep, settled, store, log, out, exit } = parts;
+    const { server, stopTick, settled, store, log, out, exit } = parts;
     let stopping = false;
     return (signal) => {
         // A second signal during a shutdown is impatience, not new information.
@@ -44,7 +44,7 @@ export function createShutdown(parts: ShutdownParts): (signal: NodeJS.Signals) =
                 } catch {}
             });
             try {
-                stopSweep();
+                stopTick();
             } catch {}
             try {
                 await closed;

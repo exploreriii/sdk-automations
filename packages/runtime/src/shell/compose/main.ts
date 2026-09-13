@@ -15,7 +15,7 @@ import { CONFIG_PATH, fileConfigSource } from "../config.js";
 import { stubbedExternals } from "../externals.js";
 import { createLogger, detailOf } from "../log.js";
 import { defaultDataDir } from "../paths.js";
-import { createShutdown } from "../shutdown.js";
+import { createShutdown } from "../jobs/shutdown.js";
 import { parseComposition } from "./composition.js";
 import { liveGitHub } from "./live.js";
 
@@ -124,10 +124,10 @@ shell.server.listen(endpoint.port, endpoint.host, () => {
     });
 });
 
-/** The order that loses nothing lives in `shutdown.ts`; this is its wiring. */
+/** The order that loses nothing lives in `jobs/shutdown.ts`; this is its wiring. */
 const shutdown = createShutdown({
     server: shell.server,
-    stopSweep: shell.stopSweep,
+    stopTick: shell.stopTick,
     settled: shell.settled,
     store,
     log,

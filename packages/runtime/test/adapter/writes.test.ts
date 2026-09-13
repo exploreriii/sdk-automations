@@ -130,6 +130,19 @@ describe("the verbs name their endpoints", () => {
         expect("detail" in result ? result.detail : "").toContain("PATCH");
         expect(scripted.calls).toHaveLength(0);
     });
+
+    /** A seam broken before fetch is not a fact about the matrix: the detail says nothing left. */
+    it("turns a seam broken before fetch into unsupported, unsent", async () => {
+        const { verbs, scripted } = harness([success("[]")], {
+            outcomes: [{ ok: true, token: token("line one\nline two") }],
+        });
+
+        const result = await verbs.addLabel(ITEM, "status: stale");
+
+        expect(result.outcome).toBe("unsupported");
+        expect("detail" in result ? result.detail : "").toContain("nothing was sent");
+        expect(scripted.calls).toHaveLength(0);
+    });
 });
 
 describe("the ambiguous 404", () => {

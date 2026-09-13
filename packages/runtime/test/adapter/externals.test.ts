@@ -433,6 +433,19 @@ describe("the platform's own assignment writes", () => {
 
         expect(await lookup(ITEM, [label, release("carol")])).toEqual(new Date(EVENT_AT));
     });
+
+    it("counts an unassigned entry that names no assignee", async () => {
+        const nameless = { ...unassigned("alice", EVENT_AT), assignee: {} };
+        const { lookup } = source([page([nameless])]);
+
+        expect(await lookup(ITEM, [release("alice")])).toEqual(new Date(EVENT_AT));
+    });
+
+    it("counts the release when the journal's own date cannot be read", async () => {
+        const { lookup } = source([page([unassigned("alice", EVENT_AT)])]);
+
+        expect(await lookup(ITEM, [release("alice", "not a date")])).toEqual(new Date(EVENT_AT));
+    });
 });
 
 /**

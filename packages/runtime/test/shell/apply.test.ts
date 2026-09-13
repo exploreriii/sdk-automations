@@ -1678,6 +1678,20 @@ describe("a close that claimed a native pull-request mode", () => {
         expect(appComments(github)).toEqual([]);
     });
 
+    /** An unreadable pull request proves nothing about the close, so the row stays open. */
+    it("asks again when the close's read-back could not be made", async () => {
+        recordWarning("draft");
+        const github = fakeGitHub({ draft: true });
+        github.faults.itemReadFailsAfterSend = true;
+
+        const outcome = await applyAt(github, closeEffect("draft"));
+
+        expect(outcome).toMatchObject({ outcome: "unknown", code: "postconditionUnconfirmed" });
+        expect(outcome.detail).toContain("unknown");
+        expect(github.world.closed).toBe(true);
+        expect(appComments(github)).toEqual([]);
+    });
+
     it("refuses `preconditionStale` when a later review lifted the request", async () => {
         recordWarning("changesRequested");
         const github = fakeGitHub({ changesRequested: false });
@@ -1831,6 +1845,20 @@ describe("a graced act at the apply-time re-gate", () => {
 
         expect(outcome).toMatchObject({ outcome: "unknown", code: "postconditionUnconfirmed" });
         expect(outcome.detail).toContain("unknown");
+        expect(appComments(github)).toEqual([]);
+    });
+
+    /** The read-back is the list, so a release GitHub accepted and did not make is not done. */
+    it("answers `postconditionUnconfirmed` when the login is still assigned", async () => {
+        recordWarning();
+        const unmoved = fakeGitHub({ assignees: ["alice"] });
+        unmoved.faults.scripted = [{ outcome: "applied" }];
+
+        const { outcome, github } = await applyAt(later(8), releaseEffect(), unmoved);
+
+        expect(outcome).toMatchObject({ outcome: "unknown", code: "postconditionUnconfirmed" });
+        expect(outcome.detail).toContain("notHeld");
+        expect(github.world.assignees).toEqual(["alice"]);
         expect(appComments(github)).toEqual([]);
     });
 

@@ -388,6 +388,8 @@ export interface Faults {
     activityReadFails: boolean;
     /** The item read throws — an uncontained seam, which is a crash. */
     itemReadThrows: boolean;
+    /** The item read refuses once a write has been sent — the read-back, not the re-gate. */
+    itemReadFailsAfterSend: boolean;
     /** The comment list read refuses. */
     commentReadFails: boolean;
     /** The assignee read refuses — the release's whole read-back. */
@@ -438,6 +440,7 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
         reviewReadFails: false,
         activityReadFails: false,
         itemReadThrows: false,
+        itemReadFailsAfterSend: false,
         commentReadFails: false,
         assigneeReadFails: false,
         presence: null,
@@ -455,6 +458,7 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
         if (faults.crashOn?.verb === verb && faults.crashOn.when === "afterSend") {
             throw new Error(`crash after ${verb}`);
         }
+        if (faults.itemReadFailsAfterSend) faults.itemReadFails = true;
         return answer;
     };
 

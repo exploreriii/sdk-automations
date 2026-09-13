@@ -4,8 +4,12 @@
  */
 
 import type { IntentOperation } from "../catalogue.js";
-import { INTENT_OPERATIONS, type AnyIntent } from "../intents/index.js";
-import { OPERATIONS, type OperationModule } from "../intents/operations/index.js";
+import {
+    INTENT_OPERATIONS,
+    OPERATIONS,
+    type AnyIntent,
+    type OperationModule,
+} from "../intents/index.js";
 import type { WriteRequest } from "../safety/index.js";
 import { finding, type Finding, type Subject } from "../report/index.js";
 

@@ -28,7 +28,6 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
         "engine/normalize",
         "capability",
         "intents",
-        "intents/operations",
         "report",
         "config",
         "safety",

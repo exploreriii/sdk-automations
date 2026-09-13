@@ -5,4 +5,4 @@
  */
 export * from "./intent.js";
 export * from "./managed.js";
-export { INTENT_OPERATIONS } from "./operations/index.js";
+export { INTENT_OPERATIONS, OPERATIONS, type OperationModule } from "./operations/index.js";

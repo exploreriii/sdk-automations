@@ -5,8 +5,9 @@ dependency cruiser holds as directory rules:
 
 - [`src/store/`](src/store/README.md) — the owned operational store: deliveries, the effect journal,
   schedules. Sits on core only.
-- [`src/adapter/`](src/adapter/README.md) — the only code that talks to GitHub. Sits on core only,
-  and is imported by the composition root alone.
+- [`src/adapter/`](src/adapter/README.md) — the only code that talks to GitHub, one directory per
+  job (D176): `client/` talks, `reads/` reads, `writes/` changes. Sits on core only, and is imported
+  by the composition root alone.
 - [`src/shell/`](src/shell/README.md) — the transport, one directory per box of its drawing (D172):
 
   - `compose/` — the environment as one record, the live seams, and the start.

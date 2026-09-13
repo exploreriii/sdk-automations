@@ -84,6 +84,22 @@ reader — and nothing else there.
 *Enforced by `packages/dev/checks/test/core-layering.test.ts`, which reads every import under
 `packages/core/src/`, writes the table from them, and proves each direction can fail over fixture text.*
 
+The adapter has one too, and its directories are a JOB (D176):
+
+| Directory | What it does |
+|---|---|
+| `client/` | talks to GitHub: the contract, the credential chain, the admission gate, the confirmed endpoint shapes, the send |
+| `reads/` | reads it: the configuration, the sweep's facts, the resolvers, the live externals |
+| `writes/` | changes it: the send-and-classify, the read-back, one transport per operation |
+
+`reads/` names the client; `writes/` names the client and the reads, because a read-back proves a
+write through the facts reader; the client names neither, which is why the admission gate reads the
+confirmed shapes from `packages/runtime/src/adapter/client/endpoints.ts` and never from the writes.
+Nothing inside names the barrel.
+
+*Enforced by `packages/dev/checks/test/adapter-layering.test.ts`, which reads every import under
+`packages/runtime/src/adapter/` and proves each of the three rules can fail over fixture text.*
+
 ## 2. One item is the unit of decision
 
 Everything narrows to this. A producer builds one fact record about ONE item; `decide()` calls each

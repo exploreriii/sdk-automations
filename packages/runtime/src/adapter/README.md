@@ -8,18 +8,23 @@ the provenance table below records what was actually measured. The operation lis
 
 ## What is here today
 
+Three directories, one per job (D176): `client/` talks to GitHub, `reads/` reads it, `writes/`
+changes it. The reads name the client, the writes name the client and the reads, and the client
+names neither — which is why the admission gate holds the confirmed endpoint shapes itself.
+`packages/dev/checks/test/adapter-layering.test.ts` is the lock.
+
 ```mermaid
 flowchart LR
-    CRED["App credentials\n(untracked env)"] --> JWT["jwt.ts\nsign the assertion"]
-    JWT --> MINT["mint.ts\nits own POST — a token\ncannot fetch its own mint"]
-    MINT --> TOK["token.ts\ncache, refresh,\nsingle flight"]
-    TOK --> HTTP["http.ts\nETags, retry, classify,\norigin pin"]
-    HTTP --> CFG["config.ts\nConfigSource"]
-    HTTP --> EXT["externals.ts\nordering evidence"]
-    HTTP --> RES["resolvers.ts\nlinked issues, bot identity"]
-    HTTP --> FAC["facts.ts\nthe sweep's reads"]
+    CRED["App credentials\n(untracked env)"] --> JWT["client/jwt.ts\nsign the assertion"]
+    JWT --> MINT["client/mint.ts\nits own POST — a token\ncannot fetch its own mint"]
+    MINT --> TOK["client/token.ts\ncache, refresh,\nsingle flight"]
+    TOK --> HTTP["client/http.ts\nETags, retry, classify,\norigin pin"]
+    HTTP --> CFG["reads/config.ts\nConfigSource"]
+    HTTP --> EXT["reads/externals.ts\nordering evidence"]
+    HTTP --> RES["reads/resolvers.ts\nlinked issues, bot identity"]
+    HTTP --> FAC["reads/facts.ts\nthe sweep's reads"]
     TOK -->|"grants ride\nthe mint response"| EXT
-    UNT["untrusted.ts\nfield / jsonRecordOf"] -.->|"every body parse"| MINT & CFG & EXT & RES & FAC
+    UNT["client/untrusted.ts\nfield / jsonRecordOf"] -.->|"every body parse"| MINT & CFG & EXT & RES & FAC
     CFG --> SHELL["the shell's seams\n(composed in main.ts only)"]
     EXT --> SHELL
     RES --> SHELL
@@ -28,18 +33,21 @@ flowchart LR
 
 | File | The question it answers |
 |---|---|
-| `jwt.ts` | What proves we are the App? |
-| `token.ts` | What token may we call with, right now? |
-| `contract.ts` | What shapes and spellings does every GitHub exchange use? |
-| `operations/` | Which endpoints may one write operation reach, and how does it build them? |
-| `admission.ts` | May this request be sent, and what permission does it need? |
-| `http.ts` | How does one admitted request travel, and come back classified? |
-| `config.ts` | Which configuration is on the repository's default branch? |
-| `externals.ts` | Which of core's external facts does GitHub answer, live? |
-| `resolvers.ts` | How are the two catalogued resolver questions answered? |
-| `facts.ts` | What are a repository's open items, and what does each one's record say? |
-| `mint.ts` | How is a token minted when no token exists yet? |
-| `untrusted.ts` | How are GitHub's bytes read without trusting them? |
+| `client/jwt.ts` | What proves we are the App? |
+| `client/token.ts` | What token may we call with, right now? |
+| `client/contract.ts` | What shapes and spellings does every GitHub exchange use? |
+| `client/endpoints.ts` | Which write endpoints did the matrix confirm, and what does each one stale? |
+| `client/admission.ts` | May this request be sent, and what permission does it need? |
+| `client/http.ts` | How does one admitted request travel, and come back classified? |
+| `client/mint.ts` | How is a token minted when no token exists yet? |
+| `client/untrusted.ts` | How are GitHub's bytes read without trusting them? |
+| `reads/config.ts` | Which configuration is on the repository's default branch? |
+| `reads/externals.ts` | Which of core's external facts does GitHub answer, live? |
+| `reads/resolvers.ts` | How are the two catalogued resolver questions answered? |
+| `reads/facts.ts` | What are a repository's open items, and what does each one's record say? |
+| `writes/writes.ts` | How does one write travel, and what does its answer mean? |
+| `writes/readback.ts` | Did the write land — is the postcondition observably true? |
+| `writes/operations/` | Which endpoints does one write operation reach, and how does it build them? |
 
 Every outside dependency — fetch, the clock, the mint call — is injected, so no test reaches the
 network. The client exposes only the REST and GraphQL reads this stage has proved, pins credentials to GitHub's

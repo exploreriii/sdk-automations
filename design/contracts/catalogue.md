@@ -71,7 +71,7 @@ nothing, never a licence to act as though the answer were "no".
 over: a resolver outside that list reaches an endpoint with no cited row, so the gate answers it
 `unavailable` before the dispatch and its reader sits complete and tested until a sandbox run cites
 the row. Which names those are is the list itself, pinned by value in
-`packages/runtime/test/adapter/item-resolvers.test.ts` and nowhere restated — a count beside a
+`packages/runtime/test/adapter/reads/item-resolvers.test.ts` and nowhere restated — a count beside a
 generated table is a sentence that goes stale the day the table grows. A resolver is a question a capability asks BEFORE it acts, so an
 unconfirmed read answering anyway would be the capability acting on evidence nobody has established
 the App may gather.

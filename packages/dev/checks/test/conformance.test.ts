@@ -23,8 +23,8 @@ const ADVICE = "run `pnpm lab:probe` (packages/dev/lab) and commit the result";
 const CONFIG_READ = "config";
 
 const LISTS = [
-    ["packages/runtime/src/adapter/facts.ts", "CONFIRMED_SWEEP_READS"],
-    ["packages/runtime/src/adapter/resolvers.ts", "CONFIRMED_RESOLVER_READS"],
+    ["packages/runtime/src/adapter/reads/facts.ts", "CONFIRMED_SWEEP_READS"],
+    ["packages/runtime/src/adapter/reads/resolvers.ts", "CONFIRMED_RESOLVER_READS"],
 ] as const;
 
 interface ProbeResult {

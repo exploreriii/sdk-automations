@@ -9,7 +9,7 @@ switches, and the commands that ask it what happened.
 
 ```bash
 pnpm install
-pnpm --filter @hiero-hackers/automation-runtime start
+pnpm start
 ```
 
 It drains the deliveries already in the store before it listens. `GET /healthz` answers `200 ok` for
@@ -36,8 +36,8 @@ CONFIG_FILE=…               # credential-free fallback; default <state home>/a
 STORE_PATH=…                # optional; default <state home>/shell.sqlite
 TICK_SECONDS=60             # optional; the reconciliation tick: requeue, recover, drain, fire
 SWEEP_CADENCE_HOURS=1       # optional; arms the fact sweep and sets how often a repository is read
-SWEEP_WRITE_CAP=20          # optional; how many writes one sweep firing may send
-SWEEP_READ_BUDGET=2000      # optional; how many requests one sweep firing may spend reading
+SWEEP_WRITE_CALLS=20        # optional; how many writes one sweep firing may send
+SWEEP_READ_REQUESTS=2000    # optional; how many requests one sweep firing may spend reading
 KILL_SWITCH=1               # optional; refuse everything, loudly — including armed writes
 SUSPENDED=1                 # optional; accept every delivery, decide and send nothing
 XDG_STATE_HOME=…            # optional; where the state home lives
@@ -67,11 +67,11 @@ instruction to read GitHub.
 The `startup` line carries `writes: "armed" | "absent"` and `sweep: "armed" | "absent"`, so which
 composition is running is readable before any delivery arrives.
 
-One firing sends at most `SWEEP_WRITE_CAP` writes and spends at most `SWEEP_READ_BUDGET` requests
-reading, resuming next firing where it stopped. A webhook writes for one item and a firing writes for
-every one, which is why the cap is the sweep's: an act it holds back is refused `sweepWriteCap` and
-decided again from the same cause next firing, and `sweepFinished` carries `writes` and `heldBack`,
-so a repository the cap is starving says so every firing.
+One firing sends at most `SWEEP_WRITE_CALLS` writes and spends at most `SWEEP_READ_REQUESTS`
+requests reading, resuming next firing where it stopped. A webhook writes for one item and a firing
+writes for every one, which is why the cap is the sweep's: an act it holds back is refused
+`sweepWriteCap` and decided again from the same cause next firing, and `sweepFinished` carries
+`writes` and `heldBack`, so a repository the cap is starving says so every firing.
 
 ## The two switches
 

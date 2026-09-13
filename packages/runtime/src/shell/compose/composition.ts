@@ -8,7 +8,7 @@ import { join } from "node:path";
 import type { RepositoryRef } from "@hiero-hackers/automation-core";
 import { defaultDataDir, storeFile } from "../paths.js";
 import { DEFAULT_TICK_MS } from "./shell.js";
-import { SWEEP_READ_BUDGET, SWEEP_WRITE_CAP } from "../sweep/budgets.js";
+import { SWEEP_READ_REQUESTS, SWEEP_WRITE_CALLS } from "../sweep/budgets.js";
 
 /** The port this endpoint takes when PORT says nothing. */
 const DEFAULT_PORT = 8790;
@@ -28,8 +28,8 @@ export const REFUSAL = {
     cadence: "SWEEP_CADENCE_HOURS must be a whole number of hours, 1 or more.",
     cadenceUnbacked:
         "SWEEP_CADENCE_HOURS arms the fact sweep and needs APP_ID, PRIVATE_KEY_PATH and INSTALLATION_ID to read GitHub with.",
-    writeCap: "SWEEP_WRITE_CAP must be a whole number of writes, 1 or more.",
-    readBudget: "SWEEP_READ_BUDGET must be a whole number of requests, 1 or more.",
+    writeCap: "SWEEP_WRITE_CALLS must be a whole number of calls, 1 or more.",
+    readBudget: "SWEEP_READ_REQUESTS must be a whole number of requests, 1 or more.",
 } as const;
 
 /** The credential names, for the count that refuses a partial set. */
@@ -137,9 +137,9 @@ export function parseComposition(env: Environment): Parsed {
     const cadenceHours = counted(env["SWEEP_CADENCE_HOURS"], 1);
     if (cadenceHours === "typo") errors.push(REFUSAL.cadence);
     else if (cadenceHours !== null && credentials === null) errors.push(REFUSAL.cadenceUnbacked);
-    const cap = counted(env["SWEEP_WRITE_CAP"], 1);
+    const cap = counted(env["SWEEP_WRITE_CALLS"], 1);
     if (cap === "typo") errors.push(REFUSAL.writeCap);
-    const budget = counted(env["SWEEP_READ_BUDGET"], 1);
+    const budget = counted(env["SWEEP_READ_REQUESTS"], 1);
     if (budget === "typo") errors.push(REFUSAL.readBudget);
 
     if (endpoint === null) return { ok: false, errors };
@@ -155,8 +155,8 @@ export function parseComposition(env: Environment): Parsed {
                 typeof cadenceHours === "number"
                     ? {
                           cadenceMs: cadenceHours * 60 * 60_000,
-                          writeCap: typeof cap === "number" ? cap : SWEEP_WRITE_CAP,
-                          readBudget: typeof budget === "number" ? budget : SWEEP_READ_BUDGET,
+                          writeCap: typeof cap === "number" ? cap : SWEEP_WRITE_CALLS,
+                          readBudget: typeof budget === "number" ? budget : SWEEP_READ_REQUESTS,
                       }
                     : null,
             switches: {

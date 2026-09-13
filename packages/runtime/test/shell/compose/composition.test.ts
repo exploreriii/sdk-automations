@@ -14,7 +14,7 @@ import {
     type Composition,
 } from "../../../src/shell/compose/composition.js";
 import { DEFAULT_TICK_MS } from "../../../src/shell/compose/shell.js";
-import { SWEEP_READ_BUDGET, SWEEP_WRITE_CAP } from "../../../src/shell/sweep/budgets.js";
+import { SWEEP_READ_REQUESTS, SWEEP_WRITE_CALLS } from "../../../src/shell/sweep/budgets.js";
 
 const STATE_HOME = "/var/lib/state";
 const DATA_DIR = join(STATE_HOME, "sdk-automations");
@@ -70,8 +70,8 @@ const TICK = "TICK_SECONDS must be a whole number of seconds, 1 or more.";
 const CADENCE = "SWEEP_CADENCE_HOURS must be a whole number of hours, 1 or more.";
 const CADENCE_UNBACKED =
     "SWEEP_CADENCE_HOURS arms the fact sweep and needs APP_ID, PRIVATE_KEY_PATH and INSTALLATION_ID to read GitHub with.";
-const WRITE_CAP = "SWEEP_WRITE_CAP must be a whole number of writes, 1 or more.";
-const READ_BUDGET = "SWEEP_READ_BUDGET must be a whole number of requests, 1 or more.";
+const WRITE_CAP = "SWEEP_WRITE_CALLS must be a whole number of calls, 1 or more.";
+const READ_BUDGET = "SWEEP_READ_REQUESTS must be a whole number of requests, 1 or more.";
 
 const absent = (name: string): Overrides => ({ [name]: undefined });
 
@@ -150,28 +150,32 @@ const TABLE: readonly Refusal[] = [
         env: { SWEEP_CADENCE_HOURS: "24" },
         sentence: CADENCE_UNBACKED,
     },
-    { title: "SWEEP_WRITE_CAP zero", env: { SWEEP_WRITE_CAP: "0" }, sentence: WRITE_CAP },
-    { title: "SWEEP_WRITE_CAP negative", env: { SWEEP_WRITE_CAP: "-1" }, sentence: WRITE_CAP },
-    { title: "SWEEP_WRITE_CAP fractional", env: { SWEEP_WRITE_CAP: "1.5" }, sentence: WRITE_CAP },
+    { title: "SWEEP_WRITE_CALLS zero", env: { SWEEP_WRITE_CALLS: "0" }, sentence: WRITE_CAP },
+    { title: "SWEEP_WRITE_CALLS negative", env: { SWEEP_WRITE_CALLS: "-1" }, sentence: WRITE_CAP },
     {
-        title: "SWEEP_WRITE_CAP unreadable",
-        env: { SWEEP_WRITE_CAP: "twenty" },
+        title: "SWEEP_WRITE_CALLS fractional",
+        env: { SWEEP_WRITE_CALLS: "1.5" },
         sentence: WRITE_CAP,
     },
-    { title: "SWEEP_READ_BUDGET zero", env: { SWEEP_READ_BUDGET: "0" }, sentence: READ_BUDGET },
     {
-        title: "SWEEP_READ_BUDGET negative",
-        env: { SWEEP_READ_BUDGET: "-1" },
+        title: "SWEEP_WRITE_CALLS unreadable",
+        env: { SWEEP_WRITE_CALLS: "twenty" },
+        sentence: WRITE_CAP,
+    },
+    { title: "SWEEP_READ_REQUESTS zero", env: { SWEEP_READ_REQUESTS: "0" }, sentence: READ_BUDGET },
+    {
+        title: "SWEEP_READ_REQUESTS negative",
+        env: { SWEEP_READ_REQUESTS: "-1" },
         sentence: READ_BUDGET,
     },
     {
-        title: "SWEEP_READ_BUDGET fractional",
-        env: { SWEEP_READ_BUDGET: "1.5" },
+        title: "SWEEP_READ_REQUESTS fractional",
+        env: { SWEEP_READ_REQUESTS: "1.5" },
         sentence: READ_BUDGET,
     },
     {
-        title: "SWEEP_READ_BUDGET unreadable",
-        env: { SWEEP_READ_BUDGET: "all" },
+        title: "SWEEP_READ_REQUESTS unreadable",
+        env: { SWEEP_READ_REQUESTS: "all" },
         sentence: READ_BUDGET,
     },
 ];
@@ -252,8 +256,8 @@ describe("an environment the composition accepts", () => {
                 STORE_PATH: "/var/shell.sqlite",
                 TICK_SECONDS: "5",
                 SWEEP_CADENCE_HOURS: "6",
-                SWEEP_WRITE_CAP: "3",
-                SWEEP_READ_BUDGET: "40",
+                SWEEP_WRITE_CALLS: "3",
+                SWEEP_READ_REQUESTS: "40",
                 KILL_SWITCH: "1",
                 SUSPENDED: "1",
             }),
@@ -277,8 +281,8 @@ describe("an environment the composition accepts", () => {
     it("arms the sweep with the bounds the sweep declares", () => {
         expect(composed({ ...CREDENTIALS, SWEEP_CADENCE_HOURS: "1" }).sweep).toEqual({
             cadenceMs: 60 * 60_000,
-            writeCap: SWEEP_WRITE_CAP,
-            readBudget: SWEEP_READ_BUDGET,
+            writeCap: SWEEP_WRITE_CALLS,
+            readBudget: SWEEP_READ_REQUESTS,
         });
     });
 

@@ -146,8 +146,8 @@ const SHELL_VARIABLES = [
     "SUSPENDED",
     "TICK_SECONDS",
     "SWEEP_CADENCE_HOURS",
-    "SWEEP_WRITE_CAP",
-    "SWEEP_READ_BUDGET",
+    "SWEEP_WRITE_CALLS",
+    "SWEEP_READ_REQUESTS",
     "XDG_STATE_HOME",
 ];
 
@@ -699,10 +699,10 @@ async function withLiveGitHub(
                 ...(github.cadenceHours === undefined
                     ? {}
                     : { SWEEP_CADENCE_HOURS: github.cadenceHours }),
-                ...(github.writeCap === undefined ? {} : { SWEEP_WRITE_CAP: github.writeCap }),
+                ...(github.writeCap === undefined ? {} : { SWEEP_WRITE_CALLS: github.writeCap }),
                 ...(github.readBudget === undefined
                     ? {}
-                    : { SWEEP_READ_BUDGET: github.readBudget }),
+                    : { SWEEP_READ_REQUESTS: github.readBudget }),
                 ...(github.tickSeconds === undefined ? {} : { TICK_SECONDS: github.tickSeconds }),
             },
             (shell) => body({ shell, port, storeFile, fetchLog }),
@@ -920,8 +920,8 @@ describe("the sandbox entry point, as a process", () => {
      * The fake GitHub answers the open-item list with an empty array (its last
      * route is `timeline`, and this case scripts that empty), so the firing
      * decides nothing and the case stays about the WIRING rather than about a
-     * ladder's judgement — which `test/shell/sweep/sweep.test.ts` owns. `SWEEP_WRITE_CAP`
-     * and `SWEEP_READ_BUDGET` ride the same wiring: accepted at boot, and spent
+     * ladder's judgement — which `test/shell/sweep/sweep.test.ts` owns. `SWEEP_WRITE_CALLS`
+     * and `SWEEP_READ_REQUESTS` ride the same wiring: accepted at boot, and spent
      * by nothing here, so the firing finishes the list with no cursor to keep.
      */
     it(

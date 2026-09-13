@@ -15,5 +15,5 @@ The barrel re-exports the three, so a consumer names one package, and `test/` mi
 
 ```bash
 pnpm --filter @hiero-hackers/automation-runtime test
-pnpm --filter @hiero-hackers/automation-runtime start
+pnpm start
 ```

@@ -70,9 +70,9 @@ export interface SweepOptions {
     readonly clock: () => Date;
     /** How long until the next firing. sweep.md §2 step 4; the default is hourly. */
     readonly cadenceMs: number;
-    /** How many writes one firing may send; the default is `SWEEP_WRITE_CAP`. */
+    /** How many writes one firing may send; the default is `SWEEP_WRITE_CALLS`. */
     readonly writeCap: number;
-    /** How many requests one firing may spend reading; the default is `SWEEP_READ_BUDGET`. */
+    /** How many requests one firing may spend reading; the default is `SWEEP_READ_REQUESTS`. */
     readonly readBudget: number;
     /** What the budget above is spent against: the client's own count of requests sent. */
     readonly requestsMade: () => number;

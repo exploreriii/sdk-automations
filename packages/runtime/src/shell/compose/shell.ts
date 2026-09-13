@@ -27,7 +27,11 @@ import { createDeliveries } from "../inbound/deliveries.js";
 import { createReceiver } from "../inbound/receiver.js";
 import { createJobs } from "../jobs/jobs.js";
 import { contained, createLogger, detailOf, type Log } from "../log.js";
-import { DEFAULT_SWEEP_CADENCE_MS, SWEEP_READ_BUDGET, SWEEP_WRITE_CAP } from "../sweep/budgets.js";
+import {
+    DEFAULT_SWEEP_CADENCE_MS,
+    SWEEP_READ_REQUESTS,
+    SWEEP_WRITE_CALLS,
+} from "../sweep/budgets.js";
 import { createSweep, type SweepFactsSource } from "../sweep/sweep.js";
 
 /** How often the shell requeues stale claims and drains, absent an override. */
@@ -79,9 +83,9 @@ export interface ShellOptions {
     readonly sweep?: {
         /** How long until the next firing; the default is hourly. */
         readonly cadenceMs?: number;
-        /** How many writes one firing may send; the default is `SWEEP_WRITE_CAP`. */
+        /** How many writes one firing may send; the default is `SWEEP_WRITE_CALLS`. */
         readonly writeCap?: number;
-        /** How many requests one firing may spend reading; the default is `SWEEP_READ_BUDGET`. */
+        /** How many requests one firing may spend reading; the default is `SWEEP_READ_REQUESTS`. */
         readonly readBudget?: number;
         /** What that budget is spent against: the client's own count of requests sent. */
         readonly requestsMade: () => number;
@@ -171,8 +175,8 @@ export function createShell(options: ShellOptions): Shell {
                   },
                   clock,
                   cadenceMs: options.sweep.cadenceMs ?? DEFAULT_SWEEP_CADENCE_MS,
-                  writeCap: options.sweep.writeCap ?? SWEEP_WRITE_CAP,
-                  readBudget: options.sweep.readBudget ?? SWEEP_READ_BUDGET,
+                  writeCap: options.sweep.writeCap ?? SWEEP_WRITE_CALLS,
+                  readBudget: options.sweep.readBudget ?? SWEEP_READ_REQUESTS,
                   requestsMade: options.sweep.requestsMade,
                   suspended,
                   log,

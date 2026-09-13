@@ -2,7 +2,7 @@
  * The sandbox-era entry point: an environment in, a listening shell out.
  * The capability list comes from the capabilities package's registry, so this file
  * names no capability, and `composition.ts` owns every refusal to boot.
- * Run: WEBHOOK_SECRET=… REPO_OWNER=… REPO_NAME=… pnpm --filter @hiero-hackers/automation-runtime start
+ * Run: WEBHOOK_SECRET=… REPO_OWNER=… REPO_NAME=… pnpm start
  */
 
 import { randomUUID } from "node:crypto";

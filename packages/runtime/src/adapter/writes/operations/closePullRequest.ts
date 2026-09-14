@@ -9,7 +9,7 @@ import {
 
 export const CLOSE_PULL_REQUEST = {
     verbs: (context: VerbContext): Pick<WriteVerbs, "closePullRequest"> => ({
-        closePullRequest: (item) =>
+        closePullRequest: (item, budget) =>
             context.apply(
                 {
                     url: pullPath(context.repository, item),
@@ -18,6 +18,7 @@ export const CLOSE_PULL_REQUEST = {
                     idempotency: "idempotent",
                 },
                 "invisible",
+                budget,
             ),
     }),
 } satisfies OperationTransport;

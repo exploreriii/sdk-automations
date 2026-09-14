@@ -12,6 +12,10 @@ import type {
 import type { LedgerState } from "../../store/index.js";
 import type { EffectOutcomeCode, EffectOutcomeName } from "../effects.js";
 
+export interface WriteBudget {
+    remaining: number;
+}
+
 /** Everything one pass over one effect shares; the last three are what it learns. */
 export interface Pass {
     readonly effectId: string;
@@ -22,6 +26,7 @@ export interface Pass {
     readonly config: RepositoryConfig;
     /** The warning this comment records when it lands; `null` for every recovery pass. */
     readonly records: WarningToRecord | null;
+    readonly budget: WriteBudget | undefined;
     /** A gate has passed; every remaining call of this pass is sent without one. */
     gated: boolean;
     /** Something landed this pass: `applied` rather than `already` at the end. */

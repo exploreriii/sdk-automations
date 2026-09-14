@@ -39,6 +39,7 @@ import type {
     ItemSeen,
     ReadAnswer,
     SeenState,
+    RequestBudget,
     WriteResult,
 } from "../../../src/shell/apply/operations/handler.js";
 
@@ -451,13 +452,21 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
     let nextCommentId = 1;
 
     /** One write: recorded, faulted where a test asked, then performed. */
-    const perform = (verb: string, argument: string, change: () => WriteResult): WriteResult => {
+    const perform = (
+        verb: string,
+        argument: string,
+        change: () => WriteResult,
+        budget?: RequestBudget,
+    ): WriteResult => {
         calls.push(`${verb} ${argument}`);
         if (faults.crashOn?.verb === verb && faults.crashOn.when === "beforeSend") {
             throw new Error(`crash before ${verb}`);
         }
         const scripted = faults.scripted.shift();
         const answer = scripted ?? change();
+        if (budget !== undefined && answer.outcome !== "unsupported") {
+            budget.remaining -= 1;
+        }
         if (faults.crashOn?.verb === verb && faults.crashOn.when === "afterSend") {
             throw new Error(`crash after ${verb}`);
         }
@@ -466,58 +475,88 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
     };
 
     const writer: EffectWriter = {
-        addLabel: (_item, label) =>
+        addLabel: (_item, label, budget) =>
             Promise.resolve(
-                perform("addLabel", label, () => {
-                    if (!world.labels.includes(label)) world.labels.push(label);
-                    return { outcome: "applied" };
-                }),
+                perform(
+                    "addLabel",
+                    label,
+                    () => {
+                        if (!world.labels.includes(label)) world.labels.push(label);
+                        return { outcome: "applied" };
+                    },
+                    budget,
+                ),
             ),
-        removeLabel: (_item, label) =>
+        removeLabel: (_item, label, budget) =>
             Promise.resolve(
-                perform("removeLabel", label, () => {
-                    const at = world.labels.indexOf(label);
-                    if (at < 0) return { outcome: "already" };
-                    world.labels.splice(at, 1);
-                    return { outcome: "applied" };
-                }),
+                perform(
+                    "removeLabel",
+                    label,
+                    () => {
+                        const at = world.labels.indexOf(label);
+                        if (at < 0) return { outcome: "already" };
+                        world.labels.splice(at, 1);
+                        return { outcome: "applied" };
+                    },
+                    budget,
+                ),
             ),
-        createComment: (_item, body) =>
+        createComment: (_item, body, budget) =>
             Promise.resolve(
-                perform("createComment", body, () => {
-                    world.comments.push(appComment(nextCommentId, body));
-                    nextCommentId += 1;
-                    return { outcome: "applied" };
-                }),
+                perform(
+                    "createComment",
+                    body,
+                    () => {
+                        world.comments.push(appComment(nextCommentId, body));
+                        nextCommentId += 1;
+                        return { outcome: "applied" };
+                    },
+                    budget,
+                ),
             ),
-        updateComment: (commentId, body) =>
+        updateComment: (commentId, body, budget) =>
             Promise.resolve(
-                perform("updateComment", `#${String(commentId)}`, () => {
-                    const found = world.comments.find((comment) => comment.id === commentId);
-                    if (found === undefined)
-                        return { outcome: "conflict", detail: "no such comment" };
-                    world.comments = world.comments.map((comment) =>
-                        comment.id === commentId ? { ...comment, body } : comment,
-                    );
-                    return { outcome: "applied" };
-                }),
+                perform(
+                    "updateComment",
+                    `#${String(commentId)}`,
+                    () => {
+                        const found = world.comments.find((comment) => comment.id === commentId);
+                        if (found === undefined)
+                            return { outcome: "conflict", detail: "no such comment" };
+                        world.comments = world.comments.map((comment) =>
+                            comment.id === commentId ? { ...comment, body } : comment,
+                        );
+                        return { outcome: "applied" };
+                    },
+                    budget,
+                ),
             ),
-        closePullRequest: (item) =>
+        closePullRequest: (item, budget) =>
             Promise.resolve(
-                perform("closePullRequest", `#${String(item.number)}`, () => {
-                    if (world.closed) return { outcome: "already" };
-                    world.closed = true;
-                    return { outcome: "applied" };
-                }),
+                perform(
+                    "closePullRequest",
+                    `#${String(item.number)}`,
+                    () => {
+                        if (world.closed) return { outcome: "already" };
+                        world.closed = true;
+                        return { outcome: "applied" };
+                    },
+                    budget,
+                ),
             ),
-        releaseAssignment: (_item, login) =>
+        releaseAssignment: (_item, login, budget) =>
             Promise.resolve(
-                perform("releaseAssignment", login, () => {
-                    const at = world.assignees.indexOf(login);
-                    if (at < 0) return { outcome: "already" };
-                    world.assignees.splice(at, 1);
-                    return { outcome: "applied" };
-                }),
+                perform(
+                    "releaseAssignment",
+                    login,
+                    () => {
+                        const at = world.assignees.indexOf(login);
+                        if (at < 0) return { outcome: "already" };
+                        world.assignees.splice(at, 1);
+                        return { outcome: "applied" };
+                    },
+                    budget,
+                ),
             ),
     };
 

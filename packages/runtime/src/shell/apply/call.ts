@@ -96,6 +96,7 @@ export function createCalls(options: CallOptions): Calls {
         item: pass.item,
         writer,
         reader,
+        budget: pass.budget,
         isMine,
     });
 
@@ -196,6 +197,13 @@ export function createCalls(options: CallOptions): Calls {
          * A write no endpoint realises is `unsent` instead, spending no attempt: the send closes and the next pass resumes at the same call.
          */
         async sendCall(pass, seq, call) {
+            if (pass.budget !== undefined && pass.budget.remaining <= 0) {
+                return stop(
+                    "refused",
+                    "sweepWriteCap",
+                    "this firing's write-call budget is spent; resumed next sweep",
+                );
+            }
             appendFact(pass, "sent", seq, call, {
                 payload: serializeCall({ capability: pass.capability, item: pass.item, call }),
             });

@@ -78,6 +78,7 @@ export type NotSentReason =
     | "malformedUrl"
     | "invalidHeaders"
     | "invalidBody"
+    | "requestBudgetExhausted"
     | "brokenSeam";
 
 /** The injected seam a `brokenSeam` refusal names as the one that failed. */
@@ -115,9 +116,14 @@ export interface GitHubHttpClientOptions {
     readonly timeoutSignal?: (milliseconds: number) => AbortSignal;
 }
 
+export interface GitHubRequestBudget {
+    remaining: number;
+    exhausted?: boolean;
+}
+
 /** What every operation calls. */
 export interface GitHubHttpClient {
-    request(request: GitHubRequest): Promise<GitHubOutcome>;
+    request(request: GitHubRequest, budget?: GitHubRequestBudget): Promise<GitHubOutcome>;
     /** The last actual response, including a response that was retried. */
     latestRateLimit(): RateLimitSnapshot | null;
     /** Requests actually sent, retries and conditional 304s included (D170). */

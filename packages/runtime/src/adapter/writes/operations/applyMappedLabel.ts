@@ -9,7 +9,7 @@ import {
 
 export const APPLY_MAPPED_LABEL = {
     verbs: (context: VerbContext): Pick<WriteVerbs, "addLabel" | "removeLabel"> => ({
-        addLabel: (item, label) =>
+        addLabel: (item, label, budget) =>
             context.apply(
                 {
                     url: `${issuePath(context.repository, item)}/labels`,
@@ -18,8 +18,9 @@ export const APPLY_MAPPED_LABEL = {
                     idempotency: "idempotent",
                 },
                 "invisible",
+                budget,
             ),
-        removeLabel: (item, label) =>
+        removeLabel: (item, label, budget) =>
             context.apply(
                 {
                     url: `${issuePath(context.repository, item)}/labels/${encodeURIComponent(label)}`,
@@ -27,6 +28,7 @@ export const APPLY_MAPPED_LABEL = {
                     idempotency: "idempotent",
                 },
                 "labelMayBeAbsent",
+                budget,
             ),
     }),
 } satisfies OperationTransport;

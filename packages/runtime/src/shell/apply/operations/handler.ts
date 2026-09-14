@@ -19,14 +19,18 @@ export type WriteResult =
     | { readonly outcome: "unknown"; readonly detail: string }
     | { readonly outcome: "unsupported"; readonly detail: string };
 
+export interface RequestBudget {
+    remaining: number;
+}
+
 /** The six confirmed write endpoints, and nothing else (D4). */
 export interface EffectWriter {
-    addLabel(item: ItemRef, label: string): Promise<WriteResult>;
-    removeLabel(item: ItemRef, label: string): Promise<WriteResult>;
-    createComment(item: ItemRef, body: string): Promise<WriteResult>;
-    updateComment(commentId: number, body: string): Promise<WriteResult>;
-    closePullRequest(item: ItemRef): Promise<WriteResult>;
-    releaseAssignment(item: ItemRef, login: string): Promise<WriteResult>;
+    addLabel(item: ItemRef, label: string, budget?: RequestBudget): Promise<WriteResult>;
+    removeLabel(item: ItemRef, label: string, budget?: RequestBudget): Promise<WriteResult>;
+    createComment(item: ItemRef, body: string, budget?: RequestBudget): Promise<WriteResult>;
+    updateComment(commentId: number, body: string, budget?: RequestBudget): Promise<WriteResult>;
+    closePullRequest(item: ItemRef, budget?: RequestBudget): Promise<WriteResult>;
+    releaseAssignment(item: ItemRef, login: string, budget?: RequestBudget): Promise<WriteResult>;
 }
 
 /** A read that answered, or the reason it established nothing. */
@@ -97,6 +101,7 @@ export interface SendContext {
     readonly item: ItemRef;
     readonly writer: EffectWriter;
     readonly reader: EffectReader;
+    readonly budget: RequestBudget | undefined;
     /** Is a comment the one THIS CALL would be? Authorship and marker, both required (D125). */
     isMine(body: string): (comment: CommentSeen) => boolean;
 }

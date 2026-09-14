@@ -29,6 +29,7 @@ import {
     type GitHubHttpFailureClass,
     type GitHubOutcome,
     type GitHubRequest,
+    type GitHubRequestBudget,
     type RateLimitSnapshot,
 } from "./contract.js";
 import {
@@ -331,6 +332,7 @@ export function createGitHubHttpClient({
     const sendOnce = async (
         request: GitHubRequest,
         token: InstallationToken,
+        budget?: GitHubRequestBudget,
     ): Promise<GitHubOutcome> => {
         const prepared = prepareHeaders(request, token);
         if (!prepared.ok) return prepared.refusal;
@@ -369,6 +371,7 @@ export function createGitHubHttpClient({
         // Counted here and nowhere else: a retried attempt counts again, and a cached
         // representation still sends a conditional request.
 
+        if (budget !== undefined) budget.remaining -= 1;
         sent += 1;
         let response: Response;
         try {
@@ -506,7 +509,7 @@ export function createGitHubHttpClient({
     };
 
     return {
-        async request(request): Promise<GitHubOutcome> {
+        async request(request, budget): Promise<GitHubOutcome> {
             const admitted = admit(request);
             if (!admitted.ok) return admitted.refusal;
             const safeRequest = admitted.request;
@@ -548,6 +551,7 @@ export function createGitHubHttpClient({
                     if (broken !== null) return broken;
                 }
 
+                let previous: GitHubOutcome | null = null;
                 for (let attempt = 0; ; attempt += 1) {
                     let tokenOutcome: TokenOutcome;
                     try {
@@ -571,14 +575,22 @@ export function createGitHubHttpClient({
                         };
                     }
 
+                    if (budget !== undefined) {
+                        if (budget.remaining <= 0) {
+                            budget.exhausted = true;
+                            return previous ?? notSentFailure("requestBudgetExhausted");
+                        }
+                    }
+
                     let outcome: GitHubOutcome;
                     try {
-                        outcome = await sendOnce(safeRequest, tokenOutcome.token);
+                        outcome = await sendOnce(safeRequest, tokenOutcome.token, budget);
                     } catch {
                         // What escapes `sendOnce()` is a response object that broke mid-read.
 
                         return brokenSeamFailure("response");
                     }
+                    previous = outcome;
                     if (outcome.ok) return outcome;
                     const responseClass = responseClassOf(outcome.failure);
                     if (responseClass === null) return outcome;

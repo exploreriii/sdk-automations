@@ -1543,6 +1543,58 @@ describe("the request count", () => {
         });
         expect(client.requestsMade()).toBe(0);
     });
+
+    it("sends nothing when the request budget is already spent", async () => {
+        const { client, scripted } = harness([success()]);
+        const budget = { remaining: 0 };
+
+        expect(await client.request(request(), budget)).toEqual({
+            ok: false,
+            failure: { kind: "notSent", reason: "requestBudgetExhausted" },
+        });
+        expect(budget).toEqual({ remaining: 0, exhausted: true });
+        expect(scripted.calls).toHaveLength(0);
+        expect(client.requestsMade()).toBe(0);
+    });
+
+    it("spends nothing when request preparation fails before fetch", async () => {
+        const { client, scripted } = harness([success()], {
+            timeoutSignal: () => {
+                throw new Error("broken timeout signal");
+            },
+        });
+        const budget = { remaining: 1 };
+
+        expect(await client.request(request(), budget)).toMatchObject({
+            ok: false,
+            failure: { kind: "notSent", reason: "brokenSeam", seam: "timeoutSignal" },
+        });
+        expect(budget).toEqual({ remaining: 1 });
+        expect(scripted.calls).toHaveLength(0);
+        expect(client.requestsMade()).toBe(0);
+    });
+
+    it("does not retry past the request budget", async () => {
+        const { client, scripted } = harness([failure(503, "down"), success("up")]);
+        const budget = { remaining: 1 };
+
+        const outcome = await client.request(request(), budget);
+
+        expect(outcome).toMatchObject({ ok: false, status: 503 });
+        expect(budget).toEqual({ remaining: 0, exhausted: true });
+        expect(scripted.calls).toHaveLength(1);
+        expect(client.requestsMade()).toBe(1);
+    });
+
+    it("retries when the request budget permits both attempts", async () => {
+        const { client, scripted } = harness([failure(503, "down"), success("up")]);
+        const budget = { remaining: 2 };
+
+        expect((await client.request(request(), budget)).ok).toBe(true);
+        expect(budget).toEqual({ remaining: 0 });
+        expect(scripted.calls).toHaveLength(2);
+        expect(client.requestsMade()).toBe(2);
+    });
 });
 
 describe("lastPageFromLink, held directly", () => {

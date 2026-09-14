@@ -49,11 +49,16 @@ export interface SweepFacts {
     ): Promise<PullRequestFacts>;
 }
 
+export interface RequestBudget {
+    remaining: number;
+    exhausted?: boolean;
+}
+
 /**
  * A reader built FRESH for each firing.
  * Never one for the process: it memoises each item's clocks for one sweep only.
  */
-export type SweepFactsSource = (config: RepositoryConfig) => SweepFacts;
+export type SweepFactsSource = (config: RepositoryConfig, budget: RequestBudget) => SweepFacts;
 
 /** How ONE repository is swept: its reader, the shared box, and the file both lanes gate on. */
 export interface SweepProcessor {
@@ -186,7 +191,8 @@ export function createSweep(options: SweepOptions): Sweep {
     ): Promise<Swept> => {
         const before = requestsMade();
         const spent = (): number => requestsMade() - before;
-        const reader = processor.facts(config);
+        const requestBudget: RequestBudget = { remaining: readBudget, exhausted: false };
+        const reader = processor.facts(config, requestBudget);
         const listed = await reader.openItems();
         if (!listed.ok) {
             log({ event: "sweepUnreadable", scheduleId: row.scheduleId, detail: listed.detail });
@@ -209,16 +215,20 @@ export function createSweep(options: SweepOptions): Sweep {
             // In number order, one item at a time: what a firing read is then a prefix of
             // the list, which is what the cursor below hands to the next one.
 
-            if (spent() >= readBudget) break;
-            read += 1;
+            if (requestBudget.remaining === 0) break;
+            let record: IssueFacts | PullRequestFacts;
             if (listedItem.item.kind === "issue") {
-                records.push(
-                    await reader.issueFacts(listedItem, inverse.get(listedItem.item.number) ?? []),
+                record = await reader.issueFacts(
+                    listedItem,
+                    inverse.get(listedItem.item.number) ?? [],
                 );
-                continue;
+            } else {
+                record = await reader.pullRequestFacts(listedItem, issues);
             }
-            const record = await reader.pullRequestFacts(listedItem, issues);
+            if (requestBudget.exhausted) break;
+            read += 1;
             records.push(record);
+            if (record.kind === "issue") continue;
             if (record.links === "unread") {
                 everyLinkRead = false;
                 continue;
@@ -231,7 +241,9 @@ export function createSweep(options: SweepOptions): Sweep {
         }
         const requests = spent();
         const remaining = eligible.length - read;
-        const resumeAfter = remaining === 0 ? null : (eligible[read - 1]?.item.number ?? null);
+        const resumeAfter =
+            remaining === 0 ? null : (eligible[read - 1]?.item.number ?? row.resumeAfter);
+        const linksComplete = row.resumeAfter === null && remaining === 0 && everyLinkRead;
 
         /**
          * One record as it goes down: an issue's links, against every pull request read.
@@ -241,7 +253,7 @@ export function createSweep(options: SweepOptions): Sweep {
             record: IssueFacts | PullRequestFacts,
         ): IssueFacts | PullRequestFacts => {
             if (record.kind !== "issue" || record.links === "unread") return record;
-            if (!everyLinkRead) return { ...record, links: "unread" };
+            if (!linksComplete) return { ...record, links: "unread" };
             return {
                 ...record,
                 links: { openPullRequests: inverse.get(record.item.number) ?? [] },
@@ -250,7 +262,7 @@ export function createSweep(options: SweepOptions): Sweep {
 
         // One budget for the firing: what it holds back is decided again next time.
 
-        const budget: WriteBudget = { remaining: writeCap };
+        const writeBudget: WriteBudget = { remaining: writeCap };
         let decided = 0;
         let unread = 0;
         let heldBack = 0;
@@ -260,7 +272,7 @@ export function createSweep(options: SweepOptions): Sweep {
                 { kind: "facts", scheduleId: row.scheduleId, facts: record },
                 config,
                 row.dueAt,
-                budget,
+                writeBudget,
             );
             heldBack += heldBackIn(answer);
             decided += 1;
@@ -279,7 +291,7 @@ export function createSweep(options: SweepOptions): Sweep {
             items: listed.items.length,
             decided,
             unread,
-            writes: writeCap - budget.remaining,
+            writes: writeCap - writeBudget.remaining,
             heldBack,
             remaining,
             resumeAfter,

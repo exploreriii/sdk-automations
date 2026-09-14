@@ -8,8 +8,8 @@
 import type { AnyIntent, Effect, RepositoryConfig } from "@hiero-hackers/automation-core";
 import type { Fact, Ledger, OpenSend } from "../../store/index.js";
 import type { Log } from "../log.js";
-import { actionFor, type Action, type Pass, type PassResult } from "./actions.js";
-import type { Call, EffectOutcome, EffectOutcomeName } from "../effects.js";
+import { actionFor, type Action, type Pass, type PassResult, type WriteBudget } from "./actions.js";
+import type { Call, EffectOutcome } from "../effects.js";
 import type { EffectReader, EffectWriter } from "./operations/handler.js";
 import { operationOf, parseJournaledCall, planFor } from "./operations/index.js";
 import { createCalls, stop, type CallResult } from "./call.js";
@@ -26,6 +26,7 @@ export type {
     WriteResult,
 } from "./operations/handler.js";
 export { recordedWarningsIn, type EffectExternalsSource } from "./gates.js";
+export type { WriteBudget } from "./actions.js";
 
 // ─── The chosen bounds ───────────────────────────────────────────────
 
@@ -43,11 +44,7 @@ export const EFFECT_ATTEMPT_CAP = 5;
 
 // ─── The seams ───────────────────────────────────────────────────────
 
-/** The writes a caller has left to spend, decremented by the applier (D167). */
-export interface WriteBudget {
-    remaining: number;
-}
-
+/** The write calls a caller has left to send (D167). */
 export interface ApplierOptions {
     /** The whole store the applier touches: the facts, and the lease beside them (D164). */
     readonly ledger: Ledger;
@@ -65,7 +62,7 @@ export interface ApplierOptions {
 export interface Applier {
     /**
      * Every approved effect of one decision, in order, each under its own lease.
-     * A pass that sent a call and applied, or left the answer unknown or retriable, spends one of `budget`; `already`, every refusal and every gate that sent nothing spend none. No budget is unlimited, which is what a webhook passes (D167).
+     * Each request that reaches GitHub spends one of `budget`, including retries. A local refusal spends none. No budget is unlimited, which is what a webhook passes (D167).
      */
     applyAll(
         effects: readonly Effect[],
@@ -75,9 +72,6 @@ export interface Applier {
     /** One open send, resolved against GitHub — the sweep's unit of work. */
     recover(open: OpenSend, config: RepositoryConfig): Promise<void>;
 }
-
-/** What a sent call is charged a write for; `already` and every refusal are free (D167). */
-const SPENDS: ReadonlySet<EffectOutcomeName> = new Set(["applied", "retryLater", "unknown"]);
 
 /** An effect a spent budget holds back: nothing claimed, nothing recorded, decided again next firing. */
 const heldBack = ({ intent }: Effect): EffectOutcome => ({
@@ -256,6 +250,7 @@ export function createApplier(options: ApplierOptions): Applier {
             item: intent.item,
             config,
             records: effect.records,
+            budget,
             gated: false,
             changed: false,
             sent: false,
@@ -280,11 +275,7 @@ export function createApplier(options: ApplierOptions): Applier {
             });
         }
         try {
-            const result = await drive(pass, intent, plan.calls);
-            if (budget !== undefined && pass.sent && SPENDS.has(result.outcome)) {
-                budget.remaining -= 1;
-            }
-            return outcomeOf(result);
+            return outcomeOf(await drive(pass, intent, plan.calls));
         } finally {
             ledger.release(pass.effectId, worker);
         }
@@ -339,6 +330,7 @@ export function createApplier(options: ApplierOptions): Applier {
                 item: journaled.item,
                 config,
                 records: null,
+                budget: undefined,
                 gated: false,
                 changed: false,
                 sent: false,

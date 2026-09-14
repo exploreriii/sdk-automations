@@ -11,6 +11,7 @@ import {
     type GitHubHttpClient,
     type GitHubHttpFailureClass,
     type GitHubWriteRequest,
+    type GitHubRequestBudget,
     type WriteIdempotency,
 } from "../client/contract.js";
 import { writeVerbsOf } from "./operations/index.js";
@@ -111,8 +112,9 @@ export function createWriteVerbs({ http, repository }: WriteVerbsOptions): Write
     const apply = async (
         request: GitHubWriteRequest,
         notFound: NotFoundMeaning,
+        budget?: GitHubRequestBudget,
     ): Promise<WriteResult> => {
-        const outcome = await http.request(request);
+        const outcome = await http.request(request, budget);
         if (outcome.ok) return { outcome: "applied" };
         // A failure carries no body when no response arrived, and an absent body
         // cannot name a label — the empty string reads the same way.

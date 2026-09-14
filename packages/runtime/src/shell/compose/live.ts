@@ -109,8 +109,17 @@ export function liveGitHub({
         };
 
         return {
-            facts: (config) =>
-                createFactsReader({ http, repository, config, clock, knownCapabilities }),
+            facts: (config, budget) =>
+                createFactsReader({
+                    http: {
+                        ...http,
+                        request: (request) => http.request(request, budget),
+                    },
+                    repository,
+                    config,
+                    clock,
+                    knownCapabilities,
+                }),
             configSource: githubConfigSource({ client: http, repository }),
             // One call per delivery, so the seam below is bound to that delivery.
 

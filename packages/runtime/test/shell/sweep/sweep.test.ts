@@ -49,6 +49,7 @@ import {
     type Decided,
     type EffectOutcome,
     type ItemInput,
+    type RequestBudget,
     type ShellEvent,
     type SweepFacts,
     type SweepFactsSource,
@@ -785,6 +786,8 @@ const ITEM_COST = 2;
 interface Budgeted {
     /** The item numbers handed to the box, across every firing, in order. */
     read(): number[];
+    facts(): Array<IssueFacts | PullRequestFacts>;
+    readonly cost: { item: number };
     /** What the next firing's list answers; a case may make it unreadable. */
     readonly listing: { items: SweptItems };
     /** Fire once, `days` cadences after the row was armed. */
@@ -792,24 +795,31 @@ interface Budgeted {
 }
 
 /** One sweep under a read budget it spends in requests, fired as often as a case likes. */
-function budgeted(readBudget: number): Budgeted {
-    const listing: { items: SweptItems } = { items: { ok: true, items: FIVE } };
+function budgeted(readBudget: number, items: readonly SweptItem[] = FIVE): Budgeted {
+    const listing: { items: SweptItems } = { items: { ok: true, items } };
     const { processor, decided } = scriptedProcessor(configFrom(CONFIG_TEXT, CAPABILITIES));
     let requests = 0;
+    const cost = { item: ITEM_COST };
     /** The scripted reader, charging what the live one's reads would cost. */
-    const counted = (config: RepositoryConfig): SweepFacts => {
+    const counted = (config: RepositoryConfig, budget: RequestBudget): SweepFacts => {
         const reader = scriptedReader(listing).facts(config);
+        const spend = (cost: number): void => {
+            const sent = Math.min(cost, budget.remaining);
+            requests += sent;
+            budget.remaining -= sent;
+            if (sent < cost) budget.exhausted = true;
+        };
         return {
             openItems: () => {
-                requests += LIST_COST;
+                spend(LIST_COST);
                 return reader.openItems();
             },
             issueFacts: (listed, links) => {
-                requests += ITEM_COST;
+                spend(cost.item);
                 return reader.issueFacts(listed, links);
             },
             pullRequestFacts: (listed, openIssues) => {
-                requests += ITEM_COST;
+                spend(cost.item);
                 return reader.pullRequestFacts(listed, openIssues);
             },
         };
@@ -828,6 +838,8 @@ function budgeted(readBudget: number): Budgeted {
     });
     return {
         read: () => decided.map(({ input }) => input.facts.item.number),
+        facts: () => decided.map(({ input }) => input.facts),
+        cost,
         listing,
         fire: (days) => {
             now = new Date(NOW.getTime() + days * DAY_MS);
@@ -841,6 +853,16 @@ const cursorAfter = (days: number): number | null | undefined =>
     store.ledger.claimDue(new Date(NOW.getTime() + days * DAY_MS).toISOString())[0]?.resumeAfter;
 
 describe("the requests one firing may spend", () => {
+    it("does not claim an issue has no linked pull request after a partial scan", async () => {
+        armed();
+        const firing = budgeted(LIST_COST + ITEM_COST, [listedItem(ISSUE), listedItem(PULL)]);
+
+        await firing.fire(0);
+
+        expect(firing.read()).toEqual([ISSUE.number]);
+        expect(firing.facts()[0]?.links).toBe(UNREAD);
+    });
+
     it("stops at the budget in number order, says what remains, and keeps the cursor", async () => {
         armed();
         // The list and two items: the third would be read past the budget.
@@ -864,6 +886,44 @@ describe("the requests one firing may spend", () => {
             { items: 5, decided: 2, remaining: 3, resumeAfter: 12, requests: 5 },
         ]);
         expect(cursorAfter(1)).toBe(12);
+    });
+
+    it("does not keep or skip an item whose reads crossed the cap", async () => {
+        armed();
+        const firing = budgeted(LIST_COST + ITEM_COST + 1);
+
+        await firing.fire(0);
+
+        expect(firing.read()).toEqual([11]);
+        expect(events("sweepFinished")).toMatchObject([
+            { decided: 1, remaining: 4, resumeAfter: 11, requests: 4 },
+        ]);
+
+        await firing.fire(1);
+
+        expect(firing.read()).toEqual([11, 12]);
+    });
+
+    it("keeps an existing cursor when the first resumed item crosses the cap", async () => {
+        armed();
+        const firing = budgeted(LIST_COST + ITEM_COST);
+
+        await firing.fire(0);
+        firing.cost.item = ITEM_COST + 1;
+        await firing.fire(1);
+
+        expect(firing.read()).toEqual([11]);
+        expect(events("sweepFinished")[1]).toMatchObject({
+            decided: 0,
+            remaining: 4,
+            resumeAfter: 11,
+            requests: 3,
+        });
+
+        firing.cost.item = ITEM_COST;
+        await firing.fire(2);
+
+        expect(firing.read()).toEqual([11, 12]);
     });
 
     it("reads the next two from the cursor on the next firing", async () => {

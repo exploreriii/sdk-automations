@@ -21,7 +21,7 @@ export const closePullRequest: OperationHandler<"closePullRequest"> = {
     },
 
     /** The reason is not sent: GitHub is told the state, and the notice says why (6.10). */
-    send: async (_call, pass) => await pass.writer.closePullRequest(pass.item),
+    send: async (_call, pass) => await pass.writer.closePullRequest(pass.item, pass.budget),
 
     /**
      * The state on the pull request, and only that.

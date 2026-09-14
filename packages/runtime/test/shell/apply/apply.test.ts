@@ -1621,7 +1621,7 @@ describe("the write budget a caller hands down", () => {
         expect(budget.remaining).toBe(2);
     });
 
-    it("spends nothing where GitHub said the postcondition already held", async () => {
+    it("spends one where GitHub answered that the postcondition already held", async () => {
         const github = fakeGitHub({ labels: [READY_LABEL] });
         github.faults.scripted = [{ outcome: "already" }];
         const budget = { remaining: 3 };
@@ -1629,7 +1629,7 @@ describe("the write budget a caller hands down", () => {
         const outcome = one(await applierOver(github).applyAll([effect], configFor(), budget));
 
         expect(outcome).toMatchObject({ outcome: "already" });
-        expect(budget.remaining).toBe(3);
+        expect(budget.remaining).toBe(2);
     });
 
     it("spends nothing on a refusal, and nothing on a send that never happened", async () => {
@@ -2018,6 +2018,27 @@ describe("a graced act at the apply-time re-gate", () => {
         expect(github.calls[0]).toBe("releaseAssignment alice");
         // One named login, and the other assignee left where they were (D63).
         expect(github.world.assignees).toEqual(["bob"]);
+        expect(appComments(github)).toHaveLength(1);
+    });
+
+    it("stops a two-call act at the request cap and resumes its notice next sweep", async () => {
+        recordWarning();
+        const github = fakeGitHub({ assignees: ["alice"] });
+        const applier = applierOver(github, { clock: () => later(8) });
+        const firstBudget = { remaining: 1 };
+
+        const first = one(await applier.applyAll([releaseEffect()], configFor(), firstBudget));
+
+        expect(first).toMatchObject({ outcome: "refused", code: "sweepWriteCap" });
+        expect(firstBudget).toEqual({ remaining: 0 });
+        expect(github.world.assignees).toEqual([]);
+        expect(appComments(github)).toEqual([]);
+
+        const secondBudget = { remaining: 1 };
+        const second = one(await applier.applyAll([releaseEffect()], configFor(), secondBudget));
+
+        expect(second).toMatchObject({ outcome: "applied", code: null });
+        expect(secondBudget.remaining).toBe(0);
         expect(appComments(github)).toHaveLength(1);
     });
 

@@ -28,6 +28,7 @@ const SHORTENED = "_Report shortened to fit in a GitHub comment._";
 /** The lines as one body. Blank entries are markdown's paragraph breaks. */
 const join = (lines: readonly string[]): string => lines.join("\n");
 
+/** The body within GitHub's limit, cut on a whole character and never inside an escape. */
 function fitComment(body: string): string {
     if (body.length <= MAX_COMMENT_CHARS) return body;
     const ending = `\n\n${SHORTENED}\n\n${FOOTER}`;

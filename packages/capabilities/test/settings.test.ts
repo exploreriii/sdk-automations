@@ -15,9 +15,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    EngineHandle,
     parseConfig,
     projectCapabilityView,
+    type Facts,
     type PlatformHandle,
+    type ResolverSource,
     type StructuredExplanation,
     type TypedDeclaration,
 } from "@hiero-hackers/automation-core";
@@ -56,23 +59,23 @@ const parsed = (declaration: TypedDeclaration, settings: Readonly<Record<string,
         { revision: "rev-settings", knownCapabilities: [declaration] },
     );
 
-function watch<D extends TypedDeclaration>(): {
+/**
+ * Every row here is about a settings block, so the one resolver any of these
+ * capabilities asks answers "a person": a bot record would be another test.
+ */
+const A_PERSON: ResolverSource = async () => ({ ok: true, value: false }) as never;
+
+/** The engine's own handle over one record, and what a capability said through it. */
+function watch<D extends TypedDeclaration>(
+    declaration: D,
+    facts: Facts,
+): {
     readonly platform: PlatformHandle<D>;
-    readonly explained: StructuredExplanation[];
+    readonly explained: readonly StructuredExplanation[];
 } {
-    const explained: StructuredExplanation[] = [];
-    return {
-        platform: {
-            // Every row here is about a settings block, so the one resolver
-            // any of these capabilities asks answers "a person" and stands
-            // aside: a bot-authored record would be a different test.
-            resolve: async () => await Promise.resolve({ ok: true, value: false }),
-            explain: (explanation) => {
-                explained.push(explanation);
-            },
-        },
-        explained,
-    };
+    const handle = new EngineHandle(declaration, facts, A_PERSON);
+    // The cast the engine makes for real: one loop, many declarations (D92).
+    return { platform: handle as unknown as PlatformHandle<D>, explained: handle.explanations };
 }
 
 /** intake reads a webhook record; it declares no need, so every group is unread. */
@@ -167,7 +170,7 @@ describe("a settings block a seed cannot read", () => {
      * and the repository would never learn why.
      */
     it("is reported by inactivity when a setting needs a meaning nobody mapped", async () => {
-        const { platform, explained } = watch<typeof inactivity.declaration>();
+        const { platform, explained } = watch(inactivity.declaration, swept);
         const unmapped = projectCapabilityView(
             inactivity.declaration,
             configEnabling(
@@ -204,7 +207,7 @@ describe("a settings block a seed cannot read", () => {
      * runs with nothing spoken.
      */
     it("is not reported when the reason that needs the meaning is switched off", async () => {
-        const { platform, explained } = watch<typeof inactivity.declaration>();
+        const { platform, explained } = watch(inactivity.declaration, swept);
         const issuesOnly = projectCapabilityView(
             inactivity.declaration,
             configEnabling(
@@ -227,7 +230,7 @@ describe("a settings block a seed cannot read", () => {
      * fixture being unreadable for some other reason.
      */
     it("runs once the meaning that reason names is mapped", async () => {
-        const { platform, explained } = watch<typeof inactivity.declaration>();
+        const { platform, explained } = watch(inactivity.declaration, swept);
         const mapped = projectCapabilityView(
             inactivity.declaration,
             configEnabling(
@@ -251,7 +254,7 @@ describe("a settings block a seed cannot read", () => {
 
     /** intake still reads the block it was handed, once the file is valid. */
     it("announces when the value the parser accepted says so", async () => {
-        const { platform } = watch<typeof intake.declaration>();
+        const { platform } = watch(intake.declaration, issue);
         const announced = await intake.evaluate(
             issue,
             viewFor(intake.declaration, { announce: true }),

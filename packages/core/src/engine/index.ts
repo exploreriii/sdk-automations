@@ -3,6 +3,8 @@ export * from "./events.js";
 export * from "./decide.js";
 export { describeChange, writeRequestFor } from "./change.js";
 export {
+    EngineHandle,
+    handleFor,
     readIntent,
     screenIntent,
     toEngine,

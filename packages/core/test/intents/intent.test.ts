@@ -4,7 +4,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { deriveIdempotencyKey, idempotencyOf, INTENT_OPERATIONS } from "../../src/intents/index.js";
+import {
+    deriveIdempotencyKey,
+    idempotencyOf,
+    INTENT_OPERATIONS,
+    OPERATIONS,
+} from "../../src/intents/index.js";
 
 const AT = new Date("2026-08-05T09:00:00.000Z");
 
@@ -47,6 +52,15 @@ describe("the operation catalogue owns platform facts", () => {
             actionClassFloor: "clockTriggeredDestructive",
             permission: "pull_requests:write",
         });
+    });
+
+    /** A row missing from the derived table is silent at every consumer. */
+    it("reads every registered operation's facts off that operation's module", () => {
+        const operations = Object.keys(OPERATIONS) as Array<keyof typeof OPERATIONS>;
+
+        expect(operations.map((operation) => INTENT_OPERATIONS[operation])).toEqual(
+            operations.map((operation) => OPERATIONS[operation].facts),
+        );
     });
 });
 

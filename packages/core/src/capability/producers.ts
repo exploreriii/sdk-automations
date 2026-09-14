@@ -63,16 +63,19 @@ export type GroupsReadBy<
     K extends FactKind,
 > = (typeof PRODUCERS)[P][K] extends readonly (infer G extends FactGroup)[] ? G : never;
 
+/** One record with the named groups read, every other group `Unread` — facts.md §3. */
+export type ReadGroups<F extends Facts, N extends FactGroup> = {
+    readonly [K in keyof F]: K extends N
+        ? Exclude<F[K], Unread>
+        : K extends FactGroup
+          ? Unread
+          : F[K];
+};
+
 /** The record shape producer `P` may build for kind `K`; the row it omits is `Unread`. */
 export type ProducedFacts<
     P extends ProducerName,
     K extends FactKind,
 > = (typeof PRODUCERS)[P][K] extends readonly FactGroup[]
-    ? {
-          readonly [Key in keyof Extract<Facts, { kind: K }>]: Key extends FactGroup
-              ? Key extends GroupsReadBy<P, K>
-                  ? Extract<Facts, { kind: K }>[Key]
-                  : Unread
-              : Extract<Facts, { kind: K }>[Key];
-      }
+    ? ReadGroups<Extract<Facts, { kind: K }>, GroupsReadBy<P, K>>
     : never;

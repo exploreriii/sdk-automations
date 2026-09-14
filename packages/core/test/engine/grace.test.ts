@@ -49,12 +49,6 @@ const declaration = declareCapability({
     needs: [],
     resolvers: [],
     intents: ["releaseAssignment", "postManagedComment"],
-    operationalNeeds: {
-        schedule: true,
-        durableState: "required",
-        crossItemCoordination: false,
-        externalDelivery: false,
-    },
 });
 
 const GRACE: DestructiveGrace = {

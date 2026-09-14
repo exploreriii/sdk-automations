@@ -130,12 +130,6 @@ const REAPER = declareCapability({
     needs: ["review"],
     resolvers: [],
     intents: [],
-    operationalNeeds: {
-        schedule: true,
-        durableState: "none",
-        crossItemCoordination: false,
-        externalDelivery: false,
-    },
 });
 
 describe("the record a declaration may be handed", () => {

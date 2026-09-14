@@ -3,7 +3,8 @@
 > The trace. A pull request is opened, `intake` wants the `awaitingTriage` label on it, and this
 > page follows that one label from GitHub's POST to GitHub's API call, naming each hop, its file,
 > and the one thing that hop protects. Read this before anything else in `design/`; the second
-> half is the walkthrough for writing a capability.
+> half is the walkthrough for writing a capability, and `design/guides/first-capability.md` is the
+> afternoon's version of it, one green test per step.
 
 ## The route
 
@@ -13,7 +14,7 @@
 | 2 | The delivery lane claims the delivery under a lease and loads the repository's `automations.yml` through the config source | `packages/runtime/src/shell/inbound/deliveries.ts` → `createDeliveries`; `packages/core/src/config/parse.ts` | one worker at a time; a rejected config records why and acts on nothing |
 | 3 | The delivery becomes facts: the normalizer reads the payload's labels and state, projects them through the repository's mappings into a `Projection`, and marks `unread` every fact group its row in `PRODUCERS` does not name | `packages/core/src/engine/normalize/pull-request.ts`; `packages/core/src/workflow/project.ts` → `projectPullRequest`; `packages/core/src/capability/producers.ts` → `PRODUCERS`; `design/contracts/facts.md` | a capability never sees a label string, and never sees a group nobody read |
 | 4 | `decide()` finds the enabled capabilities whose declaration reads this fact kind and whose needed groups were read, projects each a view of its own settings and the mapped names, and calls `evaluate` | `packages/core/src/engine/decide.ts` → `decide`, `intentsFrom`; `packages/core/src/capability/boundary.ts` | isolation: a capability sees its block, the names of the mappings, and its declared resolvers — nothing else (P3, P4) |
-| 5 | The capability returns intents: "set `awaitingTriage`, because `issueWithoutPosition`, claiming the item is open and the meaning absent" | `packages/capabilities/src/intake/capability.ts`; `packages/core/src/capability/factory.ts` → `intentFactoryFor` | an intent is a request, dated by its occasion, with a stable identity |
+| 5 | The capability returns intents: "set `awaitingTriage`, because `issueWithoutPosition`, claiming the item is open and the meaning absent" | `packages/capabilities/src/intake/capability.ts`; `packages/core/src/capability/factory.ts` → `buildIntent`, behind `platform.intent` | an intent is a request, dated by its occasion, with a stable identity |
 | 6 | The screen checks the intent names its own capability, a declared operation, its own item, and a legal transition on the workflow map | `packages/core/src/engine/invoke.ts` → `screenIntent` | a capability cannot act as another, on another item, or off the map |
 | 7 | The world is derived from the facts, not asserted: do the intent's claims hold against the projection the delivery carried? | `packages/core/src/safety/world.ts` → `deriveWorld` | a caller cannot assert a precondition its own delivery contradicts (D77) |
 | 8 | The safety ladder judges the write request: kill switch, mode, capability enabled, grant present, item open and unpaused, precondition holding, no newer human change | `packages/core/src/safety/write.ts` → `evaluateWrite`; `packages/core/src/safety/rules.ts`; `packages/core/src/intents/operations/` for the operation's class and permission | every refusal is a code an operator reads; a destructive class is refused here and judged only at the grace gate |
@@ -108,7 +109,12 @@ a MEASURED or PROBED fact, and a third copy of either breaks one fact, one place
    MOVED here as `design.md` — updating the table in `design/guides/capabilities/README.md` and the
    one-line list in `packages/capabilities/README.md`. Four files is the minimum, not the shape: split by
    concern when a file answers two questions. If the folder already exists it is a seed — promote
-   it in place. Every file in the folder names core through `@hiero-hackers/automation-core/author`
+   it in place. The shape every folder shares: the declaration stays in `capability.ts` until a
+   sibling file needs its type (`inactivity/declaration.ts`); the words a contributor reads live in
+   `messages.ts`, or in `render.ts` when they are a document; `settings.ts` opens with one line
+   saying what the capability reads beside `enabled`; inline captions are `//`; a test drives
+   `evaluate` through `handleFor` and scripts answers with `answering`, both from the harness.
+   Every file in the folder names core through `@hiero-hackers/automation-core/author`
    (`packages/core/src/author/index.ts`), the door sized to what an author needs; the root barrel
    is the engine's, and a dependency rule refuses it from a capability.
 
@@ -135,13 +141,16 @@ a MEASURED or PROBED fact, and a third copy of either breaks one fact, one place
    resolvers, intents, and `evaluates` nothing else. A typo does not compile; a need no producer
    reads does not boot.
 5. **Write `evaluate` in two captions**: the guards in the flowchart's order, each a visible `if`
-   returning `[]` or `skipped(...)` — a design's "on event X" is a STATE here, never a trigger; then
-   the act, intents through the factory. `view.settings` arrives typed and already judged, so there
-   is nothing to read first. An intent's `cause` is FREE TEXT, with one exception:
-   `applyMappedLabel` moves the item, so its cause comes from the closed list in
-   `workflow/causes.ts` and the workflow map picks it (`moveTo`). The judgements every capability
-   makes live in `capability/facts.ts` (`isOpen`, `isPaused`, `isConflicted`, `people`, the clocks,
-   `mentions`, `on`, `inert`, `moveTo`); import them, never a sibling.
+   returning `[]` or `platform.skip(...)` — a design's "on event X" is a STATE here, never a
+   trigger; then the act, intents through `platform.intent`. Three guards are the platform's and are
+   never written: a closed item never arrives (declare `closed: true` to see one), `platform.ask`
+   ends the evaluation when a resolver cannot answer, and a label with no edge is skipped.
+   `view.settings` arrives typed and already judged, so there is nothing to read first. An intent's
+   `cause` is FREE TEXT and part of its identity, so state it; `applyMappedLabel` moves the item, and
+   its transition cause is the workflow map's (`moveTo`) unless you name one. Claims are derived from
+   the record; name a claim only to narrow it. The judgements every capability makes live in
+   `capability/facts.ts` (`isPaused`, `isConflicted`, `people`, the clocks, `mentions`, `on`,
+   `inert`, `moveTo`); import them, never a sibling.
 
    An intent the safety ladder does not refuse contributes a `capabilityExplained` finding
    immediately BEFORE its verdict (`engine/decide.ts` → `gateIntent`), so two intents from one
@@ -191,7 +200,8 @@ a MEASURED or PROBED fact, and a third copy of either breaks one fact, one place
    `git ls-files --cached --others --exclude-standard`
    (`packages/dev/checks/test/repository.ts`), so an untracked note is documentation the moment it
    exists, and `packages/dev/checks/test/citations.test.ts` resolves every `design/….md` and
-   `docs/….yml` string in every document. Put notes on a study branch or outside the repository.
+   `docs/….yml` string in every document. Put notes in `notes/` at the repository root, which is
+   ignored, or outside the repository.
 
 The skills in `.claude/skills/` are the house style for what you write: `placement` (where a
 file goes), `docstrings` (what a header says), `clarity` (how a body reads), `capability-design`

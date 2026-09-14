@@ -46,12 +46,6 @@ describe("declared shape", () => {
             needs: [],
             resolvers: ["linkedIssues"],
             intents: ["postManagedComment"],
-            operationalNeeds: {
-                schedule: false,
-                durableState: "none",
-                crossItemCoordination: false,
-                externalDelivery: false,
-            },
         });
     });
 
@@ -70,12 +64,6 @@ describe("declared shape", () => {
             needs: [],
             resolvers: ["isAutomationActor"],
             intents: ["applyMappedLabel", "postManagedComment"],
-            operationalNeeds: {
-                schedule: false,
-                durableState: "none",
-                crossItemCoordination: false,
-                externalDelivery: false,
-            },
         });
     });
 
@@ -89,12 +77,6 @@ describe("declared shape", () => {
             needs: ["assignees", "links", "review", "readiness"],
             resolvers: ["isAutomationActor"],
             intents: ["postManagedComment", "releaseAssignment", "closePullRequest"],
-            operationalNeeds: {
-                schedule: true,
-                durableState: "required",
-                crossItemCoordination: false,
-                externalDelivery: false,
-            },
         });
     });
     /**

@@ -180,7 +180,7 @@ counter-writes — a maintainer assigning someone bypasses every gate on purpose
 | `resolvers` | `isAutomationActor` (exists) · open-assignments with meanings (new) · completed-count by skill (new, phase 2) · recent-claim times, account age, and App-release events for one item (new, phase 2) |
 | `intents` | `postManagedComment` · `assign` (new — the assignee write family) · `unassign` (same family) · `applyMappedLabel` (phase 3) |
 | Permissions | repository: `issues:read`, `pull_requests:read` (the `capIgnores` look at linked PRs), `issues:write` · organization: none — counting stays in this repository |
-| `operationalNeeds` | schedule: false · durableState: candidate — `maxPerDay` if the timeline read proves too costly, and phase 3's assignee+label pair (two GitHub calls; a crash between them needs a record, never a guess from the label-and-assignee shape) · crossItemCoordination: true — the caps count across issues · externalDelivery: false |
+| Platform needs | durableState: candidate — `maxPerDay` if the timeline read proves too costly, and phase 3's assignee+label pair (two GitHub calls; a crash between them needs a record, never a guess from the label-and-assignee shape) · crossItemCoordination: true — the caps count across issues · externalDelivery: false |
 
 Needs are checked PER TRIGGER: `issue_comment` reads `command` on an issue record while `issues`
 reads no group at all, so a declaration naming both triggers and needing `command` is a boot error

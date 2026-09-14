@@ -123,7 +123,7 @@ on, and the author is who the wait is costing.
 | `intents` | `postManagedComment` (`notice`; topics `review` and `escalation`) |
 | `requiredMappings` | none. `needsRevision` is a guard over what this repository happens to have mapped: unmapped means never observed, never a refused file. `exemptWhen` is the other way round — a meaning listed there and not mapped is `settingInvalid` and the file is rejected, which is the meaning list's own rule (`design/guides/capability-kits.md` §3) rather than a declaration demand |
 | Permissions | repository: `pull_requests:read` (the sweep's own reads) and `issues:write` (the comment, `intents/operations/postManagedComment.ts`) · organization: none |
-| `operationalNeeds` | schedule: true · durableState: none — one comment per topic per item is the platform's own identity · crossItemCoordination: false · externalDelivery: false |
+| Platform needs | durableState: none — one comment per topic per item is the platform's own identity · crossItemCoordination: false · externalDelivery: false |
 
 `sweep` reads `assignees`, `links`, `review` and `readiness` on a pull request, so both needed
 groups are on the schedule's row and the declaration boots. `pull_request` reads `readiness` alone,

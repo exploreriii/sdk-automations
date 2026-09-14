@@ -26,19 +26,10 @@ export const TRANSPORTS: { readonly [K in IntentOperation]: OperationTransport }
     unlockIssue: UNLOCK_ISSUE,
 };
 
-/**
- * The whole write surface, composed from the verbs the transports contribute.
- * Each transport's `verbs` names the verbs it owns, so one nothing builds fails to compile.
- */
+/** The whole write surface, composed from the verbs every transport contributes. */
 export function writeVerbsOf(context: VerbContext): WriteVerbs {
-    return {
-        ...APPLY_MAPPED_LABEL.verbs(context),
-        ...POST_MANAGED_COMMENT.verbs(context),
-        ...ASSIGN.verbs(),
-        ...UNASSIGN.verbs(),
-        ...RELEASE_ASSIGNMENT.verbs(context),
-        ...CLOSE_PULL_REQUEST.verbs(context),
-        ...LOCK_ISSUE.verbs(),
-        ...UNLOCK_ISSUE.verbs(),
-    };
+    return Object.values(TRANSPORTS).reduce<Partial<WriteVerbs>>(
+        (verbs, transport) => ({ ...verbs, ...transport.verbs(context) }),
+        {},
+    ) as WriteVerbs;
 }

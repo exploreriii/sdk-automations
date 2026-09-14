@@ -11,7 +11,10 @@ import {
     type FactGroup,
     type FactKind,
     type Facts,
-    type Unread,
+    type ResolverAnswer,
+    type ResolverInput,
+    type ResolverName,
+    type ResolverOutput,
 } from "../catalogue.js";
 import {
     describeSpec,
@@ -26,7 +29,7 @@ import type { FactsFor } from "../capability/boundary.js";
 import {
     producerReads,
     producersReading,
-    type GroupsReadBy,
+    type ProducedFacts,
     type ProducerName,
 } from "../capability/producers.js";
 
@@ -206,21 +209,21 @@ export function subsets<T>(items: readonly T[]): readonly (readonly T[])[] {
     return out.sort((a, b) => a.length - b.length);
 }
 
-/**
- * A record exactly as producer `P` makes one for kind `K`: every group its
- * registry row names is read, every other one is `Unread`. The mirror of the
- * boundary's `FactsFor` from the producer's side.
- */
-export type RecordFrom<P extends ProducerName, K extends FactKind> = {
-    readonly [Key in keyof Extract<Facts, { kind: K }>]: Key extends FactGroup
-        ? Key extends GroupsReadBy<P, K>
-            ? Exclude<Extract<Facts, { kind: K }>[Key], Unread>
-            : Unread
-        : Extract<Facts, { kind: K }>[Key];
-};
+/** A record exactly as producer `P` makes one for kind `K` — the fixture's name for it. */
+export type RecordFrom<P extends ProducerName, K extends FactKind> = ProducedFacts<P, K>;
 
-const AT = new Date("2026-08-03T09:00:00.000Z");
-const REPO = { owner: "hiero-hackers", repo: "sandbox" } as const;
+/** When every built record was observed, and where — what a test's expected intent restates. */
+export const OBSERVED_AT = new Date("2026-08-03T09:00:00.000Z");
+export const REPOSITORY = { owner: "hiero-hackers", repo: "sandbox" } as const;
+
+/** A resolver source with one answer for every question a capability asks. */
+export const answering =
+    (answer: unknown) =>
+    async <Q extends ResolverName>(
+        _query: Q,
+        _input: ResolverInput<Q>,
+    ): Promise<ResolverAnswer<ResolverOutput<Q>>> =>
+        await Promise.resolve(answer as ResolverAnswer<ResolverOutput<Q>>);
 
 /** Open, unpositioned, unpaused — the position every record starts from. */
 const OPEN = {
@@ -282,9 +285,9 @@ export function recordFrom<P extends ProducerName, K extends FactKind>(
     }
     return {
         kind,
-        repository: REPO,
+        repository: REPOSITORY,
         item: { kind, number: NUMBERS[`${producer}/${kind}`] ?? 1 },
-        observedAt: AT,
+        observedAt: OBSERVED_AT,
         trigger: producer === "sweep" ? { kind: "sweep" } : { kind: "event", event: producer },
         author: "opener",
         // Nobody causes a sweep; a delivery has a sender. Neither is a group.

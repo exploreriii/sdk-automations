@@ -120,7 +120,7 @@ flowchart LR
 | `intents` | `postManagedComment` (`notice`, topic = the assignee's login) |
 | `requiredMappings` | none; `commands.working` and `commands.unassign` are read if mapped |
 | Permissions | repository: `issues:read`, `pull_requests:read`, `issues:write` · organization: none |
-| `operationalNeeds` | schedule: true · durableState: none · crossItemCoordination: false · externalDelivery: false |
+| Platform needs | durableState: none · crossItemCoordination: false · externalDelivery: false |
 
 `sweep` reads `assignees` on an issue, the `issues` webhook reads no group at all, and needs are
 checked per trigger, so this declaration is one trigger or no needs.

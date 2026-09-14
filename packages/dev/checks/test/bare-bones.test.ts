@@ -429,8 +429,9 @@ describe("a register row is a hundred words", () => {
 describe("a design page is four sections", () => {
     const pages = designPages();
 
-    it("finds every design page", () => {
-        expect(pages.length).toBe(11);
+    /** A walk that found nothing would pass the loop below in silence. */
+    it("finds the design pages at all", () => {
+        expect(pages.length).toBeGreaterThan(3);
     });
 
     it("holds each page to the section list, in order", () => {

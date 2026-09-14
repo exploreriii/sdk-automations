@@ -23,12 +23,6 @@ const declaration = declareCapability({
     needs: [],
     resolvers: ["linkedIssues"],
     intents: ["applyMappedLabel", "unassign"],
-    operationalNeeds: {
-        schedule: false,
-        durableState: "none",
-        crossItemCoordination: false,
-        externalDelivery: false,
-    },
 });
 
 const AT = new Date("2026-08-05T09:00:00.000Z");

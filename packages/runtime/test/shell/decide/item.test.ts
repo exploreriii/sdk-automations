@@ -293,7 +293,7 @@ describe("the decision rows one pass writes", () => {
             repository: REPOSITORY,
             item: ITEM,
             capability: "intake",
-            detail: "New issue placed in triage.",
+            detail: "Placed the new issue in triage.",
         });
     });
 

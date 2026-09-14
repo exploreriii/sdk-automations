@@ -243,9 +243,8 @@ describe("prQuality on a conflicted pull request", () => {
     });
 
     /**
-     * Merged counts as closed, and prQuality declines before the resolver
-     * rather than at the gate — the `itemClosed` rule changed nothing here,
-     * which is the point of asserting it.
+     * Merged counts as closed, and the platform declines before the capability
+     * is called at all: no finding, nothing asked, nothing approved (D59).
      */
     it("says nothing at all about a merged pull request", async () => {
         const merged = webhookPullRequest({
@@ -294,6 +293,7 @@ describe("managed-comment identity is minted by the platform", () => {
                 kind: effect.managedComment?.identity.kind,
                 topic: effect.managedComment?.identity.topic,
             })),
+            "one row per managed comment the four fixture records earn, in record then registry order — a new capability that posts one adds its rows here by hand",
         ).toEqual([
             { capability: "intake", item: 11, kind: "notice", topic: "" },
             { capability: "prQuality", item: 12, kind: "summary", topic: "" },

@@ -12,8 +12,9 @@ comments on a pull request that changes `automations.yml`, saying what the App w
 What each triggers on, maps, reads and may write is the generated table in
 [`docs/capabilities.md`](../../docs/capabilities.md) — read that when this page and it disagree.
 
-Writing one is [`design/trace.md`](../../design/trace.md), step by step, against the design page in
-the folder; the tree is [`design/architecture.md`](../../design/architecture.md) §1.
+Writing one is [`design/guides/first-capability.md`](../../design/guides/first-capability.md), an
+afternoon's walk that ends green at every step, and [`design/trace.md`](../../design/trace.md) for the
+route behind it; the tree is [`design/architecture.md`](../../design/architecture.md) §1.
 
 ```bash
 pnpm --filter @hiero-hackers/automation-capabilities test

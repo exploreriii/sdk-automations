@@ -9,7 +9,8 @@ export {
     type CapabilityDeclaration,
     type DeclaredMappings,
     type DeclaredTrigger,
-    type OperationalNeeds,
+    type Declared,
+    type DeclarationInput,
     type TypedDeclaration,
 } from "../capability/declaration.js";
 export {
@@ -19,13 +20,7 @@ export {
     type IntentFor,
     type PlatformHandle,
 } from "../capability/boundary.js";
-export {
-    intentFactoryFor,
-    type IntentMaker,
-    type IntentOccasion,
-    type IntentSpec,
-} from "../capability/factory.js";
-export { skipped } from "../capability/guards.js";
+export type { DesiredSpec, IntentRequest } from "../capability/factory.js";
 export {
     assigneeClock,
     CANCELLED_BY,

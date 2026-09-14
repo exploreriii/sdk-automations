@@ -122,6 +122,8 @@ Never acts on maintainer staleness or paused work:
 - a pull request in `needsReview`, or in ready-for-review mode without the `needsRevision` label —
   that wait is the maintainers'
 - anything carrying the `blocked` meaning
+- a closed issue or a merged pull request, which never reaches this capability at all: the platform
+  wakes it for open items only, because it declares no `closed: true` (D59)
 
 ```mermaid
 flowchart LR
@@ -164,8 +166,8 @@ close the same way a label somebody removed does. Protocol 8.3 ran the close pat
 | `facts` / `needs` | `issue` and `pullRequest`, needing `assignees` (each with `assignedAt` and last `/working`), `links`, `review` (changes requested, `reapableSince`, last commit) and `readiness` (draft). The fifth group, `command`, is the issue's and this capability does not read it. A producer that reads less — a webhook — is a `factsUnread` skip |
 | `resolvers` | `isAutomationActor` — the entry carries the links, so no per-item question is asked; quality-failure detection is pr-quality's job, arriving as `needsRevision` |
 | `intents` | `postManagedComment` · `releaseAssignment` · `closePullRequest`. Every act claims what it saw: the assignee ladder and the label reason claim meanings and closure, and each mode reason claims its own `pullRequestMode` |
+| `requiredMappings` | none — the label reason demands `needsRevision` in a guard, only where it is switched on |
 | Permissions | repository: `issues:read`, `pull_requests:read`, `issues:write`, `pull_requests:write` — the close's own, and the only write on the pull surface · organization: none |
-| `operationalNeeds` | schedule: true · durableState: required · crossItemCoordination: false · externalDelivery: false |
 
 | Phase | Ships | Needs first |
 |---|---|---|

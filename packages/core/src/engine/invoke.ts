@@ -6,6 +6,7 @@
 
 import {
     MANAGED_COMMENT_KINDS,
+    type Facts,
     type IntentCatalogue,
     type IntentOperation,
     type ResolverAnswer,
@@ -14,7 +15,13 @@ import {
     type ResolverOutput,
     type StructuredExplanation,
 } from "../catalogue.js";
-import type { Capability, TypedDeclaration } from "../capability/index.js";
+import {
+    buildIntent,
+    type Capability,
+    type IntentRequest,
+    type PlatformHandle,
+    type TypedDeclaration,
+} from "../capability/index.js";
 import {
     deriveIdempotencyKey,
     INTENT_OPERATIONS,
@@ -238,6 +245,22 @@ export function thrownDetail(thrown: unknown): string {
 }
 
 /**
+ * The one throw a capability body may cause, and it is the platform's own:
+ * `ask` ends the evaluation as skipped, and `intentsFrom` catches it (D51).
+ */
+class SkipSignal {
+    readonly skipped = true;
+}
+
+export function isSkipSignal(thrown: unknown): thrown is SkipSignal {
+    try {
+        return thrown instanceof SkipSignal;
+    } catch {
+        return false;
+    }
+}
+
+/**
  * The handle a capability is given: it refuses an undeclared resolver without
  * throwing, into `violations`; a throwing resolver source goes to `failures`.
  */
@@ -246,11 +269,46 @@ export class EngineHandle {
     readonly violations: string[] = [];
     /** Declared resolvers whose source threw, as `name: detail`. */
     readonly failures: string[] = [];
+    /** Set once `ask` or `intent` ended the evaluation; intents after it are refused. */
+    skipped = false;
 
     constructor(
         private readonly declaration: TypedDeclaration,
+        private readonly facts: Facts,
         private readonly source: ResolverSource | undefined,
     ) {}
+
+    skip(summary: string, ...detail: readonly string[]): readonly never[] {
+        this.explanations.push({ capability: this.declaration.name, summary, detail });
+        return [];
+    }
+
+    /** Ends the evaluation: the explanation is recorded, then the sentinel is thrown. */
+    private stop(summary: string, ...detail: readonly string[]): never {
+        this.skip(summary, ...detail);
+        this.skipped = true;
+        throw new SkipSignal();
+    }
+
+    async ask(query: ResolverName, input: unknown): Promise<unknown> {
+        const answer = await this.resolve(query, input);
+        if (answer.ok) return answer.value;
+        return this.stop(
+            `Skipped: the ${query} resolver could not answer.`,
+            `resolver reason: ${answer.reason}`,
+            answer.detail,
+        );
+    }
+
+    intent(request: IntentRequest<IntentOperation>): AnyIntent {
+        const built = buildIntent(this.declaration.name, this.facts, request);
+        if (built !== null) return built as AnyIntent;
+        const meaning = "meaning" in request.desired ? request.desired.meaning : "";
+        return this.stop(
+            `Skipped: no edge on the workflow map moves this item to ${meaning}.`,
+            `from ${this.facts.position.kind === "conflict" ? "a conflicted position" : (this.facts.position.state.meaning ?? "no position")}`,
+        );
+    }
 
     async resolve(query: ResolverName, input: unknown): Promise<ResolverAnswer<unknown>> {
         if (!this.declaration.resolvers.includes(query)) {
@@ -282,6 +340,18 @@ export class EngineHandle {
     explain(explanation: StructuredExplanation): void {
         this.explanations.push(explanation);
     }
+}
+
+/**
+ * The engine's handle as the boundary types it for one declaration — what a
+ * capability's own test hands `evaluate`. THE ONE CAST, the erasure `decide()` makes.
+ */
+export function handleFor<D extends TypedDeclaration>(
+    declaration: D,
+    facts: Facts,
+    source?: ResolverSource,
+): EngineHandle & PlatformHandle<D> {
+    return new EngineHandle(declaration, facts, source) as EngineHandle & PlatformHandle<D>;
 }
 
 // ─── The intents that come back ──────────────────────────────────────

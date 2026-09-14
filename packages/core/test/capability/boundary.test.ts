@@ -19,12 +19,6 @@ const declaration = declareCapability({
     needs: [],
     resolvers: ["linkedIssues"],
     intents: ["applyMappedLabel", "unassign"],
-    operationalNeeds: {
-        schedule: false,
-        durableState: "none",
-        crossItemCoordination: false,
-        externalDelivery: false,
-    },
 });
 
 describe("projectCapabilityView (contract.md §2)", () => {

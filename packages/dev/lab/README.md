@@ -32,6 +32,7 @@ error; the protocols themselves carry no secrets, credentials, tunnel URLs or pe
 | [6.8](protocols/6.8-linked-issues.md) | linked-issue semantics (D123) |
 | [6.9](protocols/6.9-sweep-and-check-reads.md) | the sweep's reads and the pull-request checks |
 | [6.10](protocols/6.10-destructive-writes.md) | the two destructive writes |
+| [6.11](protocols/6.11-review-facts-fields-labels-mentions.md) | review facts, issue fields, a missing label on add, and team mentions — the reviews design's four unknowns |
 | [7.1](protocols/7.1-capture.md) | capturing webhook payloads as normalizer fixtures |
 | [8.1](protocols/8.1-shell-soak.md) | the shell soak |
 | [8.2](protocols/8.2-first-effects.md) | the first effects sent for real |

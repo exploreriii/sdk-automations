@@ -32,6 +32,7 @@ const PULL: ItemRef = { kind: "pullRequest", number: 205 };
 
 /** One call per verb; the arguments are not the subject, the endpoint reached is. */
 const CALLS: { readonly [K in keyof WriteVerbs]: (verbs: WriteVerbs) => Promise<WriteResult> } = {
+    createLabel: (verbs) => verbs.createLabel("status: stale", "5319e7", "waiting"),
     addLabel: (verbs) => verbs.addLabel(ITEM, "status: stale"),
     removeLabel: (verbs) => verbs.removeLabel(ITEM, "status: stale"),
     createComment: (verbs) => verbs.createComment(ITEM, "hello"),

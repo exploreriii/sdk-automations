@@ -1,3 +1,4 @@
+import { DEFAULT_LABEL_MAPPINGS } from "../../src/config/label-defaults.js";
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
 import { count, duration, flag, section, spec, writeDuration } from "../../src/capability/index.js";
@@ -242,7 +243,7 @@ describe("parseConfig acceptances (design/contracts/config-schema.md)", () => {
         expect(Object.keys(NO_CONFIG.capabilities)).toHaveLength(0);
         expect(Object.keys(NO_CONFIG.principals)).toHaveLength(0);
         expect(NO_CONFIG.mappings).toEqual({
-            labels: {},
+            labels: { ...DEFAULT_LABEL_MAPPINGS },
             commands: {},
             skills: {},
             alerts: {},

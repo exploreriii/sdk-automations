@@ -1,24 +1,48 @@
 /**
  * The settings prQuality reads beside its `enabled`: `design.md`'s `checks`
- * block, at the size the shipped code can honestly read.
+ * block — five checks, each off until a repository enables it.
  */
 
-import { block, section, spec, text } from "@hiero-hackers/automation-core/author";
+import { block, meanings, section, spec, text } from "@hiero-hackers/automation-core/author";
 
-/** The checks a repository may switch on, and where each failure sends a reader. */
+/** Where a failing check sends the contributor; the maintainer's own text. */
+const guide = (doc: string) => text({ optional: true, doc });
+
+const COMMIT_GUIDE =
+    "A page explaining how to sign commits, shown to the contributor when this check fails";
+
 export const PR_QUALITY_SETTINGS = spec({
     checks: section(
         {
+            dcoSignoff: block(
+                { guide: guide(COMMIT_GUIDE) },
+                { doc: "Say so when a commit carries no Signed-off-by trailer" },
+            ),
+            gpgSignature: block(
+                { guide: guide(COMMIT_GUIDE) },
+                { doc: "Say so when a commit has no verified signature" },
+            ),
+            mergeConflicts: block({}, { doc: "Say so when the branch does not merge cleanly" }),
             linkedIssues: block(
                 {
-                    guide: text({
-                        optional: true,
-                        doc: "A page explaining how to link an issue, shown to the contributor when this check fails",
-                    }),
+                    guide: guide(
+                        "A page explaining how to link an issue, shown to the contributor when this check fails",
+                    ),
+                    assignedIssues: block(
+                        {
+                            guide: guide(
+                                "A page explaining how to get assigned, shown to the contributor when this check fails",
+                            ),
+                        },
+                        { doc: "Say so when the author is not assigned to every linked issue" },
+                    ),
                 },
                 { doc: "Say so when a pull request references no issue" },
             ),
         },
         { doc: "The quality checks this repository runs — each one off until it is enabled" },
     ),
+    applyLabels: meanings({
+        doc: "The positions the dashboard may set: needsRevision on any failure, needsReview when every check passes on a pull request that is ready for review",
+    }),
 });

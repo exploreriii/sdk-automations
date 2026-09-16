@@ -20,8 +20,14 @@ export type WriteResult =
     | { readonly outcome: "unknown"; readonly detail: string }
     | { readonly outcome: "unsupported"; readonly detail: string };
 
-/** The six confirmed write endpoints, and nothing else (D4). */
+/** The seven confirmed write endpoints, and nothing else (D4). */
 export interface EffectWriter {
+    createLabel(
+        label: string,
+        color: string,
+        description: string,
+        allowance?: Allowance,
+    ): Promise<WriteResult>;
     addLabel(item: ItemRef, label: string, allowance?: Allowance): Promise<WriteResult>;
     removeLabel(item: ItemRef, label: string, allowance?: Allowance): Promise<WriteResult>;
     createComment(item: ItemRef, body: string, allowance?: Allowance): Promise<WriteResult>;
@@ -66,6 +72,7 @@ export interface EffectReader {
     assignees(item: ItemRef): Promise<ReadAnswer<readonly string[]>>;
     commentPresence(item: ItemRef, matches: (comment: CommentSeen) => boolean): Promise<SeenState>;
     labelPresence(item: ItemRef, label: string): Promise<SeenState>;
+    labelDefined(label: string): Promise<SeenState>;
 }
 
 /** Whether a read-back says a call's postcondition holds. */
@@ -81,7 +88,7 @@ export const held = (seen: SeenState, holds: SeenState): Confirmation =>
  */
 interface OperationVerbs {
     readonly postManagedComment: "postComment";
-    readonly applyMappedLabel: "addLabel" | "removeLabel";
+    readonly applyMappedLabel: "defineLabel" | "addLabel" | "removeLabel";
     readonly assign: "assign";
     readonly unassign: "unassign";
     readonly releaseAssignment: "releaseAssignment";

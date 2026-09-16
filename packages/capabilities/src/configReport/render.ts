@@ -85,7 +85,7 @@ function capabilities(config: RepositoryConfig): readonly string[] {
     ];
 }
 
-/** The `mappings:` section, family by family, rendered once for the document. */
+/** The `mappings:` section, family by family; a parsed document always carries the labels (D203). */
 function mappings(config: RepositoryConfig): readonly string[] {
     const families = Object.entries(config.mappings).filter(
         ([, family]) => Object.keys(family).length > 0,

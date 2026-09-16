@@ -122,21 +122,22 @@ describe("hostile keys survive as data, never as prototype", () => {
     });
 
     /**
-     * And once more for the label table the required-meaning check reads: an
+     * And once more for the mapping table the required-meaning check reads: an
      * unmapped meaning must look unmapped, not inherited-and-therefore-present.
+     * Commands, because every label meaning has a default (D203).
      */
     it("an inherited member does not satisfy a required meaning", () => {
         const result = parseConfig(
             JSON.parse(
-                '{"schemaVersion":1,"capabilities":{"intake":{"enabled":true}},"mappings":{"labels":{}}}',
+                '{"schemaVersion":1,"capabilities":{"tracker":{"enabled":true}},"mappings":{"commands":{}}}',
             ),
             {
                 revision: "rev-test",
                 knownCapabilities: [
                     {
-                        name: "intake",
+                        name: "tracker",
                         settings: spec({}),
-                        requiredMappings: { labels: ["awaitingTriage"] },
+                        requiredMappings: { commands: ["working"] },
                     },
                 ],
             },

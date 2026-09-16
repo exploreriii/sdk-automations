@@ -2201,18 +2201,14 @@ describe("assignment — design/guides/capabilities/assignment.md", () => {
      * longer travels: the file a maintainer would push is rejected whole,
      * naming the entry rather than the capability.
      */
-    it("refuses the guard meaning this excerpt never mapped, by its dotted path", () => {
+    /** The excerpt never maps `blocked`; its default spelling stands in (D203). */
+    it("accepts the guard meaning this excerpt never mapped, on its default spelling", () => {
         const result = parseConfigDocument(documentOf("assignment.3"), {
             revision: "rev-assignment.3",
             knownCapabilities: [assignment],
         });
 
-        expect(refusalsOf(result)).toEqual([
-            "settingInvalid @ capabilities.assignment.autoAssign.notClaimableWhen.0",
-        ]);
-        expect(result.ok ? [] : result.errors.map((e) => e.message)).toEqual([
-            'capabilities.assignment.autoAssign.notClaimableWhen.0: "blocked" is not a meaning this repository has mapped',
-        ]);
+        expect(refusalsOf(result)).toEqual([]);
     });
 });
 

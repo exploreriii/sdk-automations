@@ -1,40 +1,87 @@
 /**
  * prQuality — one dashboard comment telling a contributor what stops their
- * pull request being ready to review (`design.md`). One of the design's five
- * checks is built; the words are `messages.ts`.
+ * pull request being ready to review (`design.md`), and the position its
+ * verdict earns. The rows are `rows.ts`, the judgements `checks.ts`, the words `messages.ts`.
  */
 
-import { declareCapability, type Capability } from "@hiero-hackers/automation-core/author";
-import { noLinkedIssue } from "./messages.js";
-import { PR_QUALITY_SETTINGS } from "./settings.js";
+import { moveTo, type Capability, type IntentFor } from "@hiero-hackers/automation-core/author";
+import {
+    determined,
+    positionFor,
+    VERDICT_POSITIONS,
+    type Row,
+    type VerdictPosition,
+} from "./checks.js";
+import { prQualityDeclaration, type Platform, type PrQualityDeclaration } from "./declaration.js";
+import { dashboard } from "./messages.js";
+import { anyEnabled, rowsFor } from "./rows.js";
 
-export const prQualityDeclaration = declareCapability({
-    name: "prQuality",
-    triggers: [{ kind: "event", event: "pull_request" }],
-    settings: PR_QUALITY_SETTINGS,
-    resolvers: ["linkedIssues"],
-    intents: ["postManagedComment"],
-});
+export { prQualityDeclaration, type PrQualityDeclaration } from "./declaration.js";
 
-export type PrQualityDeclaration = typeof prQualityDeclaration;
+type Facts = Parameters<Capability<PrQualityDeclaration>["evaluate"]>[0];
+
+const isVerdictPosition = (name: string): name is VerdictPosition =>
+    (VERDICT_POSITIONS as readonly string[]).includes(name);
+
+/** The label the verdict earns, when the repository listed it and the map draws the edge. */
+function labelIntent(
+    rows: readonly Row[],
+    facts: Facts,
+    applyLabels: readonly string[],
+    platform: Platform,
+): IntentFor<PrQualityDeclaration> | null {
+    for (const name of applyLabels.filter((listed) => !isVerdictPosition(listed))) {
+        platform.explain({
+            capability: prQualityDeclaration.name,
+            summary: `applyLabels names ${name}, a position prQuality never sets.`,
+            detail: [`it sets ${VERDICT_POSITIONS.join(" and ")} only`],
+        });
+    }
+    const current = facts.position.kind === "position" ? facts.position.state.meaning : null;
+    const target = positionFor(rows, facts.readiness.draft, current);
+    if (target === null || !applyLabels.includes(target)) return null;
+    if (moveTo(facts, target) === null) {
+        // Already there, off the map, or a conflicted position: the engine would refuse, so nothing is asked.
+        platform.explain({
+            capability: prQualityDeclaration.name,
+            summary: `Left the position alone: no edge on the workflow map moves this pull request to ${target}.`,
+            detail: [],
+        });
+        return null;
+    }
+    return platform.intent({
+        operation: "applyMappedLabel",
+        desired: { meaning: target },
+        cause: "pullRequestChecked",
+        explain: `Set the position to ${target} from the checks' verdict.`,
+    });
+}
 
 export const prQuality: Capability<PrQualityDeclaration> = {
     declaration: prQualityDeclaration,
 
     async evaluate(facts, config, platform) {
-        const check = config.settings.checks.linkedIssues;
-        if (!check.enabled) return [];
-
-        const linked = await platform.ask("linkedIssues", { item: facts.item });
-        if (linked.length > 0) return [];
-
-        return [
-            platform.intent({
-                operation: "postManagedComment",
-                desired: { kind: "summary", body: noLinkedIssue(check.guide) },
-                cause: "pullRequestWithoutLinkedIssue",
-                explain: "Asked for a linked issue on this pull request.",
-            }),
-        ];
+        const { checks } = config.settings;
+        if (!anyEnabled(checks)) return [];
+        // The dashboard speaks to a person: a bot can neither sign off nor take an assignment.
+        if (await platform.ask("isAutomationActor", { login: facts.author })) return [];
+        const rows = await rowsFor(checks, facts.item, facts.author, platform);
+        if (!rows.some(determined)) {
+            return platform.skip(
+                "Skipped: no enabled check could run.",
+                ...rows.map((row) => `${row.check}: ${row.outcome}`),
+            );
+        }
+        const report = platform.intent({
+            operation: "postManagedComment",
+            desired: { kind: "summary", body: dashboard(facts.author, rows) },
+            cause: "pullRequestChecked",
+            explain: {
+                summary: "Reported the quality checks on this pull request.",
+                detail: rows.map((row) => `${row.check}: ${row.outcome}`),
+            },
+        });
+        const label = labelIntent(rows, facts, config.settings.applyLabels, platform);
+        return label === null ? [report] : [report, label];
     },
 };

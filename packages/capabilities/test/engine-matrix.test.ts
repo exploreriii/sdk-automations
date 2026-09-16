@@ -119,6 +119,8 @@ const externals: Externals = {
         // `touched` on it — a capability reading a nonsense answer is not the
         // isolation this matrix measures.
         if (query === "linkedIssues") return { ok: true, value: [] } as never;
+        if (query === "commitAttestations") return { ok: true, value: [] } as never;
+        if (query === "assigneesOf") return { ok: true, value: [] } as never;
         if (query === "configAtHead") return { ok: true, value: { touched: false } } as never;
         return { ok: true, value: false } as never;
     },

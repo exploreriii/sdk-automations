@@ -266,8 +266,15 @@ describe("configReport", () => {
                 // `enabled: true` and nothing else, so every check is parked.
                 "- prQuality — on",
                 "  - checks",
+                "    - dcoSignoff",
+                "      - enabled: false",
+                "    - gpgSignature",
+                "      - enabled: false",
+                "    - mergeConflicts",
+                "      - enabled: false",
                 "    - linkedIssues",
                 "      - enabled: false",
+                "  - applyLabels: none",
                 "",
                 "Switched off: inactivity.",
                 "",
@@ -275,6 +282,12 @@ describe("configReport", () => {
                 "",
                 "- labels",
                 "  - awaitingTriage: status: triage",
+                "  - ready: status: ready",
+                "  - inProgress: status: in progress",
+                "  - needsReview: status: needs review",
+                "  - needsRevision: status: needs revision",
+                "  - readyToMerge: status: ready to merge",
+                "  - blocked: status: blocked",
                 "",
                 "**Principals**",
                 "",
@@ -299,7 +312,16 @@ describe("configReport", () => {
                 "",
                 "- configReport — on, no settings",
                 "",
-                "**Mappings** — none.",
+                "**Mappings**",
+                "",
+                "- labels",
+                "  - awaitingTriage: status: triage",
+                "  - ready: status: ready",
+                "  - inProgress: status: in progress",
+                "  - needsReview: status: needs review",
+                "  - needsRevision: status: needs revision",
+                "  - readyToMerge: status: ready to merge",
+                "  - blocked: status: blocked",
                 "",
                 "Read on the default branch, this changes nothing until it merges.",
             ].join("\n"),
@@ -411,7 +433,9 @@ mappings:
             "- none — this file enables no capability",
         );
         expect(renderReport("sha256:absent", empty)).toContain("**Mode** — observe");
-        expect(renderReport("sha256:absent", empty)).toContain("**Mappings** — none.");
+        expect(renderReport("sha256:absent", empty)).toContain(
+            "  - awaitingTriage: status: triage",
+        );
     });
 
     /** The comment behind the mode ladder, with no exemption (`design.md`). */

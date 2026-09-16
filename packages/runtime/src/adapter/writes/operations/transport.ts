@@ -15,6 +15,13 @@ export type WriteResult =
     | { readonly outcome: "unsupported"; readonly detail: string };
 
 export interface WriteVerbs {
+    /** Define a label the repository lacks; a name it has already is a `conflict`, never recoloured. */
+    createLabel(
+        label: string,
+        color: string,
+        description: string,
+        allowance?: Allowance,
+    ): Promise<WriteResult>;
     addLabel(item: ItemRef, label: string, allowance?: Allowance): Promise<WriteResult>;
     /** ONE named label. There is no remove-by-prefix here or below (D4). */
     removeLabel(item: ItemRef, label: string, allowance?: Allowance): Promise<WriteResult>;

@@ -395,11 +395,11 @@ export const DOCUMENT_REJECTIONS: readonly DocumentRejection[] = [
     },
     {
         code: "meaningRequired",
-        why: "intake is enabled in a file that never maps the meaning it needs",
-        yaml: `schemaVersion: 2\nmode: observe\ncapabilities:\n  intake:\n    enabled: true\n`,
-        path: "mappings.labels.awaitingTriage",
+        why: "tracker is enabled in a file that never maps the command it needs",
+        yaml: `schemaVersion: 2\nmode: observe\ncapabilities:\n  tracker:\n    enabled: true\n`,
+        path: "mappings.commands.working",
         errorCount: 1,
-        messageIncludes: ['"intake"', "add mappings.labels.awaitingTriage"],
+        messageIncludes: ['"tracker"', "add mappings.commands.working"],
     },
 
     // ---- mappings ----
@@ -626,6 +626,24 @@ export const DOCUMENT_ADMISSIONS = [
         name: "prQuality",
         settings: spec({ marker: text({ optional: true }) }),
         requiredMappings: {},
+    },
+    // A required COMMAND, the family with no defaults, so `meaningRequired` stays reachable (D203).
+    {
+        name: "tracker",
+        settings: spec({}),
+        requiredMappings: { commands: ["working"] },
+    },
+] as const satisfies readonly AdmittedCapability[];
+
+/** `tracker` alone, for the rows about a required mapping the file lacks. */
+const TRACKER_DECLARED = [DOCUMENT_ADMISSIONS[2]];
+
+/** A capability needing two commands, for the rows about accumulation. */
+const TWO_COMMANDS_DECLARED = [
+    {
+        name: "tracker",
+        settings: spec({}),
+        requiredMappings: { commands: ["working", "assign"] },
     },
 ] as const satisfies readonly AdmittedCapability[];
 
@@ -957,28 +975,28 @@ export const VALUE_REJECTIONS: readonly ValueRejection[] = [
      */
     {
         code: "meaningRequired",
-        why: "intake is enabled without the triage meaning it declares it needs",
+        why: "tracker is enabled without the command it declares it needs",
         raw: {
             schemaVersion: 2,
-            capabilities: { intake: { enabled: true } },
-            mappings: { labels: { ready: "status: ready" } },
+            capabilities: { tracker: { enabled: true } },
+            mappings: { commands: { assign: "/assign" } },
         },
-        known: INTAKE_DECLARED,
-        path: "mappings.labels.awaitingTriage",
+        known: TRACKER_DECLARED,
+        path: "mappings.commands.working",
         errorCount: 1,
         messageIncludes: [
-            '"intake"',
-            '"awaitingTriage"',
-            "add mappings.labels.awaitingTriage",
-            "capabilities.intake.enabled to false",
+            '"tracker"',
+            '"working"',
+            "add mappings.commands.working",
+            "capabilities.tracker.enabled to false",
         ],
     },
     {
         code: "meaningRequired",
         why: "a repository mapping nothing at all is missing it just the same",
-        raw: { schemaVersion: 2, capabilities: { intake: { enabled: true } } },
-        known: INTAKE_DECLARED,
-        path: "mappings.labels.awaitingTriage",
+        raw: { schemaVersion: 2, capabilities: { tracker: { enabled: true } } },
+        known: TRACKER_DECLARED,
+        path: "mappings.commands.working",
         errorCount: 1,
     },
     /**
@@ -989,21 +1007,21 @@ export const VALUE_REJECTIONS: readonly ValueRejection[] = [
     {
         code: "meaningRequired",
         why: "both missing meanings are reported, not just the first",
-        raw: { schemaVersion: 2, capabilities: { triage: { enabled: true } } },
-        known: TRIAGE_DECLARED,
+        raw: { schemaVersion: 2, capabilities: { tracker: { enabled: true } } },
+        known: TWO_COMMANDS_DECLARED,
         errorCount: 2,
-        messageIncludes: ['"awaitingTriage"', '"needsReview"'],
+        messageIncludes: ['"working"', '"assign"'],
     },
     {
         code: "meaningRequired",
         why: "a partially mapped repository is told only about what is missing",
         raw: {
             schemaVersion: 2,
-            capabilities: { triage: { enabled: true } },
-            mappings: { labels: { awaitingTriage: "status: triage" } },
+            capabilities: { tracker: { enabled: true } },
+            mappings: { commands: { working: "/working" } },
         },
-        known: TRIAGE_DECLARED,
-        path: "mappings.labels.needsReview",
+        known: TWO_COMMANDS_DECLARED,
+        path: "mappings.commands.assign",
         errorCount: 1,
     },
     /**

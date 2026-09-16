@@ -369,6 +369,8 @@ export function markerOf(effect: Effect): string {
 /** One item, as this fake holds it. */
 export interface FakeWorld {
     labels: string[];
+    /** The repository's own label list; `null` means every name is defined, the common case. */
+    definedLabels: string[] | null;
     comments: CommentSeen[];
     /** The logins on the item, which a release takes one name off. */
     assignees: string[];
@@ -429,6 +431,7 @@ export const copiedComment = (id: number, body: string): CommentSeen => ({
 export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
     const world: FakeWorld = {
         labels: [...(initial.labels ?? [])],
+        definedLabels: Array.isArray(initial.definedLabels) ? [...initial.definedLabels] : null,
         comments: [...(initial.comments ?? [])],
         assignees: [...(initial.assignees ?? [])],
         closed: initial.closed ?? false,
@@ -476,6 +479,20 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
     };
 
     const writer: EffectWriter = {
+        createLabel: (label, color, _description, allowance) =>
+            Promise.resolve(
+                perform(
+                    "createLabel",
+                    `${label} ${color}`,
+                    () => {
+                        if (world.definedLabels?.includes(label) === false) {
+                            world.definedLabels.push(label);
+                        }
+                        return { outcome: "applied" };
+                    },
+                    allowance,
+                ),
+            ),
         addLabel: (_item, label, allowance) =>
             Promise.resolve(
                 perform(
@@ -609,6 +626,10 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
         commentPresence: (_item, matches) =>
             Promise.resolve(presenceOf(world.comments.some(matches))),
         labelPresence: (_item, label) => Promise.resolve(presenceOf(world.labels.includes(label))),
+        labelDefined: (label) =>
+            Promise.resolve(
+                presenceOf(world.definedLabels === null || world.definedLabels.includes(label)),
+            ),
     };
 
     return { world, writer, reader, calls, faults };

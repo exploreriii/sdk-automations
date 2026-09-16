@@ -53,14 +53,7 @@ capabilities:
             after: 5d
 
 mappings:
-  labels:
-    awaitingTriage: "status: triage"
-    ready: "status: ready for dev"
-    inProgress: "status: in progress"
-    needsReview: "status: needs review"
-    needsRevision: "status: needs revision"
-    readyToMerge: "status: ready to merge"
-    blocked: "status: blocked"
+  # No labels mapped: every meaning runs on its default spelling, defined on first use.
   commands:
     working: "/working" # the one clock reset inactivity reads
 

@@ -89,6 +89,8 @@ export interface ReadBack {
     commentPresence(item: ItemRef, matches: (comment: CommentFact) => boolean): Promise<Presence>;
     /** Is this exact label name there? Absence obeys the gap above. */
     labelPresence(item: ItemRef, label: string): Promise<Presence>;
+    /** Does the REPOSITORY define this label? One read; GitHub's 404 is the absence. */
+    labelDefined(label: string): Promise<Presence>;
 }
 
 /**
@@ -318,6 +320,16 @@ export function createReadBack({
             ? await readChangesRequested(reads, item.number)
             : { ok: true, value: false };
 
+    /** The repository's own label list is read one name at a time: the answer is the status. */
+    const labelDefined = async (label: string): Promise<Presence> => {
+        const outcome = await http.request({
+            url: `${repoPath(repository)}/labels/${encodeURIComponent(label)}`,
+            method: "GET",
+        });
+        if (outcome.ok) return "present";
+        return outcome.failure.kind === "notFoundOrNotInstalled" ? "absent" : "unknown";
+    };
+
     return {
         comments,
         labels,
@@ -338,5 +350,6 @@ export function createReadBack({
                 () => labels(item),
                 (name) => name === label,
             ),
+        labelDefined,
     };
 }

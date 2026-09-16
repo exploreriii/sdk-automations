@@ -36,16 +36,25 @@ const DECLARATIONS = ALL.map((c) => c.declaration);
  * `declarations` block below.
  */
 describe("declared shape", () => {
-    it("prQuality declares one event trigger, one resolver, and one comment", () => {
+    it("prQuality declares an event and a schedule trigger, five resolvers, a comment and a label", () => {
         expect(prQuality.declaration).toEqual({
             name: "prQuality",
-            triggers: [{ kind: "event", event: "pull_request" }],
+            triggers: [
+                { kind: "event", event: "pull_request" },
+                { kind: "schedule", description: "hourly recheck of every open pull request" },
+            ],
             settings: PR_QUALITY_SETTINGS,
             requiredMappings: {},
             facts: ["pullRequest"],
-            needs: [],
-            resolvers: ["linkedIssues"],
-            intents: ["postManagedComment"],
+            needs: ["readiness"],
+            resolvers: [
+                "isAutomationActor",
+                "linkedIssues",
+                "commitAttestations",
+                "mergeability",
+                "assigneesOf",
+            ],
+            intents: ["postManagedComment", "applyMappedLabel"],
         });
     });
 
@@ -178,7 +187,15 @@ describe("configuration isolation (contract.md §2)", () => {
      */
     it("never hands a capability another capability's block", () => {
         const view = projectCapabilityView(prQuality.declaration, config);
-        expect(view.settings).toEqual({ checks: { linkedIssues: { enabled: false } } });
+        expect(view.settings).toEqual({
+            checks: {
+                dcoSignoff: { enabled: false },
+                gpgSignature: { enabled: false },
+                mergeConflicts: { enabled: false },
+                linkedIssues: { enabled: false },
+            },
+            applyLabels: [],
+        });
     });
 
     /**
@@ -192,7 +209,16 @@ describe("configuration isolation (contract.md §2)", () => {
     it("reports mapped names without ever exposing a spelling", () => {
         const view = projectCapabilityView(intake.declaration, config);
         expect(view.mapped).toEqual({
-            labels: ["awaitingTriage", "inProgress", "blocked"],
+            // The three the file spelled and the four at their defaults, in the table's order (D203).
+            labels: [
+                "awaitingTriage",
+                "ready",
+                "inProgress",
+                "needsReview",
+                "needsRevision",
+                "readyToMerge",
+                "blocked",
+            ],
             commands: ["assign"],
             skills: ["beginner"],
             alerts: [],

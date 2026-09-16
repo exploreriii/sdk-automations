@@ -72,6 +72,7 @@ export type { DestructiveGrace } from "../intents/intent.js";
 export {
     UNREAD,
     type AssigneeClock,
+    type CommitAttestation,
     type FactGroup,
     type FactKind,
     type Facts,

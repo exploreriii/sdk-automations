@@ -51,6 +51,19 @@ const oversized = (): Response =>
     );
 
 describe("the verbs name their endpoints", () => {
+    it("defines one label on the repository, colour and description in the body", async () => {
+        const { verbs, scripted } = harness([success("{}")]);
+
+        expect(await verbs.createLabel("status: stale", "5319e7", "Waiting")).toEqual({
+            outcome: "applied",
+        });
+        expect(scripted.calls[0]!.url).toBe(`${REPO}/labels`);
+        expect(scripted.calls[0]!.init.method).toBe("POST");
+        expect(scripted.calls[0]!.init.body).toBe(
+            '{"name":"status: stale","color":"5319e7","description":"Waiting"}',
+        );
+    });
+
     it("adds one named label, and names it in the body", async () => {
         const { verbs, scripted } = harness([success("[]")]);
 

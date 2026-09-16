@@ -1,4 +1,4 @@
-# prQuality — one dashboard comment that tells a contributor what stops their pull request from being ready to review
+# prDashboard — one dashboard comment that tells a contributor what stops their pull request from being ready to review
 
 ## What the output looks like
 
@@ -40,7 +40,7 @@ schemaVersion: 1
 mode: dry-run # disabled | observe | dry-run | active — rehearse, then arm
 
 capabilities:
-  prQuality:
+  prDashboard:
     enabled: true # explicit true only; anything else is off
     checks: # a check runs only with an explicit enabled: true
       dcoSignoff:
@@ -72,7 +72,7 @@ schemaVersion: 1
 mode: active
 
 capabilities:
-  prQuality:
+  prDashboard:
     enabled: true
     checks:
       dcoSignoff:
@@ -83,7 +83,7 @@ capabilities:
 
 All five checks and `applyLabels` are in the shipped spec. `applyLabels` lists the positions the
 verdict may set: a listed position the file has not mapped is refused with the file, and one
-prQuality never sets (anything but the two) is reported on the operator surface at every
+prDashboard never sets (anything but the two) is reported on the operator surface at every
 evaluation. `docs/capabilities.md` is generated from the spec and is always the shipped list.
 
 Rules: a check runs only when its `enabled` is explicitly `true` — the platform's own consent rule,

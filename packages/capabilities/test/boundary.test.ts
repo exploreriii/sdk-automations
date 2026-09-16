@@ -12,10 +12,10 @@ import {
     validateCapabilityDeclarations,
     type AnyIntent,
 } from "@hiero-hackers/automation-core";
-import { CAPABILITIES, inactivity, intake, prQuality } from "../src/index.js";
+import { CAPABILITIES, inactivity, intake, prDashboard } from "../src/index.js";
 import { INACTIVITY_SETTINGS } from "../src/inactivity/settings.js";
 import { INTAKE_SETTINGS } from "../src/intake/settings.js";
-import { PR_QUALITY_SETTINGS } from "../src/prQuality/settings.js";
+import { PR_DASHBOARD_SETTINGS } from "../src/prDashboard/settings.js";
 import { configEnabling } from "@hiero-hackers/automation-core/author/testing";
 
 // Derived, not listed: the isolation claim below covers a capability the day
@@ -36,14 +36,14 @@ const DECLARATIONS = ALL.map((c) => c.declaration);
  * `declarations` block below.
  */
 describe("declared shape", () => {
-    it("prQuality declares an event and a schedule trigger, five resolvers, a comment and a label", () => {
-        expect(prQuality.declaration).toEqual({
-            name: "prQuality",
+    it("prDashboard declares an event and a schedule trigger, five resolvers, a comment and a label", () => {
+        expect(prDashboard.declaration).toEqual({
+            name: "prDashboard",
             triggers: [
                 { kind: "event", event: "pull_request" },
                 { kind: "schedule", description: "hourly recheck of every open pull request" },
             ],
-            settings: PR_QUALITY_SETTINGS,
+            settings: PR_DASHBOARD_SETTINGS,
             requiredMappings: {},
             labels: ["needsRevision", "needsReview"],
             facts: ["pullRequest"],
@@ -185,11 +185,11 @@ describe("configuration isolation (contract.md §2)", () => {
 
     /**
      * `intake`'s `announce: true` is the block above, and this repository
-     * wrote nothing under `prQuality` — so what arrives is prQuality's own
+     * wrote nothing under `prDashboard` — so what arrives is prDashboard's own
      * spec at its own defaults, with its neighbour's answer nowhere in it.
      */
     it("never hands a capability another capability's block", () => {
-        const view = projectCapabilityView(prQuality.declaration, config);
+        const view = projectCapabilityView(prDashboard.declaration, config);
         expect(view.settings).toEqual({
             checks: {
                 dcoSignoff: { enabled: false },
@@ -266,7 +266,7 @@ describe("intent screening", () => {
 
     it("refuses an intent attributed to another capability", () => {
         const foreign = candidate({
-            capability: "prQuality",
+            capability: "prDashboard",
             operation: "applyMappedLabel",
             desired: { meaning: "awaitingTriage", cause: "intakeObserved" },
         });

@@ -360,7 +360,7 @@ export const DOCUMENT_REJECTIONS: readonly DocumentRejection[] = [
         yaml: UNBUILT_DESIGNS_YAML,
         errorCount: 6,
         path: "capabilities.advancement",
-        messageIncludes: ["not available", "intake, prQuality"],
+        messageIncludes: ["not available", "intake, prDashboard"],
     },
     /**
      * D84, as the file a maintainer actually types. The misspelt setting is
@@ -609,7 +609,7 @@ const COMPLETE = {
 const INTAKE = admitting(["intake"]);
 
 /** Two shipped capabilities, for the rows about what the App admits. */
-const SHIPPED = admitting(["prQuality", "assignment"]);
+const SHIPPED = admitting(["prDashboard", "assignment"]);
 
 /**
  * What the DOCUMENT driver admits: two capabilities declared rather than
@@ -623,7 +623,7 @@ export const DOCUMENT_ADMISSIONS = [
         requiredMappings: { labels: ["awaitingTriage"] },
     },
     {
-        name: "prQuality",
+        name: "prDashboard",
         settings: spec({ marker: text({ optional: true }) }),
         requiredMappings: {},
     },
@@ -731,7 +731,7 @@ export const VALUE_REJECTIONS: readonly ValueRejection[] = [
         path: "mode",
     },
     /**
-     * §2.6 in one row: `prQuality` is a well-formed block and it still buys
+     * §2.6 in one row: `prDashboard` is a well-formed block and it still buys
      * nothing, because one error anywhere yields no configuration at all. It
      * is also unshipped here, which is why the rejection names two codes.
      */
@@ -741,7 +741,7 @@ export const VALUE_REJECTIONS: readonly ValueRejection[] = [
         raw: {
             schemaVersion: 2,
             mode: "actively",
-            capabilities: { prQuality: { enabled: true } },
+            capabilities: { prDashboard: { enabled: true } },
         },
         alsoReports: ["capabilityUnknown"],
         messageIncludes: ["disabled, observe, dry-run, active"],
@@ -1067,7 +1067,7 @@ export const VALUE_REJECTIONS: readonly ValueRejection[] = [
         raw: { schemaVersion: 2, capabilities: { checksGate: { enabled: true } } },
         known: SHIPPED,
         path: "capabilities.checksGate",
-        messageIncludes: ['"checksGate"', "not available", "assignment, prQuality"],
+        messageIncludes: ['"checksGate"', "not available", "assignment, prDashboard"],
     },
     /**
      * `knownCapabilities` is required, so omitting the admission authority is
@@ -1095,7 +1095,7 @@ export const VALUE_REJECTIONS: readonly ValueRejection[] = [
         why: "a shipped capability alongside an unshipped one is discarded too",
         raw: {
             schemaVersion: 2,
-            capabilities: { prQuality: { enabled: true }, checksGate: { enabled: true } },
+            capabilities: { prDashboard: { enabled: true }, checksGate: { enabled: true } },
         },
         known: SHIPPED,
         path: "capabilities.checksGate",

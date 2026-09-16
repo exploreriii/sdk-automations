@@ -18,7 +18,7 @@ capabilities:
     enabled: true
     announce: true # and told so in a comment (default: false)
 
-  prQuality: # one comment per pull request, kept current: what stops it being reviewable
+  prDashboard: # one comment per pull request, kept current: what stops it being reviewable
     enabled: true
     checks: # every check the App runs today, switched on — each one is off until it is
       dcoSignoff: # a commit carries no Signed-off-by trailer

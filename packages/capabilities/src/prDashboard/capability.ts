@@ -1,5 +1,5 @@
 /**
- * prQuality — one dashboard comment telling a contributor what stops their
+ * prDashboard — one dashboard comment telling a contributor what stops their
  * pull request being ready to review (`design.md`), and the position its
  * verdict earns. The rows are `rows.ts`, the judgements `checks.ts`, the words `messages.ts`.
  */
@@ -12,13 +12,17 @@ import {
     type Row,
     type VerdictPosition,
 } from "./checks.js";
-import { prQualityDeclaration, type Platform, type PrQualityDeclaration } from "./declaration.js";
+import {
+    prDashboardDeclaration,
+    type Platform,
+    type PrDashboardDeclaration,
+} from "./declaration.js";
 import { dashboard } from "./messages.js";
 import { anyEnabled, rowsFor } from "./rows.js";
 
-export { prQualityDeclaration, type PrQualityDeclaration } from "./declaration.js";
+export { prDashboardDeclaration, type PrDashboardDeclaration } from "./declaration.js";
 
-type Facts = Parameters<Capability<PrQualityDeclaration>["evaluate"]>[0];
+type Facts = Parameters<Capability<PrDashboardDeclaration>["evaluate"]>[0];
 
 const isVerdictPosition = (name: string): name is VerdictPosition =>
     (VERDICT_POSITIONS as readonly string[]).includes(name);
@@ -29,11 +33,11 @@ function labelIntent(
     facts: Facts,
     applyLabels: readonly string[],
     platform: Platform,
-): IntentFor<PrQualityDeclaration> | null {
+): IntentFor<PrDashboardDeclaration> | null {
     for (const name of applyLabels.filter((listed) => !isVerdictPosition(listed))) {
         platform.explain({
-            capability: prQualityDeclaration.name,
-            summary: `applyLabels names ${name}, a position prQuality never sets.`,
+            capability: prDashboardDeclaration.name,
+            summary: `applyLabels names ${name}, a position prDashboard never sets.`,
             detail: [`it sets ${VERDICT_POSITIONS.join(" and ")} only`],
         });
     }
@@ -43,7 +47,7 @@ function labelIntent(
     if (moveTo(facts, target) === null) {
         // Already there, off the map, or a conflicted position: the engine would refuse, so nothing is asked.
         platform.explain({
-            capability: prQualityDeclaration.name,
+            capability: prDashboardDeclaration.name,
             summary: `Left the position alone: no edge on the workflow map moves this pull request to ${target}.`,
             detail: [],
         });
@@ -57,8 +61,8 @@ function labelIntent(
     });
 }
 
-export const prQuality: Capability<PrQualityDeclaration> = {
-    declaration: prQualityDeclaration,
+export const prDashboard: Capability<PrDashboardDeclaration> = {
+    declaration: prDashboardDeclaration,
 
     async evaluate(facts, config, platform) {
         const { checks } = config.settings;

@@ -13,7 +13,7 @@ spelling), its own block's keys, and nothing another capability was given.
 | Capability | What it does | Wakes on | Needs mapped | Settings keys | May write | Design |
 |---|---|---|---|---|---|---|
 | `intake` | walk a new issue from its opening to triaged, ready work | the `issues` webhook | `labels.awaitingTriage` | `announce` | the `awaitingTriage` label, at your spelling or the default; a comment it keeps up to date | [design page](../packages/capabilities/src/intake/design.md) |
-| `prQuality` | one dashboard comment that tells a contributor what stops their pull request from being ready to review | the `pull_request` webhook, a schedule (hourly recheck of every open pull request) | nothing required | `checks`, `applyLabels` | a comment it keeps up to date; the `needsRevision`, `needsReview` labels, at your spelling or the default | [design page](../packages/capabilities/src/prQuality/design.md) |
+| `prDashboard` | one dashboard comment that tells a contributor what stops their pull request from being ready to review | the `pull_request` webhook, a schedule (hourly recheck of every open pull request) | nothing required | `checks`, `applyLabels` | a comment it keeps up to date; the `needsRevision`, `needsReview` labels, at your spelling or the default | [design page](../packages/capabilities/src/prDashboard/design.md) |
 | `inactivity` | remind about stalled work, then release it | a schedule (hourly stale-assignment sweep) | nothing required | `exemptBlocked`, `remindAfter`, `reap`, `issues`, `pullRequests` | a comment it keeps up to date; an assignment's release, after a warning; a pull request's closure, after a warning | [design page](../packages/capabilities/src/inactivity/design.md) |
 | `configReport` | one comment on a pull request that changes `automations.yml`, saying what the App would read from it | the `pull_request` webhook | nothing required | none | a comment it keeps up to date | [design page](../packages/capabilities/src/configReport/design.md) |
 <!-- /generated -->
@@ -48,7 +48,7 @@ enabled: true
 announce: false # default — Comment on a new issue to say it is waiting for triage, rather than only labelling it
 ```
 
-### `prQuality`
+### `prDashboard`
 
 ```yaml
 enabled: true

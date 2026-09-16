@@ -1,17 +1,17 @@
-/** What prQuality is woken for, reads, asks and may do — the declaration alone, so `rows.ts` and `capability.ts` share it without a cycle. */
+/** What prDashboard is woken for, reads, asks and may do — the declaration alone, so `rows.ts` and `capability.ts` share it without a cycle. */
 
 import { declareCapability, type PlatformHandle } from "@hiero-hackers/automation-core/author";
 import { VERDICT_POSITIONS } from "./checks.js";
-import { PR_QUALITY_SETTINGS } from "./settings.js";
+import { PR_DASHBOARD_SETTINGS } from "./settings.js";
 
-export const prQualityDeclaration = declareCapability({
-    name: "prQuality",
+export const prDashboardDeclaration = declareCapability({
+    name: "prDashboard",
     triggers: [
         { kind: "event", event: "pull_request" },
         { kind: "schedule", description: "hourly recheck of every open pull request" },
     ],
     needs: ["readiness"],
-    settings: PR_QUALITY_SETTINGS,
+    settings: PR_DASHBOARD_SETTINGS,
     labels: VERDICT_POSITIONS,
     resolvers: [
         "isAutomationActor",
@@ -23,6 +23,6 @@ export const prQualityDeclaration = declareCapability({
     intents: ["postManagedComment", "applyMappedLabel"],
 });
 
-export type PrQualityDeclaration = typeof prQualityDeclaration;
+export type PrDashboardDeclaration = typeof prDashboardDeclaration;
 
-export type Platform = PlatformHandle<PrQualityDeclaration>;
+export type Platform = PlatformHandle<PrDashboardDeclaration>;

@@ -19,10 +19,10 @@ import {
     type CheckName,
     type Row,
 } from "./checks.js";
-import { prQualityDeclaration, type Platform } from "./declaration.js";
-import { PR_QUALITY_SETTINGS } from "./settings.js";
+import { prDashboardDeclaration, type Platform } from "./declaration.js";
+import { PR_DASHBOARD_SETTINGS } from "./settings.js";
 
-export type Checks = SettingsOf<typeof PR_QUALITY_SETTINGS>["checks"];
+export type Checks = SettingsOf<typeof PR_DASHBOARD_SETTINGS>["checks"];
 
 /** The row for a check whose resolver did not answer, with the reason on the operator surface. */
 function unanswered(
@@ -31,7 +31,7 @@ function unanswered(
     answer: ResolverAnswer<unknown> & { readonly ok: false },
 ): Row {
     platform.explain({
-        capability: prQualityDeclaration.name,
+        capability: prDashboardDeclaration.name,
         summary: `The ${check} check could not run: a resolver could not answer.`,
         detail: [`resolver reason: ${answer.reason}`, answer.detail],
     });

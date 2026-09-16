@@ -1,4 +1,4 @@
-/** Everything prQuality says to a contributor, and the words it says it in. */
+/** Everything prDashboard says to a contributor, and the words it says it in. */
 
 import { mentions } from "@hiero-hackers/automation-core/author";
 import { type CheckName, type Row } from "./checks.js";

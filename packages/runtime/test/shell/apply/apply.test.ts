@@ -1183,7 +1183,7 @@ describe("a label move that displaces the position the item held", () => {
  * D1, the capability study's first defect: a comment's identity is its ITEM
  * and its PURPOSE, and neither of those is the occasion that provoked it.
  *
- * The shape is prQuality's: one dashboard comment per pull request, rewritten
+ * The shape is prDashboard's: one dashboard comment per pull request, rewritten
  * as the checks report. Two deliveries about the same pull request are two
  * occasions — two effect ids, two journal rows — and exactly one comment.
  */

@@ -50,13 +50,13 @@
                                 }
                             }
                         },
-                        "prQuality": {
+                        "prDashboard": {
                             "type": "object",
                             "additionalProperties": false,
                             "properties": {
                                 "enabled": {
                                     "type": "boolean",
-                                    "description": "Run prQuality. Consent is literally true; absent leaves it off.",
+                                    "description": "Run prDashboard. Consent is literally true; absent leaves it off.",
                                     "default": false
                                 },
                                 "settings": {
@@ -754,13 +754,13 @@
                                 }
                             }
                         },
-                        "prQuality": {
+                        "prDashboard": {
                             "type": "object",
                             "additionalProperties": false,
                             "properties": {
                                 "enabled": {
                                     "type": "boolean",
-                                    "description": "Run prQuality. Consent is literally true; absent leaves it off.",
+                                    "description": "Run prDashboard. Consent is literally true; absent leaves it off.",
                                     "default": false
                                 },
                                 "checks": {

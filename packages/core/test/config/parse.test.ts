@@ -257,7 +257,7 @@ describe("parseConfig acceptances (design/contracts/config-schema.md)", () => {
                 schemaVersion: 2,
                 mode: "observe",
                 capabilities: {
-                    prQuality: {
+                    prDashboard: {
                         enabled: true,
                         checks: { dco: true, mergeConflict: true },
                     },
@@ -273,8 +273,8 @@ describe("parseConfig acceptances (design/contracts/config-schema.md)", () => {
             },
             {
                 revision: "rev-test",
-                knownCapabilities: admitting(["prQuality", "assignment"], {
-                    prQuality: spec({
+                knownCapabilities: admitting(["prDashboard", "assignment"], {
+                    prDashboard: spec({
                         checks: section({
                             dco: flag({ default: false }),
                             mergeConflict: flag({ default: false }),
@@ -286,7 +286,7 @@ describe("parseConfig acceptances (design/contracts/config-schema.md)", () => {
         );
         expect(result.ok).toBe(true);
         if (result.ok) {
-            expect(result.config.capabilities.prQuality?.enabled).toBe(true);
+            expect(result.config.capabilities.prDashboard?.enabled).toBe(true);
             expect(result.config.capabilities.assignment?.enabled).toBe(false);
             expect(result.config.mappings.labels.ready).toBe("status: ready for dev");
         }

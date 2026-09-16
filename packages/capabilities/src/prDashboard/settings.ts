@@ -1,5 +1,5 @@
 /**
- * The settings prQuality reads beside its `enabled`: `design.md`'s `checks`
+ * The settings prDashboard reads beside its `enabled`: `design.md`'s `checks`
  * block — five checks, each off until a repository enables it.
  */
 
@@ -11,7 +11,7 @@ const guide = (doc: string) => text({ optional: true, doc });
 const COMMIT_GUIDE =
     "A page explaining how to sign commits, shown to the contributor when this check fails";
 
-export const PR_QUALITY_SETTINGS = spec({
+export const PR_DASHBOARD_SETTINGS = spec({
     checks: section(
         {
             dcoSignoff: block(

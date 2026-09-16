@@ -1,5 +1,5 @@
 /**
- * What prQuality decides, and what it refuses to decide: a resolver that
+ * What prDashboard decides, and what it refuses to decide: a resolver that
  * cannot answer is an undetermined row, never a pass, and never a fail.
  */
 
@@ -15,7 +15,7 @@ import {
     type ResolverSource,
     type WorkItemState,
 } from "@hiero-hackers/automation-core";
-import { prQuality, prQualityDeclaration } from "./capability.js";
+import { prDashboard, prDashboardDeclaration } from "./capability.js";
 import {
     configEnabling,
     factsFor,
@@ -31,8 +31,8 @@ const ISSUE_9 = { kind: "issue", number: 9 } as const;
 
 const view = (settings: Readonly<Record<string, unknown>>) =>
     projectCapabilityView(
-        prQuality.declaration,
-        configEnabling(["prQuality"], [prQuality.declaration], { prQuality: settings }),
+        prDashboard.declaration,
+        configEnabling(["prDashboard"], [prDashboard.declaration], { prDashboard: settings }),
     );
 
 const on = { enabled: true } as const;
@@ -48,7 +48,7 @@ const linksOnly = view({ checks: { linkedIssues: on } });
 
 const pullRequest = (state: Partial<WorkItemState<PrMeaning>> = {}, draft = false) =>
     factsFor(
-        prQuality.declaration,
+        prDashboard.declaration,
         webhookPullRequest({
             item: ITEM,
             readiness: { draft },
@@ -109,8 +109,8 @@ const evaluate = async (
     source: ResolverSource,
     facts = pullRequest(),
 ) => {
-    const handle = handleFor(prQualityDeclaration, facts, source);
-    const intents = await prQuality.evaluate(facts, config, handle);
+    const handle = handleFor(prDashboardDeclaration, facts, source);
+    const intents = await prDashboard.evaluate(facts, config, handle);
     const first = intents[0]?.desired;
     return {
         intents,
@@ -131,24 +131,24 @@ const MAPPED = {
 };
 const labelling = (listed: readonly string[], checks: Readonly<Record<string, unknown>>) =>
     projectCapabilityView(
-        prQuality.declaration,
+        prDashboard.declaration,
         configEnabling(
-            ["prQuality"],
-            [prQuality.declaration],
-            { prQuality: { checks, applyLabels: listed } },
+            ["prDashboard"],
+            [prDashboard.declaration],
+            { prDashboard: { checks, applyLabels: listed } },
             MAPPED,
         ),
     );
 const BOTH = ["needsRevision", "needsReview"] as const;
 const LINKS = { linkedIssues: on };
 
-describe("prQuality", () => {
+describe("prDashboard", () => {
     /** `claims.closed` is `false` rather than absent: an omitted claim is vacuous. */
     it("asks for one managed comment on the observed pull request, claiming it is open", async () => {
         const { intents } = await evaluate(linksOnly, answers({ linkedIssues: [] }));
         expect(intents).toEqual([
             {
-                capability: "prQuality",
+                capability: "prDashboard",
                 repository: REPOSITORY,
                 item: ITEM,
                 operation: "postManagedComment",
@@ -163,7 +163,7 @@ describe("prQuality", () => {
                 claims: { meaningsPresent: [], meaningsAbsent: [], closed: false },
                 cause: { cause: "pullRequestChecked", observedAt: OBSERVED_AT },
                 explanation: {
-                    capability: "prQuality",
+                    capability: "prDashboard",
                     summary: "Reported the quality checks on this pull request.",
                     detail: ["linkedIssues: fail"],
                 },
@@ -276,7 +276,7 @@ describe("prQuality", () => {
         expect(body).not.toContain("Every check passes");
         expect(handle.explanations).toEqual([
             {
-                capability: "prQuality",
+                capability: "prDashboard",
                 summary: "The mergeConflicts check could not run: a resolver could not answer.",
                 detail: [
                     "resolver reason: rateLimited",
@@ -399,7 +399,7 @@ describe("prQuality", () => {
         expect(handle.skipped).toBe(false);
         expect(handle.explanations).toEqual([
             {
-                capability: "prQuality",
+                capability: "prDashboard",
                 summary: "The linkedIssues check could not run: a resolver could not answer.",
                 detail: [
                     "resolver reason: rateLimited",
@@ -407,7 +407,7 @@ describe("prQuality", () => {
                 ],
             },
             {
-                capability: "prQuality",
+                capability: "prDashboard",
                 summary: "Skipped: no enabled check could run.",
                 detail: ["linkedIssues: undetermined"],
             },
@@ -444,7 +444,7 @@ describe("prQuality", () => {
 
     /** The spec IS the schema, so the names a maintainer writes are pinned. */
     it("declares the checks a repository may switch on, each parked until enabled", () => {
-        expect(Object.keys(prQuality.declaration.settings)).toEqual(["checks", "applyLabels"]);
+        expect(Object.keys(prDashboard.declaration.settings)).toEqual(["checks", "applyLabels"]);
         expect(view({}).settings).toEqual({
             checks: {
                 dcoSignoff: { enabled: false },
@@ -464,7 +464,7 @@ describe("prQuality", () => {
     /** Phase 3: the sweep re-evaluates every open pull request, so a base that moved is rechecked within the hour. */
     it("rechecks a swept pull request exactly as a delivered one", async () => {
         const swept = factsFor(
-            prQuality.declaration,
+            prDashboard.declaration,
             sweptPullRequest({ item: ITEM, readiness: { draft: false } }),
         );
         const { intents, body } = await evaluate(
@@ -610,7 +610,7 @@ describe("prQuality", () => {
                 "Left the position alone: no edge on the workflow map moves this pull request to needsRevision.",
             ]);
             const conflicted = factsFor(
-                prQuality.declaration,
+                prDashboard.declaration,
                 webhookPullRequest({
                     item: ITEM,
                     readiness: { draft: false },
@@ -640,8 +640,8 @@ describe("prQuality", () => {
             expect(label).toEqual({ meaning: "needsRevision", cause: "checksFailed" });
             expect(handle.explanations).toEqual([
                 {
-                    capability: "prQuality",
-                    summary: "applyLabels names blocked, a position prQuality never sets.",
+                    capability: "prDashboard",
+                    summary: "applyLabels names blocked, a position prDashboard never sets.",
                     detail: ["it sets needsRevision and needsReview only"],
                 },
             ]);
@@ -653,14 +653,14 @@ describe("prQuality", () => {
                 {
                     schemaVersion: 2,
                     capabilities: {
-                        prQuality: { enabled: true, applyLabels: ["nonsense"] },
+                        prDashboard: { enabled: true, applyLabels: ["nonsense"] },
                     },
                     mappings: { labels: { awaitingTriage: "status: triage" } },
                 },
-                { revision: "rev-labels", knownCapabilities: [prQuality.declaration] },
+                { revision: "rev-labels", knownCapabilities: [prDashboard.declaration] },
             );
             expect(result.ok ? [] : result.errors.map((e) => `${e.code} @ ${e.path}`)).toEqual([
-                "settingInvalid @ capabilities.prQuality.applyLabels.0",
+                "settingInvalid @ capabilities.prDashboard.applyLabels.0",
             ]);
         });
     });
@@ -670,12 +670,12 @@ describe("prQuality", () => {
         const result = parseConfig(
             {
                 schemaVersion: 2,
-                capabilities: { prQuality: { enabled: false, marker: "<!-- x -->" } },
+                capabilities: { prDashboard: { enabled: false, marker: "<!-- x -->" } },
             },
-            { revision: "rev-marker", knownCapabilities: [prQuality.declaration] },
+            { revision: "rev-marker", knownCapabilities: [prDashboard.declaration] },
         );
         expect(result.ok ? [] : result.errors.map((e) => `${e.code} @ ${e.path}`)).toEqual([
-            "unknownKey @ capabilities.prQuality.marker",
+            "unknownKey @ capabilities.prDashboard.marker",
         ]);
     });
 
@@ -684,13 +684,13 @@ describe("prQuality", () => {
             {
                 schemaVersion: 2,
                 capabilities: {
-                    prQuality: { enabled: true, checks: { spelling: { enabled: true } } },
+                    prDashboard: { enabled: true, checks: { spelling: { enabled: true } } },
                 },
             },
-            { revision: "rev-checks", knownCapabilities: [prQuality.declaration] },
+            { revision: "rev-checks", knownCapabilities: [prDashboard.declaration] },
         );
         expect(result.ok ? [] : result.errors.map((e) => `${e.code} @ ${e.path}`)).toEqual([
-            "unknownKey @ capabilities.prQuality.checks.spelling",
+            "unknownKey @ capabilities.prDashboard.checks.spelling",
         ]);
     });
 
@@ -700,7 +700,7 @@ describe("prQuality", () => {
             {
                 schemaVersion: 2,
                 capabilities: {
-                    prQuality: {
+                    prDashboard: {
                         enabled: true,
                         checks: {
                             linkedIssues: { enabled: true },
@@ -709,10 +709,10 @@ describe("prQuality", () => {
                     },
                 },
             },
-            { revision: "rev-nesting", knownCapabilities: [prQuality.declaration] },
+            { revision: "rev-nesting", knownCapabilities: [prDashboard.declaration] },
         );
         expect(result.ok ? [] : result.errors.map((e) => `${e.code} @ ${e.path}`)).toEqual([
-            "unknownKey @ capabilities.prQuality.checks.assignedIssues",
+            "unknownKey @ capabilities.prDashboard.checks.assignedIssues",
         ]);
     });
 });

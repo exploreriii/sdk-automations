@@ -9,7 +9,7 @@
                 "announce": true
             }
         },
-        "prQuality": {
+        "prDashboard": {
             "enabled": true,
             "settings": {
                 "checks": {

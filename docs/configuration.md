@@ -107,7 +107,7 @@ shipped default. See [Troubleshooting](troubleshooting.md#it-never-got-as-far-as
 | Required | no |
 | Default | `{}` — nothing enabled |
 
-Keys are capability names in camelCase (`intake`, `prQuality`). Every name must belong to the
+Keys are capability names in camelCase (`intake`, `prDashboard`). Every name must belong to the
 application's directly admitted capability list, whether `enabled` is `true` or `false`. Unknown
 names fail closed instead of being retained as compatibility entries.
 
@@ -161,7 +161,7 @@ about zero, zero is simply the number.
 **The label vocabulary is the only channel there is.** Capabilities cannot read each other's blocks,
 call each other, or run in an order you choose — that isolation is deliberate, and it is what lets
 you enable one without reasoning about the rest. What one capability *writes* another can *read*,
-because both speak the same meanings: `prQuality` applies your `needsRevision` label to a pull
+because both speak the same meanings: `prDashboard` applies your `needsRevision` label to a pull
 request that is failing its checks, and `inactivity`'s `reapWhen.needsRevision` is a clock that runs
 on pull requests carrying it. Wire that up by mapping the meaning once under `mappings.labels` and
 naming it in both blocks. Everything else — settings, timing, comments — stays isolated by design,
@@ -222,7 +222,7 @@ The report the App posts on a pull request that edits this file lists, under eac
 capability, the labels it may set at the spelling in force, and the colour each would be defined
 with if the repository lacks it. That is the moment to map your own name instead. There is no global
 "no labels" switch: a capability whose whole act is a label is switched off by disabling it, and one
-where the label is one act among several lists the positions it may set, like prQuality's
+where the label is one act among several lists the positions it may set, like prDashboard's
 `applyLabels`, which left empty labels nothing.
 
 | Meaning | Typical use | Default spelling | Defined as, when the repository lacks it |
@@ -332,7 +332,7 @@ The exact codes the App reports, and what to fix.
 | `unknownKey` | A key the schema does not have — usually a typo. Includes a setting name the capability never declared |
 | `schemaVersionUnsupported` | A stated `schemaVersion` is not the unquoted number `1` or `2` — omit the key and it is `1` |
 | `modeInvalid` | `mode` is not one of the four modes (check case and quoting) |
-| `capabilityNameInvalid` | Capability names are camelCase, like `prQuality` |
+| `capabilityNameInvalid` | Capability names are camelCase, like `prDashboard` |
 | `capabilityEnabledNotBoolean` | `enabled` must be literally `true` or `false` — not `"true"`, not `1` |
 | `capabilityUnknown` | The capability is not available in this application; remove its block or run an application that ships it |
 | `settingInvalid` | A value in a capability's block is not what that setting takes — the message names the path and what it must be |

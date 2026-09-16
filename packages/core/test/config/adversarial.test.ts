@@ -150,10 +150,10 @@ describe("hostile keys survive as data, never as prototype", () => {
         const result = parseConfig(
             {
                 schemaVersion: 1,
-                capabilities: { prQuality: { enabled: true } },
+                capabilities: { prDashboard: { enabled: true } },
                 principals: { maintainerTeam: "t" },
             },
-            { revision: "rev-test", knownCapabilities: admitting(["prQuality"]) },
+            { revision: "rev-test", knownCapabilities: admitting(["prDashboard"]) },
         );
         expect(result.ok).toBe(true);
         if (result.ok) {
@@ -305,18 +305,18 @@ describe("never throws, for any already-parsed shape", () => {
             {
                 schemaVersion: 1,
                 capabilities: {
-                    prQuality: { enabled: true },
+                    prDashboard: { enabled: true },
                     assignment: { enabled: false },
                 },
                 principals: { a: "x", b: "y" },
             },
-            { revision: "rev-test", knownCapabilities: admitting(["prQuality", "assignment"]) },
+            { revision: "rev-test", knownCapabilities: admitting(["prDashboard", "assignment"]) },
         );
         expect(result.ok).toBe(true);
         if (result.ok) {
             expect(Object.keys(result.config.capabilities).sort()).toEqual([
                 "assignment",
-                "prQuality",
+                "prDashboard",
             ]);
             expect(Object.keys(result.config.principals).sort()).toEqual(["a", "b"]);
         }

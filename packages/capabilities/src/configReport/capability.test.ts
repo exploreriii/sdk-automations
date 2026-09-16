@@ -28,7 +28,7 @@ import { configReport, configReportDeclaration } from "./capability.js";
 import { renderConfiguration, renderRejection, renderReport } from "./render.js";
 import { CONFIG_REPORT_SETTINGS } from "./settings.js";
 import { intakeDeclaration } from "../intake/capability.js";
-import { prQualityDeclaration } from "../prQuality/capability.js";
+import { prDashboardDeclaration } from "../prDashboard/capability.js";
 import { inactivityDeclaration } from "../inactivity/capability.js";
 import {
     answering,
@@ -45,7 +45,7 @@ const REVISION = "sha256:abcdef012345";
 /** The declarations a proposed document is judged against: the real ones. */
 const KNOWN: readonly AdmittedCapability[] = [
     intakeDeclaration,
-    prQualityDeclaration,
+    prDashboardDeclaration,
     inactivityDeclaration,
     configReportDeclaration,
 ];
@@ -106,7 +106,7 @@ capabilities:
   intake:
     enabled: true
     announce: true
-  prQuality:
+  prDashboard:
     enabled: true
   inactivity:
     enabled: false
@@ -266,7 +266,7 @@ describe("configReport", () => {
                 "  - labels it may set",
                 "    - status: triage — awaitingTriage; defined #fbca04 if the repository lacks it",
                 // `enabled: true` and nothing else, so every check is parked.
-                "- prQuality — on",
+                "- prDashboard — on",
                 "  - checks",
                 "    - dcoSignoff",
                 "      - enabled: false",
@@ -341,13 +341,13 @@ mode: active
 capabilities:
   configReport:
     enabled: true
-  prQuality:
+  prDashboard:
     enabled: false
   intake:
     enabled: false
 `);
 
-        expect(body).toContain("Switched off: prQuality, intake.");
+        expect(body).toContain("Switched off: prDashboard, intake.");
     });
 
     it("renders a rejected file as line, path and message in document order", async () => {

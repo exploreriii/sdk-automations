@@ -96,9 +96,10 @@ export function liveGitHub({
         tokenSource,
         ...(contentCreationHourly === null ? {} : { contentCreationHourly }),
     });
-    /** The sweep's share of GitHub's pools, for the process. */
+    /** The sweep's share of GitHub's pools, for the process. The clock rolls a window nobody can report (D196). */
     const sweepAllowance = createAllowance({
         share,
+        clock: () => clock().getTime(),
         onWindow: ({ pool, limit, remaining, resetAt }) => {
             log({ event: "limits", pool, limit, remaining, resetAt });
         },
@@ -107,7 +108,10 @@ export function liveGitHub({
      * The webhook lane's: what the sweep leaves of each pool, and no write cap.
      * GitHub's own numbers are one installation's, so only the sweep's says them.
      */
-    const deliveryAllowance = createAllowance({ share: 1 - share });
+    const deliveryAllowance = createAllowance({
+        share: 1 - share,
+        clock: () => clock().getTime(),
+    });
 
     /** One repository's seams, each built exactly as a one-repository process built them. */
     const seamsIn = (repository: RepositoryRef, allowance: ClientAllowance): RepositorySeams => {

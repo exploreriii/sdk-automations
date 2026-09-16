@@ -1,7 +1,9 @@
 /**
  * One lane's share of GitHub's own rate limits, kept in GitHub's units.
- * The client debits it from the response it just read, and refuses the request
- * that would pass it. Nothing here sends, waits or decides what a lane is for.
+ * The client debits it from the response it just read, and refuses the
+ * request that would pass it. Nothing here sends, waits or decides what a lane is for.
+ * A window whose named end has passed rolls its own spend (D196): at its cap the
+ * ledger refuses every request, so no response can ever name the next window.
  */
 
 import { parseSecondsHeader } from "@hiero-hackers/automation-core";
@@ -86,6 +88,8 @@ export interface AllowanceOptions {
     readonly mutations?: number;
     /** Said once per pool per window, as the window opens. */
     readonly onWindow?: (window: PoolWindow) => void;
+    /** Epoch milliseconds. A pool whose named reset has passed starts again, until a response re-states the window (D196). */
+    readonly clock?: () => number;
 }
 
 /** What a lane has spent and what it still may. The client debits it; the shell reads it. */
@@ -113,7 +117,7 @@ export interface Allowance {
 /** One pool as this process counts it: GitHub's numbers, and what we put through it. */
 interface PoolLedger {
     limit: number;
-    /** The reset instant in epoch seconds, or `null` before a response names one. */
+    /** The reset instant in epoch seconds; `null` before a response names one, and after a roll until one does again. */
     resetAt: number | null;
     spent: number;
 }
@@ -123,7 +127,12 @@ const wholeNumber = (raw: string | undefined): number | null => {
     return parsed.kind === "valid" ? parsed.seconds : null;
 };
 
-export function createAllowance({ share, mutations, onWindow }: AllowanceOptions): Allowance {
+export function createAllowance({
+    share,
+    mutations,
+    onWindow,
+    clock,
+}: AllowanceOptions): Allowance {
     const pools: Record<Pool, PoolLedger> = {
         core: { limit: ASSUMED_POOL_LIMIT, resetAt: null, spent: 0 },
         graphql: { limit: ASSUMED_POOL_LIMIT, resetAt: null, spent: 0 },
@@ -132,6 +141,22 @@ export function createAllowance({ share, mutations, onWindow }: AllowanceOptions
     let mutationsSpent = 0;
     let turnedAway = 0;
     let refusedLane: Lane | null = null;
+
+    /**
+     * A window nobody will report the end of rolls its own spend (D196).
+     * The roll is a comparison, not a wait; the next response re-states the window.
+     */
+    const rollIfDue = (): void => {
+        if (clock === undefined) return;
+        const now = clock();
+        for (const pool of ["core", "graphql"] as const) {
+            const ledger = pools[pool];
+            if (ledger.resetAt !== null && now >= ledger.resetAt * 1_000) {
+                ledger.resetAt = null;
+                ledger.spent = 0;
+            }
+        }
+    };
 
     const capOf = (pool: Pool): number => Math.floor(share * pools[pool].limit);
 
@@ -143,33 +168,38 @@ export function createAllowance({ share, mutations, onWindow }: AllowanceOptions
 
     const atCap = (pool: Pool): boolean => pools[pool].spent >= capOf(pool);
 
-    const refuses = (pool: Pool, mutation: boolean): Lane | null => {
-        if (atCap(pool)) return pool;
-        return mutation && mutationsSpent >= mutationCap ? "mutations" : null;
-    };
-
     return {
-        spent: () => ({
-            core: pools.core.spent,
-            graphql: pools.graphql.spent,
-            mutations: mutationsSpent,
-        }),
+        spent: () => {
+            rollIfDue();
+            return {
+                core: pools.core.spent,
+                graphql: pools.graphql.spent,
+                mutations: mutationsSpent,
+            };
+        },
         exhausted(): Lane | null {
+            rollIfDue();
             if (atCap("core")) return "core";
             if (atCap("graphql")) return "graphql";
             return mutationsSpent >= mutationCap ? "mutations" : null;
         },
-        refuses,
+        refuses(pool: Pool, mutation: boolean): Lane | null {
+            rollIfDue();
+            if (atCap(pool)) return pool;
+            return mutation && mutationsSpent >= mutationCap ? "mutations" : null;
+        },
         refusals: () => turnedAway,
         lastRefusal: (): Refusal | null =>
             refusedLane === null ? null : { lane: refusedLane, resetAt: rollsAt(refusedLane) },
-        standing: (): readonly PoolStanding[] =>
-            (["core", "graphql"] as const).map((pool) => ({
+        standing: (): readonly PoolStanding[] => {
+            rollIfDue();
+            return (["core", "graphql"] as const).map((pool) => ({
                 pool,
                 allowed: capOf(pool),
                 spent: pools[pool].spent,
                 resetAt: rollsAt(pool),
-            })),
+            }));
+        },
         refused(lane: Lane): void {
             turnedAway += 1;
             refusedLane = lane;
@@ -187,6 +217,10 @@ export function createAllowance({ share, mutations, onWindow }: AllowanceOptions
             if (limit !== null && limit > 0) ledger.limit = limit;
             const reset = wholeNumber(headers["x-ratelimit-reset"]);
             if (reset === null || (ledger.resetAt !== null && reset <= ledger.resetAt)) return;
+            // A reset the clock has already passed names a window that is over; the next response
+            // names the live one. Adopting it would roll away the charge that carried it (D196).
+
+            if (clock !== undefined && reset * 1_000 <= clock()) return;
             if (ledger.resetAt !== null && reset <= ledger.resetAt + WINDOW_SLACK_S) {
                 ledger.resetAt = reset;
                 return;

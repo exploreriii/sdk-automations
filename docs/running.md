@@ -78,6 +78,8 @@ installation reports, 5,000 assumed until a response says otherwise, and it is s
 own window rather than over a tick; the rest is the webhook lane's, which spends its own allowance
 with no write cap on it. The client charges what GitHub charges: a conditional read
 answered `304` costs nothing, a GraphQL query costs its own points, and a write costs one request.
+A pool whose named reset has passed rolls its spend on its own, so a lane spent to its cap recovers
+when the window does, without waiting for a response to say so (D196).
 Configuration, facts, resolvers, apply-time checks, writes, retries and read-back all come out of it.
 
 `SWEEP_WRITE_CALLS` stays a per-tick lane on that allowance, because content creation has limits of

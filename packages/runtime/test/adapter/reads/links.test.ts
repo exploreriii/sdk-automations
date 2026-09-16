@@ -90,6 +90,8 @@ describe("the batched link read", () => {
         expect(calls).toHaveLength(2);
         const [first, second] = bodiesOf(calls);
         expect(first!.operationName).toBe("LinkedIssuesBatch");
+        // The charge is GitHub's own figure for the whole aliased batch (D194).
+        expect(first!.query).toContain("rateLimit { cost }");
         expect(first!.query).toContain("p0: pullRequest(number: $n0)");
         expect(first!.query).toContain("p99: pullRequest(number: $n99)");
         expect(first!.query).not.toContain("p100:");
@@ -179,6 +181,7 @@ describe("the batched link read", () => {
         });
         expect(calls).toHaveLength(2);
         expect(bodiesOf(calls)[1]!.operationName).toBe("LinkedIssues");
+        expect(bodiesOf(calls)[1]!.query).toContain("rateLimit { cost }");
     });
 
     it("refuses the whole answer when the per-item fall back cannot be read", async () => {

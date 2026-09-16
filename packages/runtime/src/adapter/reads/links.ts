@@ -30,6 +30,7 @@ const LINKED_ISSUES_QUERY = `query LinkedIssues(
   $number: Int!
   $after: String
 ) {
+  rateLimit { cost }
   repository(owner: $owner, name: $repo) {
     nameWithOwner
     pullRequest(number: $number) {
@@ -49,7 +50,7 @@ const BATCH_CONNECTION =
     "closingIssuesReferences(first: 100, excludeUserLinked: true) " +
     "{ nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor } }";
 
-/** How many pull requests one POST may name; GitHub's cost formula charges about a point. */
+/** How many pull requests one POST may name; `rateLimit { cost }` makes the charge GitHub's own figure, whatever the formula does with aliases (D194). */
 export const MAX_BATCH_ALIASES = 100;
 
 const aliasOf = (index: number): string => `p${String(index)}`;
@@ -69,7 +70,7 @@ function batchQuery(count: number): string {
         .join(" ");
     return (
         `query LinkedIssuesBatch($owner: String!, $repo: String!, ${declared}) ` +
-        `{ repository(owner: $owner, name: $repo) { ${aliased} } }`
+        `{ rateLimit { cost } repository(owner: $owner, name: $repo) { ${aliased} } }`
     );
 }
 

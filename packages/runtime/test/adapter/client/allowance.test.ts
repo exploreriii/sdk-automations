@@ -316,3 +316,59 @@ describe("the mutation lane", () => {
         expect(allowance.exhausted()).toBe("core");
     });
 });
+
+/**
+ * At its cap the ledger refuses every request, so no response can name the next
+ * window (D196). The clock seam rolls a pool once the reset it last named has
+ * passed; the next response re-states the window, exactly as the first one did.
+ */
+describe("a window nobody will report the end of", () => {
+    const spentCorePool = (clock?: () => number): ReturnType<typeof createAllowance> => {
+        const allowance = createAllowance({
+            share: 0.001,
+            ...(clock === undefined ? {} : { clock }),
+        });
+        allowance.observed("core", headers(resetIn(60)));
+        for (let sent = 0; sent < 5; sent += 1) allowance.charge(exchange());
+        return allowance;
+    };
+
+    it("rolls its own spend once the reset it last named has passed", () => {
+        let now = (1_787_300_000 + 59) * 1_000;
+        const allowance = spentCorePool(() => now);
+
+        expect(allowance.refuses("core", false)).toBe("core");
+
+        now = (1_787_300_000 + 60) * 1_000;
+        expect(allowance.refuses("core", false)).toBeNull();
+        expect(allowance.exhausted()).toBeNull();
+        expect(allowance.spent().core).toBe(0);
+        // The pool waits for a response to name the next window's end.
+        expect(allowance.standing().find((pool) => pool.pool === "core")?.resetAt).toBeNull();
+    });
+
+    it("re-states its window's end from the first response after the roll", () => {
+        const now = (1_787_300_000 + 61) * 1_000;
+        const allowance = spentCorePool(() => now);
+
+        // The roll left no named end; the next response names the new one.
+        allowance.observed("core", headers(resetIn(3_600), { "x-ratelimit-limit": "12500" }));
+        expect(allowance.standing().find((pool) => pool.pool === "core")).toMatchObject({
+            allowed: 12,
+            spent: 0,
+            resetAt: new Date((1_787_300_000 + 3_600) * 1_000).toISOString(),
+        });
+    });
+
+    it("stays spent before the reset has passed, without a clock, and without a named reset", () => {
+        // A clock that has not reached the reset changes nothing.
+        const now = (1_787_300_000 + 30) * 1_000;
+        expect(spentCorePool(() => now).refuses("core", false)).toBe("core");
+        // No clock: the ledger cannot roll, and stays as it was.
+        expect(spentCorePool().refuses("core", false)).toBe("core");
+        // No named reset: there is nothing to roll to.
+        const unnamed = createAllowance({ share: 0.001, clock: () => Number.MAX_SAFE_INTEGER });
+        for (let sent = 0; sent < 5; sent += 1) unnamed.charge(exchange());
+        expect(unnamed.refuses("core", false)).toBe("core");
+    });
+});

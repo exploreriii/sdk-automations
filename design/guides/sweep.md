@@ -58,7 +58,8 @@ never sent, and the driver answers its group `unread` rather than guessing.
 
 Per repository, per open item on a cold cache. The firing opens with the open-item list and the
 links of every listed pull request, read before the item walk: one aliased query per hundred pull
-requests, about one point (D194). An issue then costs its timeline page, and its comments page where
+requests, charged whatever GitHub says it cost — the query carries `rateLimit { cost }` (D194, D197).
+An issue then costs its timeline page, and its comments page where
 the repository maps a `working` spelling: two, or one without. A pull request costs five, in this order:
 the timeline, the comments, the reviews, the pull request, the commits — four without `working`. The
 timeline and the pull request are each read once an item and folded twice, so no group pays for a

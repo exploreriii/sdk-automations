@@ -1678,6 +1678,31 @@ describe("the allowance", () => {
         expect(scripted.calls).toHaveLength(0);
     });
 
+    it("sends again once the window the refusal named has rolled (D196)", async () => {
+        const rates = {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-reset": String(Math.floor(NOW.getTime() / 1_000) + 60),
+        };
+        const { client, scripted } = harness([
+            success('{"ok":true}', rates),
+            success('{"ok":true}', rates),
+        ]);
+        let now = NOW.getTime();
+        const allowance = createAllowance({ share: 1 / ASSUMED_POOL_LIMIT, clock: () => now });
+
+        expect((await client.request(request(), allowance)).ok).toBe(true);
+        expect(await client.request(request(), allowance)).toEqual({
+            ok: false,
+            failure: { kind: "notSent", reason: "allowanceExhausted", lane: "core" },
+        });
+        expect(scripted.calls).toHaveLength(1);
+
+        now = NOW.getTime() + 61_000;
+        expect((await client.request(request(), allowance)).ok).toBe(true);
+        expect(scripted.calls).toHaveLength(2);
+        expect(allowance.spent().core).toBe(1);
+    });
+
     it("still sends a GraphQL query when only the core pool is spent", async () => {
         const { client, scripted } = harness([success('{"data":{}}')], {
             outcomes: [{ ok: true, token: GRAPHQL_TOKEN }],

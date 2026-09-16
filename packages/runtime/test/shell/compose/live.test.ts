@@ -17,7 +17,8 @@ const REPOSITORY = { owner: "hiero-hackers", repo: "sdk-automations" } as const;
 
 /** GitHub's own limit for this installation, small enough to spend in a test. */
 const POOL_LIMIT = 10;
-const RESET_SECONDS = 1_787_300_060;
+/** The live window's end: an hour past the clock this composition runs on (D196). */
+const RESET_SECONDS = Math.floor(Date.parse("2026-09-15T11:00:00.000Z") / 1_000);
 
 /** The one config file every read below answers with, as GitHub's contents route carries it. */
 const CONFIG_FILE = JSON.stringify({

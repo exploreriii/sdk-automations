@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { UNREAD } from "@hiero-hackers/automation-core";
+import { UNREAD, type FactGroup } from "@hiero-hackers/automation-core";
 import {
     decodeSnapshot,
     encodeSnapshot,
@@ -83,10 +83,31 @@ describe("a read written and read back", () => {
     });
 
     /** An instant is written as its ISO spelling, which is what makes a column readable by eye. */
+    it("keeps which kind a reference names", () => {
+        const pull = { kind: "pullRequest", number: 9 } as const;
+        const stored = roundTrip({
+            ...PULL_REQUEST,
+            links: { issues: [{ item: pull, assignees: [] }] },
+            closes: [pull, ISSUE],
+        });
+
+        expect(stored).toMatchObject({
+            links: { issues: [{ item: pull }] },
+            closes: [pull, ISSUE],
+        });
+    });
+
     it("writes the instants as ISO strings", () => {
         expect(encodeSnapshot(ISSUE_READ)).toContain('"assignedAt":"2026-08-01T00:00:00.000Z"');
     });
 });
+
+/** Every mode dated, the shape `reapableSince` is written in. */
+const MODES = {
+    needsRevision: "2026-08-04T00:00:00.000Z",
+    changesRequested: "2026-08-05T00:00:00.000Z",
+    draft: "2026-08-06T00:00:00.000Z",
+};
 
 describe("bytes no read wrote", () => {
     it.each([
@@ -105,6 +126,17 @@ describe("bytes no read wrote", () => {
             '{"kind":"issue","groups":[],"assignees":[{"login":"ada","assignedAt":"2026-08-01T00:00:00.000Z","lastWorkingAt":"soon"}]}',
         ],
         ["a pull request missing a group", '{"kind":"pullRequest","groups":[],"assignees":[]}'],
+        ["nothing at all", "null"],
+        ["no groups", '{"kind":"issue","assignees":[]}'],
+        ["a clock that is not a record", '{"kind":"issue","groups":[],"assignees":[5]}'],
+        [
+            "a clock whose login is not text",
+            '{"kind":"issue","groups":[],"assignees":[{"login":3,"assignedAt":"2026-08-01T00:00:00.000Z"}]}',
+        ],
+        [
+            "an instant written as a number",
+            '{"kind":"issue","groups":[],"assignees":[{"login":"ada","assignedAt":1754006400000}]}',
+        ],
     ])("answers nothing for %s", (_shape, stored) => {
         expect(decodeSnapshot(stored)).toBeNull();
     });
@@ -125,6 +157,48 @@ describe("bytes no read wrote", () => {
         ],
         ["a readiness that is not a flag", { readiness: { draft: "no" } }],
         ["a closing reference with no number", { closes: [{ kind: "issue" }] }],
+        ["a closing reference with no kind", { closes: [{ number: 7 }] }],
+        [
+            "a closing reference of a kind nobody reads",
+            { closes: [{ kind: "comment", number: 7 }] },
+        ],
+        ["a closing reference numbered in text", { closes: [{ kind: "issue", number: "7" }] }],
+        ["a closing reference not numbered whole", { closes: [{ kind: "issue", number: 1.5 }] }],
+        [
+            "a link whose item is not a reference",
+            { links: { issues: [{ item: 5, assignees: [] }] } },
+        ],
+        [
+            "a link whose clocks are not clocks",
+            { links: { issues: [{ item: { kind: "issue", number: 7 }, assignees: [5] }] } },
+        ],
+        ["links that are not a record", { links: 5 }],
+        ["a review that is not a record", { review: 5 }],
+        [
+            "a review whose verdict is not a flag",
+            { review: { changesRequested: "yes", reapableSince: MODES, lastCommitAt: null } },
+        ],
+        [
+            "a review whose modes are not a record",
+            { review: { changesRequested: false, reapableSince: 5, lastCommitAt: null } },
+        ],
+        ...(["needsRevision", "changesRequested", "draft"] as const).map(
+            (mode): [string, Record<string, unknown>] => [
+                `a review whose ${mode} mode is undated`,
+                {
+                    review: {
+                        changesRequested: false,
+                        reapableSince: { ...MODES, [mode]: "whenever" },
+                        lastCommitAt: null,
+                    },
+                },
+            ],
+        ),
+        [
+            "a review whose last commit is neither an instant nor absent",
+            { review: { changesRequested: false, reapableSince: MODES, lastCommitAt: "soon" } },
+        ],
+        ["a pull request whose clocks are not clocks", { assignees: [5] }],
     ])("answers nothing for %s", (_shape, broken) => {
         const stored = JSON.stringify({ ...JSON.parse(encodeSnapshot(PULL_REQUEST)), ...broken });
 
@@ -133,6 +207,23 @@ describe("bytes no read wrote", () => {
 });
 
 describe("whether a stored read still answers", () => {
+    it.each<[string, SnapshotFacts, readonly FactGroup[]]>([
+        ["an issue", { ...ISSUE_READ, assignees: UNREAD } as SnapshotFacts, ["assignees"]],
+        [
+            "a pull request",
+            { ...PULL_REQUEST, assignees: UNREAD } as SnapshotFacts,
+            PULL_REQUEST.groups,
+        ],
+    ])("answers nothing for %s whose needed clocks went unread", (_kind, stored, needed) => {
+        expect(snapshotAnswers(stored, needed)).toBe(false);
+    });
+
+    it("answers for an issue read with no groups, whatever its clocks say", () => {
+        const stored: SnapshotFacts = { kind: "issue", groups: [], assignees: UNREAD };
+
+        expect(snapshotAnswers(stored, [])).toBe(true);
+    });
+
     it("answers the set it was read with", () => {
         expect(snapshotAnswers(PULL_REQUEST, ["assignees", "links", "review", "readiness"])).toBe(
             true,

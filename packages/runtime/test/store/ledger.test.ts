@@ -197,6 +197,72 @@ describe("the order due rows are claimed in", () => {
     });
 });
 
+describe("the order due rows are claimed in, whatever order they were declared in", () => {
+    it("puts the never-fired first and then the oldest start, over four rows", () => {
+        const store = new Store(path);
+        const startedAt: Readonly<Record<string, string | null>> = {
+            "sweep:o/never": null,
+            "sweep:o/early": "2026-09-12T09:10:00.000Z",
+            "sweep:o/mid": "2026-09-12T09:20:00.000Z",
+            "sweep:o/late": "2026-09-12T09:30:00.000Z",
+        };
+        for (const id of Object.keys(startedAt)) store.ledger.schedule(id, AT, "sweep");
+        for (const row of store.ledger.claimDue(AT)) {
+            store.ledger.scheduleAgain(
+                row.scheduleId,
+                row.claimToken,
+                AT,
+                null,
+                startedAt[row.scheduleId] ?? null,
+            );
+        }
+
+        expect(store.ledger.claimDue(AT).map((row) => row.scheduleId)).toEqual([
+            "sweep:o/never",
+            "sweep:o/early",
+            "sweep:o/mid",
+            "sweep:o/late",
+        ]);
+        store.close();
+    });
+});
+
+describe("an instant that is not one is refused, naming the argument", () => {
+    it.each([
+        ["now", (store: Store) => store.ledger.standingWarnings("2026-09-12")],
+        ["since", (store: Store) => store.ledger.commentsSince("yesterday")],
+        [
+            "updatedAt",
+            (store: Store) =>
+                store.ledger.putSnapshot(REPOSITORY, {
+                    item: ITEM,
+                    updatedAt: "2026-09-12",
+                    readAt: AT,
+                    facts: "{}",
+                }),
+        ],
+        [
+            "readAt",
+            (store: Store) =>
+                store.ledger.putSnapshot(REPOSITORY, {
+                    item: ITEM,
+                    updatedAt: AT,
+                    readAt: "soon",
+                    facts: "{}",
+                }),
+        ],
+        [
+            "startedAt",
+            (store: Store) => store.ledger.scheduleAgain("sweep:o/r", "token", AT, null, "soon"),
+        ],
+    ])("%s", (name, call) => {
+        const store = new Store(path);
+
+        expect(() => call(store)).toThrow(new RegExp(`^${name} must be a millisecond`));
+        store.close();
+    });
+});
+
 describe("the writes the platform made on one item", () => {
     it("returns the item's landed facts by time, and nothing else's", () => {
         const store = new Store(path);

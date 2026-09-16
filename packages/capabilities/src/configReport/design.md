@@ -14,6 +14,8 @@ One comment per pull request, updated in place. When the file parses:
 >
 > - intake — on
 >   - announce: true
+>   - labels it may set
+>     - status: triage — awaitingTriage; defined #fbca04 if the repository lacks it
 > - prQuality — on, no settings
 > - configReport — on, no settings
 > - inactivity — on

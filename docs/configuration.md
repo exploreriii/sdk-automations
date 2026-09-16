@@ -216,6 +216,15 @@ The other families have no defaults: enabling a capability whose command, skill 
 mapped is a `meaningRequired` error naming the capability, the meaning, and the line to add. A
 capability you leave disabled requires nothing.
 
+### Which labels will it use?
+
+The report the App posts on a pull request that edits this file lists, under each enabled
+capability, the labels it may set at the spelling in force, and the colour each would be defined
+with if the repository lacks it. That is the moment to map your own name instead. There is no global
+"no labels" switch: a capability whose whole act is a label is switched off by disabling it, and one
+where the label is one act among several lists the positions it may set, like prQuality's
+`applyLabels`, which left empty labels nothing.
+
 | Meaning | Typical use | Default spelling | Defined as, when the repository lacks it |
 |---|---|---|---|
 | `awaitingTriage` | New, nobody has looked yet | `status: triage` | `#fbca04` New; waiting for a maintainer to triage |

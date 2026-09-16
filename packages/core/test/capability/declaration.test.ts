@@ -12,6 +12,7 @@ const declaration: CapabilityDeclaration = {
     triggers: [{ kind: "event", event: "pull_request" }],
     settings: spec({ checks: flag({ default: false }) }),
     requiredMappings: { labels: ["needsReview"] },
+    labels: ["needsReview"],
     facts: ["pullRequest"],
     /**
      * Empty, and it is the study's finding that it has to be: the webhook
@@ -164,11 +165,32 @@ describe("validateCapabilityDeclarations", () => {
         expect(trigger.kind).toBe("event");
     });
 
+    /** D204: a capability that may set a position names which, and the reverse. */
+    it("holds `labels` and the applyMappedLabel intent together", () => {
+        expect(validateCapabilityDeclarations([{ ...declaration, labels: [] }])).toEqual([
+            'capability "prQuality": may set a position but names no label meaning in `labels`',
+        ]);
+        expect(
+            validateCapabilityDeclarations([{ ...declaration, intents: ["postManagedComment"] }]),
+        ).toEqual([
+            'capability "prQuality": names label meanings but never declares the applyMappedLabel intent',
+        ]);
+        expect(
+            validateCapabilityDeclarations([
+                { ...declaration, labels: ["needsReview", "needsReview", "nonsense"] },
+            ]),
+        ).toEqual([
+            'capability "prQuality": duplicate labels entry "needsReview"',
+            'capability "prQuality": label meaning "nonsense" is not in the labels family',
+        ]);
+    });
+
     it("keeps operation facts out of the declaration shape", () => {
         expect(declaration.intents).toEqual(["postManagedComment", "applyMappedLabel"]);
         expect(Object.keys(declaration).sort()).toEqual([
             "facts",
             "intents",
+            "labels",
             "name",
             "needs",
             "requiredMappings",

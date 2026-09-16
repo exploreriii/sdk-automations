@@ -234,7 +234,15 @@ export function readCapabilities(
                 ? null
                 : readCapabilitySettings(name, declared, names, stated, base);
         if (read !== null && !read.ok) errors.push(...read.errors);
-        entries.push([name, { enabled, settings: read?.ok === true ? read.value : stated }]);
+        const labels = declared?.labels ?? [];
+        entries.push([
+            name,
+            {
+                enabled,
+                settings: read?.ok === true ? read.value : stated,
+                ...(labels.length === 0 ? {} : { labels }),
+            },
+        ]);
     }
     return checked(entries, errors);
 }

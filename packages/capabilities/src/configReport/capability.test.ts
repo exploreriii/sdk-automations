@@ -263,6 +263,8 @@ describe("configReport", () => {
                 "",
                 "- intake — on",
                 "  - announce: true",
+                "  - labels it may set",
+                "    - status: triage — awaitingTriage; defined #fbca04 if the repository lacks it",
                 // `enabled: true` and nothing else, so every check is parked.
                 "- prQuality — on",
                 "  - checks",
@@ -275,6 +277,9 @@ describe("configReport", () => {
                 "    - linkedIssues",
                 "      - enabled: false",
                 "  - applyLabels: none",
+                "  - labels it may set",
+                "    - status: needs revision — needsRevision; defined #d93f0b if the repository lacks it",
+                "    - status: needs review — needsReview; defined #5319e7 if the repository lacks it",
                 "",
                 "Switched off: inactivity.",
                 "",
@@ -657,6 +662,30 @@ mappings:
         ).toBe(true);
     });
 
+    /** A hand-built block: the labels a capability may set render on the default spelling when nothing is mapped (D204). */
+    it("names the labels a capability may set, at the default spelling when none is mapped", () => {
+        const body = renderConfiguration("sha256:labels", {
+            revision: "sha256:labels",
+            schemaVersion: 2,
+            mode: "active",
+            capabilities: {
+                intake: { enabled: true, settings: {}, labels: ["awaitingTriage"] },
+                configReport: { enabled: true, settings: {} },
+            },
+            mappings: { labels: {}, commands: {}, skills: {}, alerts: {} },
+            principals: {},
+        });
+
+        expect(body).toContain(
+            [
+                "- intake — on",
+                "  - labels it may set",
+                "    - status: triage — awaitingTriage; defined #fbca04 if the repository lacks it",
+                "- configReport — on, no settings",
+            ].join("\n"),
+        );
+    });
+
     /** The narrow shape again, with the three lists the trigger implies filled in. */
     it("declares one event trigger, one resolver, one comment and no group", () => {
         expect(configReport.declaration).toEqual({
@@ -664,6 +693,7 @@ mappings:
             triggers: [{ kind: "event", event: "pull_request" }],
             settings: CONFIG_REPORT_SETTINGS,
             requiredMappings: {},
+            labels: [],
             facts: ["pullRequest"],
             needs: [],
             resolvers: ["configAtHead"],

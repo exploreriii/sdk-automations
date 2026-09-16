@@ -45,6 +45,7 @@ describe("declared shape", () => {
             ],
             settings: PR_QUALITY_SETTINGS,
             requiredMappings: {},
+            labels: ["needsRevision", "needsReview"],
             facts: ["pullRequest"],
             needs: ["readiness"],
             resolvers: [
@@ -69,6 +70,7 @@ describe("declared shape", () => {
             triggers: [{ kind: "event", event: "issues" }],
             settings: INTAKE_SETTINGS,
             requiredMappings: { labels: ["awaitingTriage"] },
+            labels: ["awaitingTriage"],
             facts: ["issue"],
             needs: [],
             resolvers: ["isAutomationActor"],
@@ -82,6 +84,7 @@ describe("declared shape", () => {
             triggers: [{ kind: "schedule", description: "hourly stale-assignment sweep" }],
             settings: INACTIVITY_SETTINGS,
             requiredMappings: {},
+            labels: [],
             facts: ["issue", "pullRequest"],
             needs: ["assignees", "links", "review", "readiness"],
             resolvers: ["isAutomationActor"],

@@ -1,12 +1,8 @@
 /** The mapped-label operation's transport: the three label verbs. */
 
 import { repoPath } from "../../client/contract.js";
-import {
-    issuePath,
-    type OperationTransport,
-    type VerbContext,
-    type WriteVerbs,
-} from "./transport.js";
+import type { WriteVerbs } from "@hiero-hackers/automation-core";
+import { issuePath, type OperationTransport, type VerbContext } from "./transport.js";
 
 export const APPLY_MAPPED_LABEL = {
     verbs: (

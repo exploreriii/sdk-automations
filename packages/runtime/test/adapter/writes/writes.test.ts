@@ -6,11 +6,10 @@
  * idempotent verb than for the comment create.
  */
 
-import type { ItemRef } from "@hiero-hackers/automation-core";
+import type { ItemRef, WriteResult } from "@hiero-hackers/automation-core";
 import { describe, expect, it } from "vitest";
 import { ASSUMED_POOL_LIMIT, createAllowance } from "../../../src/adapter/client/allowance.js";
 import { MAX_RESPONSE_BODY_BYTES } from "../../../src/adapter/client/http.js";
-import type { WriteResult } from "../../../src/adapter/writes/operations/transport.js";
 import { LABEL_ABSENT } from "../../../src/adapter/writes/writes.js";
 import {
     failure,

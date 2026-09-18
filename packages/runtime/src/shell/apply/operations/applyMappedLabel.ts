@@ -110,12 +110,22 @@ export const applyMappedLabel: OperationHandler<"applyMappedLabel"> = {
                         detail: "the read-back could not establish whether the repository defines this label",
                     };
                 }
-                return await pass.writer.createLabel(
+                const created = await pass.writer.createLabel(
                     call.label,
                     call.color,
                     call.description,
                     pass.allowance,
                 );
+                if (created.outcome !== "conflict") return created;
+                const raced = await pass.reader.labelDefined(call.label);
+                if (raced === "present") return { outcome: "already" };
+                if (raced === "unknown") {
+                    return {
+                        outcome: "unknown",
+                        detail: "the read-back could not establish whether another writer defined this label",
+                    };
+                }
+                return created;
             }
             case "addLabel":
                 return await pass.writer.addLabel(pass.item, call.label, pass.allowance);

@@ -203,6 +203,30 @@ describe("an effect nothing has started", () => {
         expect(lacking.world.definedLabels).toEqual([READY_LABEL]);
     });
 
+    it("continues when another writer defines the label first", async () => {
+        const github = fakeGitHub({ definedLabels: [] });
+        const createLabel = github.writer.createLabel;
+        github.faults.scripted = [{ outcome: "conflict", detail: "label already exists" }];
+        Object.assign(github.writer, {
+            createLabel: async (...args: Parameters<typeof createLabel>) => {
+                const result = await createLabel(...args);
+                github.world.definedLabels?.push(args[0]);
+                return result;
+            },
+        });
+
+        const outcome = one(
+            await applierOver(github).applyAll([labelEffect({ meaning: "ready" })], configFor()),
+        );
+
+        expect(outcome).toMatchObject({ outcome: "applied" });
+        expect(github.calls).toEqual([
+            `createLabel ${READY_LABEL} 0e8a16`,
+            `addLabel ${READY_LABEL}`,
+        ]);
+        expect(github.world.labels).toEqual([READY_LABEL]);
+    });
+
     it("leaves a label the repository defines exactly as it is", async () => {
         const holding = fakeGitHub({ definedLabels: [TRIAGE_LABEL] });
 

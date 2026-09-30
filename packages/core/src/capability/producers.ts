@@ -1,7 +1,7 @@
 /**
  * Who reads what: every producer of fact records, and the groups each fills.
  * THE TABLE IS THE PROMISE — a failed read still leaves its group `"unread"`. It is
- * read off the group modules' own rows (D214), never written twice.
+ * read off the group modules' own rows (D215), never written twice.
  */
 
 import {

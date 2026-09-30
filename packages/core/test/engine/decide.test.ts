@@ -772,7 +772,7 @@ describe("paths the delivery tests never walk", () => {
         });
         expect(decision.report.findings[0]?.summary).toContain("assignees");
     });
-    /** D213: a need is per kind, so a group needed on issues cannot withhold a pull request. */
+    /** D214: a need is per kind, so a group needed on issues cannot withhold a pull request. */
     it("judges each kind by its own needs", async () => {
         const kinds: string[] = [];
         const issueLinks: EngineCapability = {

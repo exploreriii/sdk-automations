@@ -93,7 +93,7 @@ skipped `factsUnread` on every delivery it was triggered by.
 ## 2. What a producer reads
 
 The producers are a registry — `PRODUCERS` in `packages/core/src/capability/producers.ts`, read off
-each group module's own row in `packages/core/src/capability/groups/` (D214) — and this table is
+each group module's own row in `packages/core/src/capability/groups/` (D215) — and this table is
 generated from it by `pnpm contracts`. One row per producer and per kind it makes a
 record of; `—` is a group that kind does not carry.
 
@@ -133,7 +133,7 @@ declareCapability({
 });
 ```
 
-- `needs` is per kind (D213). One list is the shorter form: each group reaches every declared kind
+- `needs` is per kind (D214). One list is the shorter form: each group reaches every declared kind
   that carries it. A need on a kind the capability does not declare, or a group that kind does not
   carry — `review` on an issue — is a declaration error at boot; written per kind it does not
   compile.

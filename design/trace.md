@@ -74,7 +74,7 @@ a MEASURED or PROBED fact, and a third copy of either breaks one fact, one place
      declaration. A webhook reads the projection, `readiness`, `actor`, `author`; the sweep reads
      everything the endpoint matrix has confirmed. Needs are per kind: one list reaches every
      declared kind that carries each group, and a design whose issue branch reads a group its
-     pull-request branch does not writes them per kind, so the sweep pays for neither (D213).
+     pull-request branch does not writes them per kind, so the sweep pays for neither (D214).
      Then check the group's element TYPE against what that producer can READ: `AssigneeClock`
      carries two clocks no webhook payload holds, so the `issues` webhook reads no assignee group
      and "add the row" is not the fix. A design needing a group its trigger cannot fill needs a

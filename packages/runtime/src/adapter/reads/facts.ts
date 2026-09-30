@@ -2,7 +2,7 @@
  * The sweep's reader: every open item of a repository, and of its fact groups those
  * an enabled capability needs (`design/guides/sweep.md` §1). Nothing is invented — a
  * group nobody needs, one the endpoint matrix has not confirmed, and a read that
- * failed all answer `UNREAD`. Each group's read is its module's (D215).
+ * failed all answer `UNREAD`. Each group's read is its module's (D216).
  */
 
 import {

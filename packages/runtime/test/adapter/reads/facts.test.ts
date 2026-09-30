@@ -368,7 +368,7 @@ describe("the open-item list", () => {
         expect(outcome.ok).toBe(false);
     });
 
-    /** D215: a group read off the row leaves only itself unread when the row lacks it. */
+    /** D216: a group read off the row leaves only itself unread when the row lacks it. */
     it("keeps a row without `locked`, whose issue record reads it unread", async () => {
         const { reader } = readerOver({
             ...wholeRepository(),
@@ -605,7 +605,7 @@ describe("the links group", () => {
     });
 
     /**
-     * D213, inactivity's shape: issues need links, pull requests do not. The batch is still
+     * D214, inactivity's shape: issues need links, pull requests do not. The batch is still
      * sent, because an issue's links are its inverse; the issue a pull request closes is not
      * read on that pull request's behalf, and a failure there cannot touch its record.
      */

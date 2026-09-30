@@ -125,7 +125,7 @@ describe("validateCapabilityDeclarations", () => {
         ).toEqual(['capability "prDashboard": the issue record carries no group "review"']);
     });
 
-    /** D213: a need on a kind the capability never receives is refused, not ignored. */
+    /** D214: a need on a kind the capability never receives is refused, not ignored. */
     it("refuses a need on a kind it does not declare", () => {
         expect(
             validateCapabilityDeclarations([{ ...declaration, needs: { issue: ["assignees"] } }]),
@@ -215,7 +215,7 @@ describe("validateCapabilityDeclarations", () => {
     });
 });
 
-/** D213: `needs` is filled per kind, whichever form the author wrote. */
+/** D214: `needs` is filled per kind, whichever form the author wrote. */
 describe("declareCapability fills needs per kind", () => {
     const both = {
         name: "both",

@@ -20,7 +20,7 @@ interface CapabilityDeclaration {
   readonly requiredMappings: DeclaredMappings;
   readonly labels: readonly string[];            // the label meanings it may set; non-empty iff intents holds applyMappedLabel (D204)
   readonly facts: readonly string[];
-  readonly needs: Readonly<Record<string, readonly string[]>>; // per kind (D213)
+  readonly needs: Readonly<Record<string, readonly string[]>>; // per kind (D214)
   readonly resolvers: readonly string[];
   readonly intents: readonly string[];
 }
@@ -55,7 +55,7 @@ interface DeclaredMappings {
   family the object omits demands nothing.
 - `facts` and `needs` are the two the ENGINE reads ([`facts.md`](facts.md) §3): which item kinds this
   capability is handed a record for, and which groups of each kind's record it reads. A need on a kind
-  it does not declare, or a group that kind does not carry — `review` on an issue — is a boot error (D213).
+  it does not declare, or a group that kind does not carry — `review` on an issue — is a boot error (D214).
 - `TypedDeclaration` narrows mapping, fact, group, resolver, and intent names to the closed platform
   catalogues, which is also what lets a declaration serve as an `AdmittedCapability` uncast.
 - `declareCapability<const D>` preserves those lists as literal tuples so the boundary can project exact

@@ -50,7 +50,7 @@ export interface CapabilityDeclaration {
     /** The label meanings it may set — non-empty exactly when `intents` holds `applyMappedLabel` (D204). */
     readonly labels: readonly string[];
     readonly facts: readonly string[];
-    /** Per kind — a need declared is a read paid for: the sweep reads these and no more (D195, D213). */
+    /** Per kind — a need declared is a read paid for: the sweep reads these and no more (D195, D214). */
     readonly needs: Readonly<Record<string, readonly string[]>>;
     readonly resolvers: readonly string[];
     readonly intents: readonly string[];

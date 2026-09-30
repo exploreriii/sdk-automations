@@ -143,7 +143,7 @@ const pullRecord = (
     review: Partial<PullLadderFacts["review"] & PullLadderFacts["readiness"]> = {},
 ): PullLadderFacts => {
     const { draft, ...rest } = { draft: true, ...review };
-    // The sweep reads links this ladder never declared (D213), so the record is projected.
+    // The sweep reads links this ladder never declared (D214), so the record is projected.
     return factsFor(
         inactivity.declaration,
         sweptPullRequest({
@@ -750,7 +750,7 @@ describe("nothing rides along with a close", () => {
 
     it("closes and says only that, with the issue ladder on", async () => {
         // The linked issues are somebody else's record: this ladder does not
-        // declare links (D213), so it has no world to judge their assignments in.
+        // declare links (D214), so it has no world to judge their assignments in.
         expect(await decide(closing())).toEqual([
             expect.objectContaining({
                 item: PULL,

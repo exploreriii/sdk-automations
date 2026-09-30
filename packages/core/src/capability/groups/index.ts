@@ -1,5 +1,5 @@
 /**
- * Every fact group, one module each, and the walks over them (D214). The producer
+ * Every fact group, one module each, and the walks over them (D215). The producer
  * table, the group keys and the fixtures are read off this registry.
  */
 
@@ -103,7 +103,7 @@ export type KeptOn<K extends FactKind> = {
         : never;
 }[FactGroup];
 
-/** A `K` record's kept groups, as a stored read hands them back — one definition (D215). */
+/** A `K` record's kept groups, as a stored read hands them back — one definition (D216). */
 export type KeptGroups<K extends FactKind> = {
     readonly [G in KeptOn<K>]: GroupValue<K, G> | Unread;
 };

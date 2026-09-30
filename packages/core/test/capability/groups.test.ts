@@ -1,5 +1,5 @@
 /**
- * The group registry (D214): each module's row is the producer table, and a
+ * The group registry (D215): each module's row is the producer table, and a
  * webhook fills exactly the groups its row names, from the payload.
  */
 

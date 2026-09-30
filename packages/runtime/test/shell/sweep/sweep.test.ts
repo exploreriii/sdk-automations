@@ -362,7 +362,7 @@ describe("a due sweep row", () => {
         await run();
 
         // `inactivity` is the one sweep capability; its pull-request ladder
-        // never reads `links`, so the sweep does not read them there (D213).
+        // never reads `links`, so the sweep does not read them there (D214).
         expect(groups).toEqual([
             {
                 issue: ["assignees", "links"],
@@ -1852,7 +1852,7 @@ describe("the reader and the driver together", () => {
         });
         // And the pull request's own record says `review` is the group nobody
         // read — the three reads it is built from have no citation yet — and
-        // carries no `links`, which nothing enabled needs on a pull request (D213).
+        // carries no `links`, which nothing enabled needs on a pull request (D214).
         expect(handed[1]?.input.facts).toMatchObject({
             kind: "pullRequest",
             assignees: [{ login: "ada" }],

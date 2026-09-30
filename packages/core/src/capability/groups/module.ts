@@ -1,4 +1,4 @@
-/** One fact group in core: who reads it on which kind, its webhook read, its fixture (D214). */
+/** One fact group in core: who reads it on which kind, its webhook read, its fixture (D215). */
 
 import type { FactGroup, FactKind, Facts, GroupOf, Unread } from "../../catalogue.js";
 import type { Skill } from "../../config/index.js";

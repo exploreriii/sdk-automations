@@ -150,7 +150,7 @@ function newer(held: Date | undefined, seen: Date): Date {
 
 /**
  * One open item as `GET /repos/{o}/{r}/issues` carries it: the fields the driver
- * orders by, and the untrusted row a list-borne group reads its own field from (D215).
+ * orders by, and the untrusted row a list-borne group reads its own field from (D216).
  * `closedBy` is read rather than assumed: a producer must not assert a fact it did not read.
  */
 export interface OpenItem {
@@ -282,7 +282,7 @@ export async function readOpenItems(context: ReadContext): Promise<OpenItemsOutc
 }
 
 /** The label names on a listed item, or `null` when the shape is not GitHub's. */
-function labelNamesOf(labels: unknown): readonly string[] | null {
+export function labelNamesOf(labels: unknown): readonly string[] | null {
     if (!Array.isArray(labels)) return null;
     const names: string[] = [];
     for (const label of labels) {
@@ -294,7 +294,7 @@ function labelNamesOf(labels: unknown): readonly string[] | null {
 }
 
 /** The logins in an `assignees` array, or `null` when the shape is not GitHub's. */
-function loginsOf(assignees: unknown): readonly string[] | null {
+export function loginsOf(assignees: unknown): readonly string[] | null {
     if (!Array.isArray(assignees)) return null;
     const logins: string[] = [];
     for (const assignee of assignees) {

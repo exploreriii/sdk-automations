@@ -1,4 +1,4 @@
-/** Every fact group's sweep read, one module each; the read table is read off it (D215). */
+/** Every fact group's sweep read, one module each; the read table is read off it (D216). */
 
 import type { FactGroup } from "@hiero-hackers/automation-core";
 import type { SweepRead } from "../items.js";

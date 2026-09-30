@@ -11,4 +11,4 @@ export const readiness = {
             return draft.ok ? { ok: true, value: { draft: draft.value } } : draft;
         },
     },
-} as const satisfies SweepGroup<"readiness">;
+} satisfies SweepGroup<"readiness">;

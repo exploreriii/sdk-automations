@@ -7,4 +7,4 @@ export const locked = {
     fromDelivery: ({ item }) => (typeof item["locked"] === "boolean" ? item["locked"] : null),
     missing: { code: "lockedMissing", detail: "locked missing" },
     fixture: { issue: false },
-} as const satisfies GroupModule<"locked">;
+} satisfies GroupModule<"locked">;

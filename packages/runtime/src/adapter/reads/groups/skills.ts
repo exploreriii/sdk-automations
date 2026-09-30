@@ -9,4 +9,4 @@ export const skills = {
         issue: ({ listed, context }) =>
             Promise.resolve({ ok: true, value: skillsOfLabels(context.config, listed.labels) }),
     },
-} as const satisfies SweepGroup<"skills">;
+} satisfies SweepGroup<"skills">;

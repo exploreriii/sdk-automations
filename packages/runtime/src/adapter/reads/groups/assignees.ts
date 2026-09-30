@@ -8,4 +8,4 @@ export const assignees = {
         issue: ({ listed, clocksFor }) => clocksFor(listed.item, listed.assignees),
         pullRequest: ({ listed, clocksFor }) => clocksFor(listed.item, listed.assignees),
     },
-} as const satisfies SweepGroup<"assignees">;
+} satisfies SweepGroup<"assignees">;

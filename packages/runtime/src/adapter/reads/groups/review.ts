@@ -8,4 +8,4 @@ export const review = {
     read: {
         pullRequest: ({ listed, context, walk }) => readReview(context, listed.item.number, walk),
     },
-} as const satisfies SweepGroup<"review">;
+} satisfies SweepGroup<"review">;

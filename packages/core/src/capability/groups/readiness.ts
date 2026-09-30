@@ -17,4 +17,4 @@ export const readiness = {
         typeof item["draft"] === "boolean" ? { draft: item["draft"] } : null,
     missing: { code: "draftMissing", detail: "draft missing" },
     fixture: { pullRequest: { draft: true } },
-} as const satisfies GroupModule<"readiness">;
+} satisfies GroupModule<"readiness">;

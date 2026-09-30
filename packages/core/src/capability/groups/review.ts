@@ -32,4 +32,4 @@ export const review = {
             lastCommitAt: null,
         },
     },
-} as const satisfies GroupModule<"review">;
+} satisfies GroupModule<"review">;

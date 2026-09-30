@@ -7,4 +7,4 @@ export const assignees = {
     readBy: { issue: ["sweep"], pullRequest: ["sweep"] },
     kept: { issue: clocksOf, pullRequest: clocksOf },
     fixture: { issue: [], pullRequest: [] },
-} as const satisfies GroupModule<"assignees">;
+} satisfies GroupModule<"assignees">;

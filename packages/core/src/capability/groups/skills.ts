@@ -6,4 +6,4 @@ export const skills = {
     readBy: { issue: ["issues", "issue_comment", "sweep"] },
     fromDelivery: (delivery) => delivery.skills,
     fixture: { issue: [] },
-} as const satisfies GroupModule<"skills">;
+} satisfies GroupModule<"skills">;

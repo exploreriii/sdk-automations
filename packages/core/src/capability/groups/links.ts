@@ -15,4 +15,4 @@ export const links = {
         },
     },
     fixture: { issue: { openPullRequests: [] }, pullRequest: { issues: [] } },
-} as const satisfies GroupModule<"links">;
+} satisfies GroupModule<"links">;

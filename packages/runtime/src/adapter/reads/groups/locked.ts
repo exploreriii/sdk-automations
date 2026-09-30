@@ -16,4 +16,4 @@ export const locked = {
             );
         },
     },
-} as const satisfies SweepGroup<"locked">;
+} satisfies SweepGroup<"locked">;

@@ -30,4 +30,4 @@ export const links = {
             return { ok: true, value: { issues } };
         },
     },
-} as const satisfies SweepGroup<"links">;
+} satisfies SweepGroup<"links">;

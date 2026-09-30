@@ -543,6 +543,18 @@ describe("the links group", () => {
         expect(urls().some((url) => url.includes("/issues/12/"))).toBe(false);
     });
 
+    it("goes unread when a linked issue's clocks cannot be read", async () => {
+        const { reader } = readerOver({
+            ...wholeRepository(),
+            "/issues/12/timeline": refuses(502),
+        });
+        const items = await listed(reader);
+
+        const record = await pullFacts(reader, items[1]!, [items[0]!]);
+
+        expect(record.links).toBe(UNREAD);
+    });
+
     it("goes unread when the query cannot be answered", async () => {
         const { reader } = readerOver({ ...wholeRepository(), "/graphql": refuses(502) });
         const items = await listed(reader);

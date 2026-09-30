@@ -235,9 +235,9 @@ export function createFactsReader(options: FactsReaderOptions): FactsReader {
                 groups[group] = stored[group];
                 continue;
             }
-            const read = (SWEEP_GROUPS[group].read as Partial<Record<FactKind, GroupRead>>)[kind];
-            groups[group] =
-                read === undefined ? UNREAD : await groupOf(kind, group, () => read(scope));
+            // `SweepGroup` requires a read on every kind that carries the group.
+            const read = (SWEEP_GROUPS[group].read as Record<FactKind, GroupRead>)[kind];
+            groups[group] = await groupOf(kind, group, () => read(scope));
         }
         return groups;
     };

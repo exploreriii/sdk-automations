@@ -19,7 +19,7 @@ const MAX_BODY_BYTES = 25 * 1024 * 1024;
 /** Liveness only, so a hosting platform can probe without a secret. */
 const HEALTH_PATH = "/healthz";
 
-/** Whether the process wants traffic: 200 while ready, 503 once draining. */
+/** Whether the process wants traffic: 200 while ready, 503 while starting or draining. */
 const READY_PATH = "/readyz";
 
 export interface AcceptedDelivery {
@@ -69,7 +69,7 @@ async function handle(
         const ready = options.ready?.() ?? true;
         response
             .writeHead(ready ? 200 : 503, { "content-type": "text/plain" })
-            .end(ready ? "ready\n" : "draining\n");
+            .end(ready ? "ready\n" : "not ready\n");
         return;
     }
     if (request.method !== "POST") {

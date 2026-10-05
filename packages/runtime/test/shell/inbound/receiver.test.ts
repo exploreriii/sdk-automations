@@ -679,7 +679,7 @@ describe("the readiness probe", () => {
         });
     });
 
-    it("answers 503 draining once ready() does not", async () => {
+    it("answers 503 not ready once ready() does not", async () => {
         expect(
             await probe(
                 receiver(() => false),
@@ -687,7 +687,7 @@ describe("the readiness probe", () => {
             ),
         ).toEqual({
             status: 503,
-            body: "draining\n",
+            body: "not ready\n",
             contentType: "text/plain",
         });
     });
@@ -704,7 +704,7 @@ describe("the readiness probe", () => {
             ),
         ).toMatchObject({
             status: 503,
-            body: "draining\n",
+            body: "not ready\n",
         });
     });
 });

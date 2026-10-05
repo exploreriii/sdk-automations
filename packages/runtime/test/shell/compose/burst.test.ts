@@ -47,6 +47,9 @@ const ITEM = { kind: "issue", number: 164 } as const;
 
 const BASE = new Date("2026-08-07T10:00:00.000Z");
 
+/** A hundred signed requests and their decisions on a shared CI runner; 5 s is the default. */
+const BURST_TIMEOUT_MS = 20_000;
+
 const seamsOn = (path: string) => (): RepositorySeams => ({
     configSource: fileConfigSource(path),
     externals: () => stubbedExternals(),
@@ -125,7 +128,7 @@ async function settle(shell: Shell): Promise<void> {
     await shell.drain();
 }
 
-describe("a burst of deliveries", () => {
+describe("a burst of deliveries", { timeout: BURST_TIMEOUT_MS }, () => {
     it("acknowledges every one of 100 distinct deliveries and stores each once", async () => {
         const shell = buildShell();
 

@@ -14,12 +14,11 @@ pnpm start
 
 It drains the deliveries already in the store before it listens. `GET /healthz` answers `200 ok` for
 a liveness probe. `GET /readyz` answers `200 ready` once the start-up drain has finished and the
-socket listens, and `503 draining` from the first shutdown signal. Every other GET is 405. After
-that, everything the process does is one JSON line per event — `at`, `event` from a closed
-vocabulary, and that event's own fields, with `deliveryId` on every line about one delivery, so
-`grep` on a GUID returns its whole passage. Lines an operator should notice go to stderr and the
-rest to stdout. A refusal to boot is the exception and stays a
-human sentence: it precedes the process being alive, and has no delivery to name. Node prints an
+socket listens, and `503 not ready` before then and from the first shutdown signal. Every other GET
+is 405. After that, everything the process does is one JSON line per event — `at`, `event` from a
+closed vocabulary, and that event's own fields, with `deliveryId` on every line about one delivery,
+so `grep` on a GUID returns its whole passage. Lines an operator should notice go to stderr and the
+rest to stdout. A refusal to boot is the exception and stays a human sentence: it precedes the process being alive, and has no delivery to name. Node prints an
 `ExperimentalWarning` for its SQLite module; it is not an error.
 
 ## Run it in a container

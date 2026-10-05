@@ -57,12 +57,20 @@ export class Store {
         this.ledger = new Ledger(this.db);
     }
 
-    /** Copy the open file to `path`, consistent as of the call; the copy opens as a Store. */
-    async backup(path: string): Promise<void> {
-        await backup(this.db, path);
-    }
-
     close(): void {
         this.db.close();
+    }
+}
+
+/**
+ * Copy the store at `source` to `target`, consistent as of the call; the copy opens as a Store.
+ * Read-only, so a running process's file is never migrated or re-pragma'd by its backup.
+ */
+export async function backupStoreFile(source: string, target: string): Promise<void> {
+    const db = new DatabaseSync(source, { readOnly: true });
+    try {
+        await backup(db, target);
+    } finally {
+        db.close();
     }
 }

@@ -1,13 +1,15 @@
 /**
  * A backup taken while the store is open is a store: it opens under the same schema, holds
  * every row the source held at the call, and hands out the pending work the source would.
+ * It only reads the source, so it never migrates the file a running process holds.
  */
 
 import { describe, expect, it } from "vitest";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { asDeliveryGuid, type DeliveryGuid } from "@hiero-hackers/automation-core";
 import { useTempDir } from "@hiero-hackers/automation-testkit";
-import { Store } from "../../src/store/store.js";
+import { backupStoreFile, Store } from "../../src/store/store.js";
 
 const temp = useTempDir("store-backup-");
 
@@ -31,11 +33,12 @@ function accepted(store: Store, last: string): void {
 
 describe("a backup is a store", () => {
     it("opens under the same schema and holds the rows the source held", async () => {
-        const source = new Store(temp.file("source.sqlite"));
+        const sourcePath = temp.file("source.sqlite");
         const copyPath = temp.file("copy.sqlite");
+        const source = new Store(sourcePath);
         accepted(source, "0");
         accepted(source, "1");
-        await source.backup(copyPath);
+        await backupStoreFile(sourcePath, copyPath);
         accepted(source, "2");
         source.close();
 
@@ -45,11 +48,12 @@ describe("a backup is a store", () => {
     });
 
     it("hands out the pending work the source would, with the same bytes", async () => {
-        const source = new Store(temp.file("source.sqlite"));
+        const sourcePath = temp.file("source.sqlite");
         const copyPath = temp.file("copy.sqlite");
+        const source = new Store(sourcePath);
         accepted(source, "0");
         const fromSource = source.inbox.claimNextDelivery("source", NOW, STALE);
-        await source.backup(copyPath);
+        await backupStoreFile(sourcePath, copyPath);
         source.close();
 
         const copy = new Store(copyPath);
@@ -60,11 +64,12 @@ describe("a backup is a store", () => {
     });
 
     it("replaces an older copy at the path", async () => {
-        const source = new Store(temp.file("source.sqlite"));
+        const sourcePath = temp.file("source.sqlite");
         const copyPath = temp.file("copy.sqlite");
-        await source.backup(copyPath);
+        const source = new Store(sourcePath);
+        await backupStoreFile(sourcePath, copyPath);
         accepted(source, "0");
-        await source.backup(copyPath);
+        await backupStoreFile(sourcePath, copyPath);
         source.close();
 
         const copy = new Store(copyPath);
@@ -73,11 +78,29 @@ describe("a backup is a store", () => {
     });
 
     it("refuses a path holding something that is not a database, and leaves it", async () => {
-        const source = new Store(temp.file("source.sqlite"));
+        const sourcePath = temp.file("source.sqlite");
         const other = temp.file("notes.txt");
+        new Store(sourcePath).close();
         writeFileSync(other, "not a database");
-        await expect(source.backup(other)).rejects.toThrow();
-        source.close();
+        await expect(backupStoreFile(sourcePath, other)).rejects.toThrow();
         expect(readFileSync(other, "utf8")).toBe("not a database");
+    });
+
+    it("never writes the source: an unmigrated file stays unmigrated", async () => {
+        const sourcePath = temp.file("source.sqlite");
+        const unmigrated = new DatabaseSync(sourcePath);
+        unmigrated.exec("CREATE TABLE note (body TEXT)");
+        unmigrated.close();
+        const before = readFileSync(sourcePath);
+
+        await backupStoreFile(sourcePath, temp.file("copy.sqlite"));
+
+        expect(readFileSync(sourcePath)).toEqual(before);
+    });
+
+    it("refuses a missing source instead of creating an empty store there", async () => {
+        const sourcePath = temp.file("missing.sqlite");
+        await expect(backupStoreFile(sourcePath, temp.file("copy.sqlite"))).rejects.toThrow();
+        expect(existsSync(sourcePath)).toBe(false);
     });
 });

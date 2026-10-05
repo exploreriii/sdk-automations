@@ -9,3 +9,5 @@ packages/dev/lab/evidence
 packages/dev/lab/harness
 packages/runtime/data
 **/*.sqlite
+**/*.pem
+**/.env*

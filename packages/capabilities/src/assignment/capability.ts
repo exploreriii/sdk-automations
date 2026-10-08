@@ -69,7 +69,7 @@ function refusal(platform: Platform, { login, body, explain }: Refusal) {
     });
 }
 
-/** A claim: block and bot, holders, claimability, the cap, then the write and its notice. */
+/** A claim: block and bot, holders, claimability, the cap, then the assign carrying its notice. */
 async function onAssign(facts: Facts, view: View, platform: Platform, login: string) {
     const { autoAssign, unassign } = view.settings;
     if (!autoAssign.enabled) return [];
@@ -132,22 +132,14 @@ async function onAssign(facts: Facts, view: View, platform: Platform, login: str
         }
     }
 
-    // Both acts stand on the issue still lacking every meaning that would have refused the claim.
-    const claims = { meaningsAbsent: autoAssign.notClaimableWhen };
+    // The notice rides the assign, posted only once GitHub shows the commenter assigned.
     return [
         platform.intent({
             operation: "assign",
-            desired: { login },
+            desired: { login, notice: { topic: login, body: claimed(login, canRelease) } },
             cause: CLAIM,
-            claims,
-            explain: "Assigned the commenter, who claimed the issue.",
-        }),
-        platform.intent({
-            operation: "postManagedComment",
-            desired: { kind: "notice", topic: login, body: claimed(login, canRelease) },
-            cause: CLAIM,
-            claims,
-            explain: "Confirmed the claim to the commenter.",
+            claims: { meaningsAbsent: autoAssign.notClaimableWhen },
+            explain: "Assigned the commenter, who claimed the issue, and confirmed it to them.",
         }),
     ];
 }
@@ -168,15 +160,9 @@ async function onUnassign(facts: Facts, view: View, platform: Platform, login: s
     return [
         platform.intent({
             operation: "unassign",
-            desired: { login },
+            desired: { login, notice: { topic: login, body: released(login, othersRemain) } },
             cause: RELEASE,
-            explain: "Unassigned the commenter at their request.",
-        }),
-        platform.intent({
-            operation: "postManagedComment",
-            desired: { kind: "notice", topic: login, body: released(login, othersRemain) },
-            cause: RELEASE,
-            explain: "Confirmed the release to the commenter.",
+            explain: "Unassigned the commenter at their request, and confirmed it to them.",
         }),
     ];
 }

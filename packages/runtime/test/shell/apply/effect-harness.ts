@@ -271,6 +271,45 @@ export function releaseEffect(): Effect {
     };
 }
 
+/** A claim or a release the commenter asked for, carrying its notice unless `notice` is `null`. */
+export function askedEffect(
+    operation: "assign" | "unassign",
+    login = "sophie",
+    notice: string | null = `${operation}: confirmed to ${login}`,
+): Effect {
+    const intent: Intent<"assign" | "unassign"> = {
+        capability: "triageQueue",
+        repository: REPOSITORY,
+        item: ITEM,
+        operation,
+        claims: NO_CLAIM,
+        desired: notice === null ? { login } : { login, notice: { topic: login, body: notice } },
+        cause: CAUSE,
+        explanation: EXPLANATION,
+        idempotencyKey: deriveIdempotencyKey({
+            capability: "triageQueue",
+            repository: REPOSITORY,
+            item: ITEM,
+            operation,
+            cause: CAUSE,
+        }),
+        grace: null,
+    };
+    return {
+        intent: intent as Effect["intent"],
+        managedComment:
+            notice === null
+                ? null
+                : managedCommentOf({
+                      capability: "triageQueue",
+                      item: ITEM,
+                      kind: "notice",
+                      topic: login,
+                  }),
+        records: null,
+    };
+}
+
 /**
  * The pull request a mode-claiming act names — a second item because a mode is
  * a pull request's and an issue is in neither.
@@ -372,6 +411,8 @@ export interface FakeWorld {
     comments: CommentFact[];
     /** The logins on the item, which a release takes one name off. */
     assignees: string[];
+    /** Logins GitHub declines to assign, answering 201 all the same (6.16). */
+    unassignable: string[];
     closed: boolean;
     merged: boolean;
     /** The two native pull-request modes an apply-time claim is judged against. */
@@ -433,6 +474,7 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
         definedLabels: Array.isArray(initial.definedLabels) ? [...initial.definedLabels] : null,
         comments: [...(initial.comments ?? [])],
         assignees: [...(initial.assignees ?? [])],
+        unassignable: [...(initial.unassignable ?? [])],
         closed: initial.closed ?? false,
         merged: initial.merged ?? false,
         draft: initial.draft ?? false,
@@ -557,6 +599,21 @@ export function fakeGitHub(initial: Partial<FakeWorld> = {}): FakeGitHub {
                     () => {
                         if (world.closed) return { outcome: "already" };
                         world.closed = true;
+                        return { outcome: "applied" };
+                    },
+                    allowance,
+                ),
+            ),
+        assign: (_item, login, allowance) =>
+            Promise.resolve(
+                perform(
+                    "assign",
+                    login,
+                    () => {
+                        // GitHub's 201 whether or not it took the login, never "already" (6.16).
+                        const declined = world.unassignable.includes(login);
+                        if (!declined && !world.assignees.includes(login))
+                            world.assignees.push(login);
                         return { outcome: "applied" };
                     },
                     allowance,

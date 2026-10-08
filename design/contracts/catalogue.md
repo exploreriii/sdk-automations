@@ -142,11 +142,15 @@ direction it went rather than carry a boolean an operator has to decode. `closeP
 catalogue's first close, and its `reason` is the sentence its close notice states — carried on the
 desired outcome so the recorded call names it, as `lockIssue`'s and `unlockIssue`'s are.
 
-Four of these operations have no confirmed write endpoint — `assign`, `unassign`, `lockIssue`,
-`unlockIssue` — and each is nonetheless a whole registered operation in all three layers, refusing
-at the send. A row without a citation in `design/findings/endpoint-permission-matrix.md` does not
-close the gate, and the honest shape of that is an implemented transport that answers `forbidden`
-rather than a missing file.
+Every operation here reaches a confirmed write endpoint, each with its citation in
+`design/findings/endpoint-permission-matrix.md`. `assign` was the last (6.16), and `unassign` sends
+through the endpoint `releaseAssignment` confirmed, one named login, because the two are one request
+apart only in who asked. A future operation without a citation lands registered in all three layers
+and refusing at the send — an implemented handler that answers `unsupported`, never a missing file.
+
+`assign` and `unassign` may carry the notice that announces them (`ActNotice`). The platform posts it
+after the act and only once the read-back shows the act landed, so a claim GitHub silently declined
+is never announced (6.16).
 
 `postManagedComment` is non-idempotent because experiment 6.5 observed a blind retry duplicating a
 created comment; its recovery must go through the marker read-back path. `applyMappedLabel` is the

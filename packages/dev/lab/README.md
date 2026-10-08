@@ -38,6 +38,7 @@ error; the protocols themselves carry no secrets, credentials, tunnel URLs or pe
 | [6.13](protocols/6.13-read-path-secondary-limit.md) | the read-path secondary limit and whether a 304 costs a point |
 | [6.14](protocols/6.14-define-label.md) | defining a label the repository lacks |
 | [6.15](protocols/6.15-lock-unlock-issue.md) | locking and unlocking one issue, including read-back and repeated calls |
+| [6.16](protocols/6.16-assign-issue.md) | assigning one login, and what GitHub answers for a login it cannot assign |
 | [7.1](protocols/7.1-capture.md) | capturing webhook payloads as normalizer fixtures |
 | [7.2](protocols/7.2-webhook-conformance.md) | re-provoking every captured webhook and holding its delivery to the normalizer's reads |
 | [8.1](protocols/8.1-shell-soak.md) | the shell soak |

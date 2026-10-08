@@ -225,12 +225,9 @@ describe("P3 through the engine", () => {
             "applied",
             "factsUnread",
         ]);
-        // The comment's claim: the commenter assigned, and their notice.
+        // The comment's claim: the commenter assigned, carrying their notice.
         const claimAlone = sliceFor(await runAll(["assignment"]), "assignment");
-        expect(claimAlone.approved.map((effect) => effect.intent.operation)).toEqual([
-            "assign",
-            "postManagedComment",
-        ]);
+        expect(claimAlone.approved.map((effect) => effect.intent.operation)).toEqual(["assign"]);
     });
 });
 
@@ -297,9 +294,10 @@ describe("prDashboard on a conflicted pull request", () => {
  * approvable, so the warning earns the identity a warning is found again by.
  */
 describe("managed-comment identity is minted by the platform", () => {
+    /** A comment of its own, or one an act carries: either way the effect holds an identity. */
     const approvedComments = async () => {
         const effects = (await runAll(NAMES)).flatMap((decision) => decision.approved);
-        return effects.filter((effect) => effect.intent.operation === "postManagedComment");
+        return effects.filter((effect) => effect.managedComment !== null);
     };
 
     it("marks every comment the five records earn, and none of the labels", async () => {
@@ -326,7 +324,7 @@ describe("managed-comment identity is minted by the platform", () => {
             // The same discriminator on a pull request is the REASON, so a
             // pull request re-warned under another one gets its own comment.
             { capability: "inactivity", item: 14, kind: "warning", topic: "draft" },
-            // One notice per person per issue: the topic is the commenter.
+            // One notice per person per issue, carried by the assign: the topic is the commenter.
             { capability: "assignment", item: 15, kind: "notice", topic: "contributor" },
         ]);
         // The identity is minted from the intent's OWN fields, never chosen —
@@ -423,15 +421,12 @@ describe("assignment through the engine", () => {
 
         expect(dry.approved).toEqual([]);
         const recorded = dry.report.findings.filter((finding) => finding.code === "wouldApply");
-        expect(recorded.map(operationOf)).toEqual(["assign", "postManagedComment"]);
+        expect(recorded.map(operationOf)).toEqual(["assign"]);
         expect(recorded[0]?.summary).toContain("would assign");
         expect(recorded[0]?.summary).toContain("assign contributor. Nothing was written.");
 
         const live = await decide(claim, config, ALL, externals);
-        expect(live.approved.map((effect) => effect.intent.operation)).toEqual([
-            "assign",
-            "postManagedComment",
-        ]);
+        expect(live.approved.map((effect) => effect.intent.operation)).toEqual(["assign"]);
     });
 
     it("refuses the claim permissionMissing without issues:write, and approves nothing", async () => {
@@ -443,11 +438,25 @@ describe("assignment through the engine", () => {
         expect(ungranted.approved).toEqual([]);
         expect(
             ungranted.report.findings.map((finding) => [finding.code, operationOf(finding)]),
-        ).toEqual([
-            ["permissionMissing", "assign"],
-            ["permissionMissing", "postManagedComment"],
-        ]);
+        ).toEqual([["permissionMissing", "assign"]]);
         expect(ungranted.report.findings[0]?.summary).toContain("lacks issues:write");
+    });
+
+    it("rewrites one comment per person: a refusal and the claim after it share an identity", async () => {
+        const held = async (holders: readonly string[]) =>
+            await decide(claim, config, ALL, {
+                ...externals,
+                resolve: async (query, input) =>
+                    query === "assigneesOf"
+                        ? ({ ok: true, value: holders } as never)
+                        : await externals.resolve!(query, input),
+            });
+
+        const refused = (await held(["someone"])).approved;
+        const claimed = (await held([])).approved;
+        expect(refused.map((effect) => effect.intent.operation)).toEqual(["postManagedComment"]);
+        expect(claimed.map((effect) => effect.intent.operation)).toEqual(["assign"]);
+        expect(claimed[0]!.managedComment!.marker).toBe(refused[0]!.managedComment!.marker);
     });
 
     it("never evaluates on an `issues` delivery: a label or an assignee changed by hand", async () => {

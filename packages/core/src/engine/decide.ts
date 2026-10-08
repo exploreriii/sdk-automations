@@ -173,6 +173,17 @@ function managedCommentFor(intent: AnyIntent): ManagedComment | null {
             topic: intent.desired.topic ?? "",
         });
     }
+    if (
+        (intent.operation === "assign" || intent.operation === "unassign") &&
+        intent.desired.notice !== undefined
+    ) {
+        return managedCommentOf({
+            capability: intent.capability,
+            item: intent.item,
+            kind: "notice",
+            topic: intent.desired.notice.topic,
+        });
+    }
     return intent.grace === null
         ? null
         : managedCommentOf({

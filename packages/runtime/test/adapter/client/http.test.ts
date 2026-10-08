@@ -1811,6 +1811,12 @@ const updateComment: GitHubRequest = {
     body: JSON.stringify({ body: "hello again" }),
     idempotency: "idempotent",
 };
+const assign: GitHubRequest = {
+    url: `${ISSUE}/assignees`,
+    method: "POST",
+    body: JSON.stringify({ assignees: ["alice"] }),
+    idempotency: "idempotent",
+};
 const releaseAssignment: GitHubRequest = {
     url: `${ISSUE}/assignees`,
     method: "DELETE",
@@ -1861,6 +1867,7 @@ describe("the write gate", () => {
         ["remove label", removeLabel, "DELETE", `${ISSUE}/labels/status%3A%20stale`],
         ["create comment", createComment, "POST", `${ISSUE}/comments`],
         ["update comment", updateComment, "PATCH", `${REPO}/issues/comments/7788`],
+        ["assign", assign, "POST", `${ISSUE}/assignees`],
         ["release assignment", releaseAssignment, "DELETE", `${ISSUE}/assignees`],
         ["lock issue", lockIssue, "PUT", `${ISSUE}/lock`],
         ["unlock issue", unlockIssue, "DELETE", `${ISSUE}/lock`],
@@ -1969,7 +1976,6 @@ describe("the write gate", () => {
             "create a label under an id path",
             { url: `${REPO}/issues/comments/7/labels`, method: "POST" },
         ],
-        ["assign a reviewer", { url: `${ISSUE}/assignees`, method: "POST" }],
         ["write outside /repos", { url: `${GITHUB_API_ORIGIN}/user/repos`, method: "POST" }],
         ["write at the GraphQL endpoint", { url: GITHUB_GRAPHQL_URL, method: "POST" }],
         ["a pull-request review", { url: `${REPO}/pulls/9/reviews`, method: "POST" }],
@@ -2079,6 +2085,7 @@ describe("the write grant precheck", () => {
     it.each([
         ["close", closePullRequest, ["issues:write"], "pull_requests:write"],
         ["release", releaseAssignment, ["pull_requests:write"], "issues:write"],
+        ["assign", assign, ["pull_requests:write"], "issues:write"],
     ] as const)(
         "refuses a %s under the other surface's write grant alone",
         async (_label, write, grants, wanted) => {

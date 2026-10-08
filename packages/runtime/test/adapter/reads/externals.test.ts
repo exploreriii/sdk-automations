@@ -453,6 +453,13 @@ describe("the platform's own assignment writes", () => {
         expect(await lookup(ITEM)).toBeNull();
     });
 
+    it("does not count a release the commenter asked for, which its journal claims too", async () => {
+        const asked: LandedWrite = { verb: "unassign", login: "alice", at: RELEASED_AT };
+        const lookup = journalled([page([unassigned("alice", EVENT_AT)])], [asked]);
+
+        expect(await lookup(ITEM)).toBeNull();
+    });
+
     it("counts a human unassigning a different login in the same second", async () => {
         const lookup = journalled([page([unassigned("bob", EVENT_AT)])], [release("alice")]);
 

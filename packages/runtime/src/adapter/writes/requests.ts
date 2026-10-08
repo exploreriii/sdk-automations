@@ -95,6 +95,15 @@ export const REQUESTS: {
         },
         notFound: "invisible",
     }),
+    assign: (repository, item, login) => ({
+        request: {
+            url: `${issuePath(repository, item)}/assignees`,
+            method: "POST",
+            body: JSON.stringify({ assignees: [login] }),
+            idempotency: "idempotent",
+        },
+        notFound: "invisible",
+    }),
     releaseAssignment: (repository, item, login) => ({
         request: {
             url: `${issuePath(repository, item)}/assignees`,

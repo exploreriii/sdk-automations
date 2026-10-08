@@ -127,44 +127,56 @@ async function run(record: Facts, script: Script = {}, view = DEFAULT_VIEW) {
 const acts = (intents: readonly { readonly operation: string; readonly desired: unknown }[]) =>
     intents.map(({ operation, desired }) => ({ operation, desired }));
 
-const assigns = (login: string) => ({ operation: "assign", desired: { login } });
-
 type Decided = readonly { readonly operation: string; readonly desired: unknown }[];
+
+interface Notice {
+    readonly kind: string;
+    readonly topic: string;
+    readonly body: string;
+}
+
+/** A refusal's own notice, or the one an act carries — posted only once that act lands. */
+function noticesIn(intents: Decided): readonly Notice[] {
+    return intents.flatMap(({ operation, desired }) => {
+        if (operation === "postManagedComment") return [desired as Notice];
+        const carried = (desired as { readonly notice?: Omit<Notice, "kind"> }).notice;
+        return carried === undefined ? [] : [{ kind: "notice", ...carried }];
+    });
+}
 
 /** The one managed notice on this issue, its identity asserted: a notice, topic the commenter. */
 function noticeOf(intents: Decided, login = "alice") {
-    const notices = intents.filter(({ operation }) => operation === "postManagedComment");
+    const notices = noticesIn(intents);
     expect(notices).toHaveLength(1);
-    const desired = notices[0]!.desired as {
-        readonly kind: string;
-        readonly topic: string;
-        readonly body: string;
-    };
-    expect({ kind: desired.kind, topic: desired.topic }).toEqual({ kind: "notice", topic: login });
-    return desired;
+    const notice = notices[0]!;
+    expect({ kind: notice.kind, topic: notice.topic }).toEqual({ kind: "notice", topic: login });
+    return notice;
 }
 
-/** A claim: the commenter assigned, and their notice. */
-function expectClaim(intents: Decided, login = "alice") {
-    expect(acts(intents)[0]).toEqual(assigns(login));
+/** One act on the commenter, carrying their notice, and nothing beside it. */
+function expectAct(intents: Decided, operation: "assign" | "unassign", login: string) {
+    expect(acts(intents).map((act) => act.operation)).toEqual([operation]);
+    expect((intents[0]!.desired as { readonly login: string }).login).toBe(login);
     return noticeOf(intents, login);
 }
 
-/** A release: the commenter unassigned, and their notice. */
-function expectRelease(intents: Decided, login = "alice") {
-    expect(acts(intents)[0]).toEqual({ operation: "unassign", desired: { login } });
-    return noticeOf(intents, login);
-}
+/** A claim: the commenter assigned, carrying their notice. */
+const expectClaim = (intents: Decided, login = "alice") => expectAct(intents, "assign", login);
+
+/** A release: the commenter unassigned, carrying their notice. */
+const expectRelease = (intents: Decided, login = "alice") => expectAct(intents, "unassign", login);
 
 describe("claims, refusals and releases", () => {
     it("`/assign` on an open, claimable issue", async () => {
         const { intents, queries } = await run(comment("assign", "alice", { meaning: "ready" }));
 
         expect(acts(intents)).toEqual([
-            assigns("alice"),
             {
-                operation: "postManagedComment",
-                desired: { kind: "notice", topic: "alice", body: expect.any(String) as string },
+                operation: "assign",
+                desired: {
+                    login: "alice",
+                    notice: { topic: "alice", body: expect.any(String) as string },
+                },
             },
         ]);
         expect(noticeOf(intents).body).toContain("@alice — you are assigned to this issue");
@@ -701,7 +713,6 @@ describe("the switches, the guard and the lists", () => {
         const accepted = await run(ready, {}, view);
         expectClaim(accepted.intents);
         expect(accepted.intents.map(({ claims }) => claims.meaningsAbsent)).toEqual([
-            ["awaitingTriage"],
             ["awaitingTriage"],
         ]);
     });

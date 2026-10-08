@@ -122,6 +122,9 @@ function changeTarget(entry: unknown, action: string): unknown {
     return null;
 }
 
+/** The landed verbs that take a login off an item: a clock's release, and one asked for. */
+const RELEASE_VERBS: ReadonlySet<string> = new Set(["releaseAssignment", "unassign"]);
+
 /**
  * Does the ledger hold a release of this login dated within the window before `at`?
  * A human unassigning the same login in the same minute is indistinguishable, and holds the platform back.
@@ -129,7 +132,7 @@ function changeTarget(entry: unknown, action: string): unknown {
 function releasedByApp(login: unknown, at: Date, landed: readonly LandedWrite[]): boolean {
     if (typeof login !== "string") return false;
     return landed.some((write) => {
-        if (write.verb !== "releaseAssignment" || write.login !== login) return false;
+        if (!RELEASE_VERBS.has(write.verb ?? "") || write.login !== login) return false;
         const done = new Date(write.at).getTime();
         if (!Number.isFinite(done)) return false;
         const gap = done - at.getTime();

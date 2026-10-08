@@ -249,6 +249,15 @@ export const MANAGED_COMMENT_KINDS = ["summary", "warning", "notice"] as const;
 export type ManagedCommentKind = (typeof MANAGED_COMMENT_KINDS)[number];
 
 /**
+ * What the App says once an act has landed, under the managed notice `topic` names. The platform
+ * posts it after the act and only then, so it can never announce an act that did not happen.
+ */
+export interface ActNotice {
+    readonly topic: string;
+    readonly body: string;
+}
+
+/**
  * The desired-outcome payload per operation (contract.md §3 `desired`); comment
  * identity D125/D145, `applyMappedLabel` D4/D78, `releaseAssignment` D63/D141.
  */
@@ -264,8 +273,8 @@ export interface IntentCatalogue {
         readonly meaning: MappableMeaning;
         readonly cause: TransitionCause;
     };
-    readonly assign: { readonly login: string };
-    readonly unassign: { readonly login: string };
+    readonly assign: { readonly login: string; readonly notice?: ActNotice };
+    readonly unassign: { readonly login: string; readonly notice?: ActNotice };
     readonly releaseAssignment: { readonly login: string };
     readonly closePullRequest: { readonly reason: string };
     readonly lockIssue: { readonly reason: string };

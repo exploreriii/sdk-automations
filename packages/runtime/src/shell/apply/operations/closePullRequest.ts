@@ -9,10 +9,11 @@ export const closePullRequest: OperationHandler<"closePullRequest"> = {
 
     /** The reason travels on the call, because the row is what a resend reads. */
     plan: (effect) =>
-        planWithNotice(effect, {
-            verb: "closePullRequest",
-            reason: effect.intent.desired.reason,
-        }),
+        planWithNotice(
+            effect,
+            { verb: "closePullRequest", reason: effect.intent.desired.reason },
+            effect.intent.grace?.notice.body ?? null,
+        ),
 
     serialize: (call) => ({ verb: call.verb, reason: call.reason }),
 

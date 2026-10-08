@@ -15,6 +15,7 @@ export type WriteEndpoint =
     | "createComment"
     | "updateComment"
     | "closePullRequest"
+    | "assign"
     | "releaseAssignment"
     | "lockIssue"
     | "unlockIssue";
@@ -152,6 +153,24 @@ const CLOSE_PULL_REQUEST: EndpointShape = {
 };
 
 /**
+ * `POST …/issues/{n}/assignees` — one named login onto the list (6.16).
+ * A 201 proves nothing alone: GitHub answers it for a login it silently declined to assign.
+ */
+const ASSIGN: EndpointShape = {
+    endpoint: "assign",
+    resource: "issues",
+    grant: "issues:write",
+    body: "json",
+    lane: "default",
+    matches: (method, rest) =>
+        method === "POST" &&
+        rest.length === 2 &&
+        isNumberSegment(rest[0]) &&
+        rest[1] === "assignees",
+    invalidates: itemViewsStaledBy,
+};
+
+/**
  * `DELETE …/issues/{n}/assignees` — one named login off the list.
  * The one admitted DELETE that carries a body, and D63 is enforced by that body: the logins it names are the only ones removed.
  */
@@ -199,6 +218,7 @@ export const CONFIRMED_WRITE_ENDPOINTS: { readonly [K in WriteEndpoint]: Endpoin
     createComment: CREATE_COMMENT,
     updateComment: UPDATE_COMMENT,
     closePullRequest: CLOSE_PULL_REQUEST,
+    assign: ASSIGN,
     releaseAssignment: RELEASE_ASSIGNMENT,
     lockIssue: LOCK_ISSUE,
     unlockIssue: UNLOCK_ISSUE,

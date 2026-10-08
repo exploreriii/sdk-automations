@@ -51,12 +51,11 @@ export interface SendContext {
 }
 
 /**
- * One act's calls: the act, and where it carries grace the notice that says what the
- * App did (grace.md §3). Two calls in that order, because the plan stops at the first refusal — so a notice can never claim an act that did not land.
+ * One act's calls: the act, and where it carries one the notice that says what the App did —
+ * a graced act's (grace.md §3) or an act's own. Two calls in that order, because the plan stops at the first refusal — so a notice can never claim an act that did not land.
  */
-export function planWithNotice(effect: Effect, act: Call): Plan {
-    const grace = effect.intent.grace;
-    if (grace === null) return { ok: true, calls: [act] };
+export function planWithNotice(effect: Effect, act: Call, notice: string | null): Plan {
+    if (notice === null) return { ok: true, calls: [act] };
     if (effect.managedComment === null) {
         return {
             ok: false,
@@ -71,7 +70,7 @@ export function planWithNotice(effect: Effect, act: Call): Plan {
             {
                 verb: "postComment",
                 kind: "notice",
-                body: renderManagedBody(effect.managedComment.marker, grace.notice.body),
+                body: renderManagedBody(effect.managedComment.marker, notice),
             },
         ],
     };

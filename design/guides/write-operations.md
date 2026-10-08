@@ -23,8 +23,10 @@ hold unchanged). Layer boundaries are untouched: core decides, the shell orchest
 talks to GitHub.
 
 One obligation stands over the whole shape: the FX-gate protocol
-(`packages/dev/lab/protocols/8.2-first-effects.md`) has not been re-run armed since the operations
-moved into it, and no graced act ships against a repository until it has.
+(`packages/dev/lab/protocols/8.2-first-effects.md`) passes on the reviewed build that ships a new
+verb, and no graced act ships against a repository until it has. It was re-run armed on 2026-10-07,
+covering `assign` and the real `unassign`, and every step held — on an unreviewed working tree, so
+the run on the reviewed commit is still owed.
 
 ## 2. Core — `intents/operations/<op>`
 
@@ -143,9 +145,14 @@ permission (D62).
 
 The vocabulary the rows return in — `WriteResult` and `WriteVerbs`, with the read-back's
 `ReadBack`, `ReadBackOutcome`, `Presence`, `CommentFact` and `ItemFacts` — lives in
-`packages/core/src/seams.ts`; the shell and the adapter name one definition. `assign` and `unassign`
-have no verb and no shape: the shell refuses them at `send`, and the real ones land as a verb, a
-row and a shape, not as new files.
+`packages/core/src/seams.ts`; the shell and the adapter name one definition. `assign` has its own
+verb, row and shape (6.16); `unassign` has none of its own and sends through `releaseAssignment`'s,
+because a second shape for the same method and path would make the admission walk ambiguous. A
+landed `unassign` counts as the App's own release wherever the ordering read asks (D159).
+
+An act's notice rides the act: `planWithNotice` plans the act, then the notice — a graced act's
+from its grace, an `assign` or `unassign`'s from its `desired.notice` — so the plan's stop at the
+first unproven call is what keeps a notice from announcing an act that did not land.
 
 The read-back stays whole: its split per operation is pending (§6).
 
@@ -166,7 +173,8 @@ error must land on the registry object, not on a downstream use. Then delete the
 - **One transport file per operation** (D136): reversed by D210 — a transport was twenty lines
   building one URL, and the shape table already listed the endpoint; the row is the spelling now.
 - **Splitting the read-back per operation**: deferred to the real unassign; its trigger, an assignee
-  read, has fired and the split is pending.
+  read, has fired. The real unassign landed reading the same `assignees` read the release already
+  had, so no third resource arrived with it; the split is still pending.
 - **Storing the operation in the `sent` fact**: declined — the operation follows from the fact's
   `verb` through the handler's `verbs`, and a stored copy could disagree with it.
 

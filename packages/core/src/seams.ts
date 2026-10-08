@@ -29,6 +29,8 @@ export interface WriteVerbs {
     updateComment(commentId: number, body: string, allowance?: Allowance): Promise<WriteResult>;
     /** Closed unmerged; the reason is the notice's, never GitHub's. */
     closePullRequest(item: ItemRef, allowance?: Allowance): Promise<WriteResult>;
+    /** ONE named login onto the item's assignees; GitHub drops a login it cannot assign, silently (6.16). */
+    assign(item: ItemRef, login: string, allowance?: Allowance): Promise<WriteResult>;
     /** ONE named login off the item's assignees, never the list whole (D63). */
     releaseAssignment(item: ItemRef, login: string, allowance?: Allowance): Promise<WriteResult>;
     lockIssue(item: ItemRef, allowance?: Allowance): Promise<WriteResult>;

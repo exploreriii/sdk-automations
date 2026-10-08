@@ -39,6 +39,7 @@ import { spending } from "../spending.js";
 import {
     ACT_EFFECT_ID,
     appComment,
+    askedEffect,
     appComments,
     BASE,
     callsOf,
@@ -1448,77 +1449,103 @@ describe("a managed comment this effect may already own", () => {
     });
 });
 
-// ─── An operation no endpoint realises ───────────────────────────────
+// ─── A claim and a release the commenter asked for ───────────────────
 
-describe("an operation the write surface does not have", () => {
-    /** An `unsent` send is closed and unspent: the plan resumes at the same call (D160). */
-    const unsendable = (effectId: string): boolean =>
-        store.ledger.open(FUTURE).length === 0 &&
-        store.ledger.stateOf(effectId, 1).kind === "resumable";
+describe("a claim and a release the commenter asked for", () => {
+    const verbsOf = (github: FakeGitHub): string[] =>
+        github.calls.map((call) => call.split(" ")[0]!);
 
-    it.each([
-        ["unassign", "no confirmed write endpoint unassigns"],
-        ["assign", "no confirmed write endpoint assigns"],
-    ] as const)(
-        "%s is refused where every call is sent, and its send spends no attempt",
-        async (operation, said) => {
-            const github = fakeGitHub();
-            const effect = labelEffect();
-            const asked = {
-                ...effect,
-                intent: { ...effect.intent, operation, desired: { login: "sophie" } },
-            } as unknown as typeof effect;
+    it("assigns, proves it on the list, and only then posts the notice the assign carries", async () => {
+        const github = fakeGitHub();
+        const effect = askedEffect("assign");
 
-            const outcome = one(await applierOver(github).applyAll([asked], configFor()));
+        const outcome = one(await applierOver(github).applyAll([effect], configFor()));
 
-            expect(outcome).toMatchObject({ outcome: "refused", code: "writeUnsupported" });
-            expect(outcome.detail).toContain(said);
-            expect(github.calls).toEqual([]);
-            expect(unsendable(keyOf(effect))).toBe(true);
+        expect(outcome).toMatchObject({ outcome: "applied", code: null });
+        expect(verbsOf(github)).toEqual(["assign", "createComment"]);
+        expect(github.world.assignees).toEqual(["sophie"]);
+        expect(appComments(github).map(({ body }) => body)).toEqual([
+            `${markerOf(effect)}\n\nassign: confirmed to sophie`,
+        ]);
+    });
+
+    it("never announces an assign GitHub declined while answering 201 (6.16)", async () => {
+        const github = fakeGitHub({ unassignable: ["sophie"] });
+
+        const outcome = one(
+            await applierOver(github).applyAll([askedEffect("assign")], configFor()),
+        );
+
+        expect(outcome).toMatchObject({ outcome: "unknown", code: "postconditionUnconfirmed" });
+        expect(verbsOf(github)).toEqual(["assign"]);
+        expect(github.world.assignees).toEqual([]);
+        expect(appComments(github)).toEqual([]);
+    });
+
+    it("releases one login through the release endpoint, proves it gone, then posts the notice", async () => {
+        const github = fakeGitHub({ assignees: ["sophie", "bob"] });
+        const effect = askedEffect("unassign");
+
+        const outcome = one(await applierOver(github).applyAll([effect], configFor()));
+
+        expect(outcome).toMatchObject({ outcome: "applied", code: null });
+        expect(github.calls[0]).toBe("releaseAssignment sophie");
+        expect(verbsOf(github)).toEqual(["releaseAssignment", "createComment"]);
+        expect(github.world.assignees).toEqual(["bob"]);
+        expect(appComments(github).map(({ body }) => body)).toEqual([
+            `${markerOf(effect)}\n\nunassign: confirmed to sophie`,
+        ]);
+    });
+
+    it("never announces a release the list still shows", async () => {
+        const github = fakeGitHub({ assignees: ["sophie"] });
+        github.faults.scripted.push({ outcome: "applied" });
+
+        const outcome = one(
+            await applierOver(github).applyAll([askedEffect("unassign")], configFor()),
+        );
+
+        expect(outcome).toMatchObject({ outcome: "unknown", code: "postconditionUnconfirmed" });
+        expect(github.world.assignees).toEqual(["sophie"]);
+        expect(appComments(github)).toEqual([]);
+    });
+
+    it.each(["assign", "unassign"] as const)(
+        "sends a %s that carries no notice as the act alone",
+        async (operation) => {
+            const github = fakeGitHub({ assignees: operation === "unassign" ? ["sophie"] : [] });
+
+            const outcome = one(
+                await applierOver(github).applyAll(
+                    [askedEffect(operation, "sophie", null)],
+                    configFor(),
+                ),
+            );
+
+            expect(outcome).toMatchObject({ outcome: "applied", code: null });
+            expect(callsOf(github, "createComment")).toEqual([]);
         },
     );
 
-    /**
-     * Recovery reads a row back before it looks at the verb, so a row naming
-     * an unassign reaches the proof step — where nothing reads an assignee
-     * list, so nothing can prove one. The row stays open rather than being
-     * closed on a fact nobody established.
-     */
-    it.each([["assign", { verb: "assign", login: "sophie" }]])(
-        "cannot prove a %s either, so its send stays open",
-        async (name, call) => {
-            const github = fakeGitHub();
-            sent(
-                `${name}-effect`,
-                serializeCall({ capability: "triageQueue", item: ITEM, call: call as never }),
-                { verb: (call as { verb: string }).verb },
-            );
+    it.each([
+        ["assign", ["sophie"]],
+        ["unassign", []],
+    ] as const)(
+        "recovers a landed %s from the assignee list, sending nothing",
+        async (verb, assignees) => {
+            const github = fakeGitHub({ assignees: [...assignees] });
+            const call = { verb, login: "sophie" } as const;
+            sent(`${verb}-effect`, serializeCall({ capability: "triageQueue", item: ITEM, call }), {
+                verb,
+                login: "sophie",
+            });
 
             await applierOver(github).recover(store.ledger.open(FUTURE)[0]!, configFor());
 
             expect(github.calls).toEqual([]);
-            expect(store.ledger.open(FUTURE)).toHaveLength(1);
+            expect(store.ledger.open(FUTURE)).toHaveLength(0);
         },
     );
-
-    it("cannot prove an unassign, so recovery leaves its send where it was", async () => {
-        const github = fakeGitHub();
-        sent(
-            "unassign-effect",
-            serializeCall({
-                capability: "triageQueue",
-                item: ITEM,
-                call: { verb: "unassign", login: "sophie" },
-            }),
-            { verb: "unassign", login: "sophie" },
-        );
-
-        await applierOver(github).recover(store.ledger.open(FUTURE)[0]!, configFor());
-
-        expect(github.calls).toEqual([]);
-        expect(store.ledger.open(FUTURE)).toHaveLength(1);
-        expect(logged).toEqual([]);
-    });
 });
 
 describe("issue conversation moderation", () => {

@@ -72,6 +72,17 @@ capabilities:
             enabled: true
             after: 5d
 
+  assignment: # a contributor claims an issue with a comment, and releases it the same way
+    enabled: true
+    autoAssign: # the assign command, mapped below
+      enabled: true
+      claimableOnlyWhen: [ready] # default: [] — any open issue is claimable
+      notClaimableWhen: [blocked, awaitingTriage] # default: [] — deny wins over claimableOnlyWhen
+      capIgnores: [blocked] # default: [] — an assignment carrying one of these does not count
+      maxOpen: 3 # default: 2 — open assignments a person may hold; 0 = uncapped
+    unassign: # the unassign command, mapped below — releases only the commenter's own assignment
+      enabled: true
+
 mappings:
   labels: # every meaning has a default spelling; map one only to spell it your own way
     awaitingTriage: "status: triage"

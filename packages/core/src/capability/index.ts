@@ -32,6 +32,7 @@ export * from "./boundary.js";
 export { skipped } from "./guards.js";
 export {
     block,
+    count,
     duration,
     DURATION_PATTERN,
     flag,

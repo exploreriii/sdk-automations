@@ -33,6 +33,13 @@ export const CONFIGS: Readonly<Record<string, string>> = {
     configReport: `  configReport:
     enabled: true
 `,
+    assignment: `  assignment:
+    enabled: true
+    autoAssign:
+      enabled: true
+    unassign:
+      enabled: true
+`,
 };
 
 const explained = (capability: string): Row => ({
@@ -73,4 +80,6 @@ export const JOURNEYS: Readonly<Record<string, Readonly<Record<string, readonly 
     inactivity: {},
     /** On open of a pull request touching the file: the one report comment. */
     configReport: { "pull_request.opened.json": effects("configReport", 1) },
+    /** Hears comments alone, and the captured one issues no command. */
+    assignment: {},
 };

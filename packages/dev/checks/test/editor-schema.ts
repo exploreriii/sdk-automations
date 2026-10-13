@@ -150,6 +150,8 @@ function shapeOf(field: FieldDescription): Subschema {
             // ceiling is a comparison against a constant no pattern carries,
             // so it stays the parser's, like the relation and the cascade.
             return { type: "string", pattern: DURATION_PATTERN.source };
+        case "count":
+            return { type: "integer", minimum: 0 };
         case "text":
             return { type: "string" };
         case "meanings":

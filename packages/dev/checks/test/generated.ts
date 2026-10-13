@@ -41,6 +41,7 @@
 import {
     block,
     carriesFactGroup,
+    count,
     duration,
     describeSpec,
     FACT_GROUPS,
@@ -725,7 +726,7 @@ interface ConstructorFacts {
     readonly forms: readonly (readonly [written: string, field: Field<unknown>])[];
 }
 
-/** The six, keyed by the kind each one describes itself as. */
+/** The seven, keyed by the kind each one describes itself as. */
 const CONSTRUCTORS: { readonly [K in FieldDescription["kind"]]: ConstructorFacts } = {
     flag: { reads: "a boolean", forms: [["flag({ default })", flag({ default: false })]] },
     duration: {
@@ -734,6 +735,10 @@ const CONSTRUCTORS: { readonly [K in FieldDescription["kind"]]: ConstructorFacts
             ["duration({ default })", duration({ default: "0h" })],
             ["duration({ inherits })", duration({ inherits: "remindAfter" })],
         ],
+    },
+    count: {
+        reads: "a whole number, zero or more",
+        forms: [["count({ default })", count({ default: 0 })]],
     },
     text: {
         reads: "a string",

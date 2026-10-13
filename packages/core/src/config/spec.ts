@@ -56,10 +56,10 @@ export interface DurationOptions {
 
 /** What one field is, for the generators, never for a reader; `absent` is DERIVED. */
 export interface FieldDescription {
-    readonly kind: "flag" | "duration" | "text" | "meanings" | "section" | "block";
+    readonly kind: "flag" | "duration" | "count" | "text" | "meanings" | "section" | "block";
     readonly doc: string | null;
     readonly absent: "default" | "inherited" | "null" | "empty" | "parked" | "problem";
-    /** `flag`, and a `duration` that declares one — the written form for a duration. */
+    /** `flag`, `count`, and a `duration` that declares one — the written form for a duration. */
     readonly default?: boolean | number | string;
     /** `flag` — the family that must map something before the flag may be `true`. */
     readonly needs?: keyof SettingsView["mapped"];

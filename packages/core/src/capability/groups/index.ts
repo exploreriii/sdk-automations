@@ -13,6 +13,7 @@ import {
     type Unread,
 } from "../../catalogue.js";
 import { assignees } from "./assignees.js";
+import { command } from "./command.js";
 import { links } from "./links.js";
 import { locked } from "./locked.js";
 import type {
@@ -37,6 +38,7 @@ export const GROUPS = {
     links,
     review,
     readiness,
+    command,
 } as const satisfies { readonly [G in FactGroup]: GroupModule<G> };
 
 /** One module, widened so a walk can index it with a variable. */

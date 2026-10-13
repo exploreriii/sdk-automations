@@ -1,6 +1,6 @@
 /** The closed vocabularies a capability chooses from and cannot extend (D61, P3). */
 
-import type { ConfigResult, MappableMeaning, Skill } from "./config/index.js";
+import type { Command, ConfigResult, MappableMeaning, Skill } from "./config/index.js";
 import type { PermissionGrant } from "./github/index.js";
 import type { ActionClass } from "./safety/index.js";
 import type {
@@ -98,6 +98,9 @@ export interface IssueFacts {
     readonly skills: readonly Skill[] | Unread;
     readonly assignees: readonly AssigneeClock[] | Unread;
     readonly links: { readonly openPullRequests: readonly ItemRef[] } | Unread;
+    /** The comment's command as a catalogue name; `issued: null` when it issued none. */
+    readonly command:
+        { readonly issued: Command | null; readonly by: string; readonly at: Date } | Unread;
 }
 
 /** One pull request, as the platform read it; `IssueFacts`'s notes hold unchanged. */
@@ -142,6 +145,7 @@ export const FACT_GROUPS = [
     "links",
     "review",
     "readiness",
+    "command",
 ] as const;
 
 export type FactGroup = (typeof FACT_GROUPS)[number];
@@ -245,6 +249,15 @@ export const MANAGED_COMMENT_KINDS = ["summary", "warning", "notice"] as const;
 export type ManagedCommentKind = (typeof MANAGED_COMMENT_KINDS)[number];
 
 /**
+ * What the App says once an act has landed, under the managed notice `topic` names. The platform
+ * posts it after the act and only then, so it can never announce an act that did not happen.
+ */
+export interface ActNotice {
+    readonly topic: string;
+    readonly body: string;
+}
+
+/**
  * The desired-outcome payload per operation (contract.md §3 `desired`); comment
  * identity D125/D145, `applyMappedLabel` D4/D78, `releaseAssignment` D63/D141.
  */
@@ -260,8 +273,8 @@ export interface IntentCatalogue {
         readonly meaning: MappableMeaning;
         readonly cause: TransitionCause;
     };
-    readonly assign: { readonly login: string };
-    readonly unassign: { readonly login: string };
+    readonly assign: { readonly login: string; readonly notice?: ActNotice };
+    readonly unassign: { readonly login: string; readonly notice?: ActNotice };
     readonly releaseAssignment: { readonly login: string };
     readonly closePullRequest: { readonly reason: string };
     readonly lockIssue: { readonly reason: string };

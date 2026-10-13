@@ -48,6 +48,8 @@ ${CONFIGS[capability] ?? ""}mappings:
   labels:
     awaitingTriage: "status: triage"
   commands:
+    assign: /assign
+    unassign: /unassign
     working: /working
 `;
 

@@ -45,6 +45,7 @@ export {
 } from "../capability/facts.js";
 export {
     block,
+    count,
     duration,
     flag,
     MAX_CLOCK_HOURS,

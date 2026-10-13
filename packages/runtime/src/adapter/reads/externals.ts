@@ -122,6 +122,9 @@ function changeTarget(entry: unknown, action: string): unknown {
     return null;
 }
 
+/** The landed verbs that take a login off an item: a clock's release, and one asked for. */
+const RELEASE_VERBS: ReadonlySet<string> = new Set(["releaseAssignment", "unassign"]);
+
 /**
  * Does the ledger hold a release of this login dated within the window before `at`?
  * A human unassigning the same login in the same minute is indistinguishable, and holds the platform back.
@@ -129,7 +132,7 @@ function changeTarget(entry: unknown, action: string): unknown {
 function releasedByApp(login: unknown, at: Date, landed: readonly LandedWrite[]): boolean {
     if (typeof login !== "string") return false;
     return landed.some((write) => {
-        if (write.verb !== "releaseAssignment" || write.login !== login) return false;
+        if (!RELEASE_VERBS.has(write.verb ?? "") || write.login !== login) return false;
         const done = new Date(write.at).getTime();
         if (!Number.isFinite(done)) return false;
         const gap = done - at.getTime();
@@ -363,6 +366,17 @@ function openingOf(item: unknown, login: string, itemNumber: number): CauseFinge
           };
 }
 
+/** A new comment, which the timeline records as `commented` by its author at its own instant. */
+function commentingOf(payload: unknown, itemNumber: number): CauseFingerprint | undefined {
+    const comment = field(payload, "comment");
+    const login = field(field(comment, "user"), "login");
+    const createdAt = field(comment, "created_at");
+    if (typeof login !== "string" || typeof createdAt !== "string") return undefined;
+    const observedAt = new Date(createdAt);
+    if (!Number.isFinite(observedAt.getTime())) return undefined;
+    return { actorLogin: login, observedAt, itemNumber, action: "commented", target: null };
+}
+
 /** A payload contradicting its own cause cannot prove that sibling changes were seen. */
 function labelsAfter(
     item: unknown,
@@ -386,6 +400,7 @@ export function causeFingerprintOf(payload: unknown): CauseFingerprint | undefin
     if (typeof itemNumber !== "number" || !Number.isSafeInteger(itemNumber) || itemNumber < 1)
         return undefined;
     if (action === "opened") return openingOf(item, login, itemNumber);
+    if (action === "created") return commentingOf(payload, itemNumber);
     // Stryker disable next-line ConditionalExpression: Set.has answers false for any non-string; the typeof arm is for readers.
     if (typeof action !== "string" || !HUMAN_CHANGE_EVENTS.has(action)) return undefined;
     const target = changeTarget(payload, action);

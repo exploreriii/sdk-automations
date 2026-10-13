@@ -98,6 +98,28 @@
                     }
                 }
             }
+        },
+        "assignment": {
+            "enabled": true,
+            "settings": {
+                "autoAssign": {
+                    "enabled": true,
+                    "claimableOnlyWhen": [
+                        "ready"
+                    ],
+                    "notClaimableWhen": [
+                        "blocked",
+                        "awaitingTriage"
+                    ],
+                    "capIgnores": [
+                        "blocked"
+                    ],
+                    "maxOpen": 3
+                },
+                "unassign": {
+                    "enabled": true
+                }
+            }
         }
     },
     "mappings": {

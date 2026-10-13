@@ -41,6 +41,7 @@ const ROWS: { readonly [V in keyof WriteVerbs]: readonly [BuiltWrite, IntentOper
     createComment: [REQUESTS.createComment(REPOSITORY, ITEM, "hello"), "postManagedComment"],
     updateComment: [REQUESTS.updateComment(REPOSITORY, 7788, "again"), "postManagedComment"],
     closePullRequest: [REQUESTS.closePullRequest(REPOSITORY, PULL), "closePullRequest"],
+    assign: [REQUESTS.assign(REPOSITORY, ITEM, "alice"), "assign"],
     releaseAssignment: [REQUESTS.releaseAssignment(REPOSITORY, ITEM, "alice"), "releaseAssignment"],
     lockIssue: [REQUESTS.lockIssue(REPOSITORY, ITEM), "lockIssue"],
     unlockIssue: [REQUESTS.unlockIssue(REPOSITORY, ITEM), "unlockIssue"],

@@ -8,6 +8,7 @@ import { triageQueue } from "./triageQueue/capability.js";
 import { prDashboard } from "./prDashboard/capability.js";
 import { inactivity } from "./inactivity/capability.js";
 import { configReport } from "./configReport/capability.js";
+import { assignment } from "./assignment/capability.js";
 
 export {
     triageQueue,
@@ -29,6 +30,11 @@ export {
     configReportDeclaration,
     type ConfigReportDeclaration,
 } from "./configReport/capability.js";
+export {
+    assignment,
+    assignmentDeclaration,
+    type AssignmentDeclaration,
+} from "./assignment/capability.js";
 
 /** Order is the production composition: a reordering is a behaviour change. */
 export const CAPABILITIES: readonly EngineCapability[] = [
@@ -36,4 +42,5 @@ export const CAPABILITIES: readonly EngineCapability[] = [
     toEngine(prDashboard),
     toEngine(inactivity),
     toEngine(configReport),
+    toEngine(assignment),
 ];

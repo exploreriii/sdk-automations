@@ -9,10 +9,11 @@ export const releaseAssignment: OperationHandler<"releaseAssignment"> = {
 
     /** Two calls, because a release is graced: the release, then its notice (grace.md §3). */
     plan: (effect) =>
-        planWithNotice(effect, {
-            verb: "releaseAssignment",
-            login: effect.intent.desired.login,
-        }),
+        planWithNotice(
+            effect,
+            { verb: "releaseAssignment", login: effect.intent.desired.login },
+            effect.intent.grace?.notice.body ?? null,
+        ),
 
     serialize: (call) => ({ verb: call.verb, login: call.login }),
 

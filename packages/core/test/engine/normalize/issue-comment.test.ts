@@ -1,5 +1,8 @@
 /**
- * The issue-comment family: what a comment delivery becomes.
+ * The issue-comment family: what an `issue_comment` delivery becomes. A created
+ * comment issues the command its mapped word names, or none, and says who typed
+ * it and when; an edit or a deletion issues nothing; a comment on a pull request,
+ * or one whose shape is not GitHub's, is malformed; a closed issue is still read.
  *
  * PROVENANCE, stated because this file cannot make the claim its siblings do.
  * `issues.test.ts` and `pull-request.test.ts` run on real captured deliveries,
@@ -64,15 +67,51 @@ const factsOf = (payload: unknown, cfg: RepositoryConfig = config) => {
 };
 
 describe("what an issue comment becomes", () => {
-    it("a created comment produces an ordinary issue record, no group read", () => {
+    it("a created comment carrying the mapped word: the command, its author, its instant", () => {
         const facts = factsOf(delivery("/assign"));
 
+        expect(facts.command).toEqual({ issued: "assign", by: "alice", at: new Date(AT) });
         expect(facts.trigger).toEqual({
             kind: "event",
             event: "issue_comment",
         });
         expect(facts.assignees).toBe(UNREAD);
         expect(facts.links).toBe(UNREAD);
+    });
+
+    it("the capability sees the meaning, never the repository's spelling", () => {
+        const taken = configWith({ commands: { assign: "/take" } });
+
+        expect(factsOf(delivery("/take"), taken).command).toMatchObject({ issued: "assign" });
+        expect(factsOf(delivery("/assign"), taken).command).toMatchObject({ issued: null });
+    });
+
+    it("a quoted command is not issued", () => {
+        const facts = factsOf(delivery("> /assign\n\nI think you meant to type that"));
+
+        expect(facts.command).toEqual({ issued: null, by: "alice", at: new Date(AT) });
+    });
+
+    it("a command mid-sentence is not issued", () => {
+        expect(factsOf(delivery("you could try /assign here")).command).toMatchObject({
+            issued: null,
+        });
+    });
+
+    it("an edited or deleted comment is read, and issues nothing", () => {
+        for (const action of ["edited", "deleted"]) {
+            expect(factsOf(delivery("/assign", { action })).command).toEqual({
+                issued: null,
+                by: "alice",
+                at: new Date(AT),
+            });
+        }
+    });
+
+    it("a repository that mapped no command word has no commands at all", () => {
+        expect(factsOf(delivery("/assign"), configWith({})).command).toMatchObject({
+            issued: null,
+        });
     });
 
     it("a comment on a pull request is consumed and unreadable, not ignored", () => {

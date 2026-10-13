@@ -42,6 +42,10 @@ export interface IssueFacts {
     readonly skills: readonly Skill[] | Unread;
     readonly assignees: readonly AssigneeClock[] | Unread;
     readonly links: { readonly openPullRequests: readonly ItemRef[] } | Unread;
+    /** The command the comment issued, as a catalogue name; `issued: null` when it issued none. */
+    readonly command:
+        | { readonly issued: Command | null; readonly by: string; readonly at: Date }
+        | Unread;
 }
 
 export interface PullRequestFacts {
@@ -66,7 +70,9 @@ export interface PullRequestFacts {
 
 export type Facts = IssueFacts | PullRequestFacts;
 export const FACT_KINDS = ["issue", "pullRequest"] as const;
-export const FACT_GROUPS = ["locked", "skills", "assignees", "links", "review", "readiness"] as const;
+export const FACT_GROUPS = [
+    "locked", "skills", "assignees", "links", "review", "readiness", "command",
+] as const;
 ```
 
 `AssigneeClock` and `LinkedIssue` (an item with its assignees' clocks) keep their current shapes.
@@ -90,6 +96,14 @@ WEBHOOK can read — the payload carries it — while the three facts remaining 
 timeline. A capability wanting only draft state would otherwise have to declare `review` and be
 skipped `factsUnread` on every delivery it was triggered by.
 
+**`command` is read by `issue_comment` alone, and is never `null`.** A group module's webhook read
+answers `null` for "the payload lacks it", so "this comment issued nothing" lives inside the value:
+`issued: null`, with `by` and `at` still the comment's. Only a `created` comment issues a command;
+an edited or deleted one reads `issued: null`. What counts is the first word of a line, outside a
+code block — fenced, or indented four spaces or a tab — in a newly created comment: a quoted,
+fenced, indented or mid-sentence `/assign` issues nothing. The sweep reads no comment, so it leaves
+the group unread.
+
 ## 2. What a producer reads
 
 The producers are a registry — `PRODUCERS` in `packages/core/src/capability/producers.ts`, read off
@@ -98,13 +112,13 @@ generated from it by `pnpm contracts`. One row per producer and per kind it make
 record of; `—` is a group that kind does not carry.
 
 <!-- generated: producers -->
-| Producer | Kind | position | locked | skills | assignees | links | review | readiness |
-|---|---|---|---|---|---|---|---|---|
-| `issues` | `issue` | read | read | read | unread | unread | — | — |
-| `issue_comment` | `issue` | read | read | read | unread | unread | — | — |
-| `pull_request` | `pullRequest` | read | — | — | unread | unread | unread | read |
-| `sweep` | `issue` | read | read | read | read | read | — | — |
-| `sweep` | `pullRequest` | read | — | — | read | read | read | read |
+| Producer | Kind | position | locked | skills | assignees | links | review | readiness | command |
+|---|---|---|---|---|---|---|---|---|---|
+| `issues` | `issue` | read | read | read | unread | unread | — | — | unread |
+| `issue_comment` | `issue` | read | read | read | unread | unread | — | — | read |
+| `pull_request` | `pullRequest` | read | — | — | unread | unread | unread | read | — |
+| `sweep` | `issue` | read | read | read | read | read | — | — | unread |
+| `sweep` | `pullRequest` | read | — | — | read | read | read | read | — |
 <!-- /generated -->
 
 A producer marks a group unread rather than inventing a value: an empty assignee list from a

@@ -57,7 +57,7 @@ describe("each group module's row", () => {
     it("is the producer table, pinned by value", () => {
         expect(PRODUCERS).toEqual({
             issues: { issue: ["locked", "skills"], pullRequest: null },
-            issue_comment: { issue: ["locked", "skills"], pullRequest: null },
+            issue_comment: { issue: ["locked", "skills", "command"], pullRequest: null },
             pull_request: { issue: null, pullRequest: ["readiness"] },
             sweep: {
                 issue: ["locked", "skills", "assignees", "links"],
@@ -73,7 +73,13 @@ describe("a webhook's groups", () => {
     it("reads what its row names and leaves every other group unread", () => {
         expect(deliveredGroups("issues", "issue", delivery)).toEqual({
             ok: true,
-            groups: { locked: true, skills: ["beginner"], assignees: UNREAD, links: UNREAD },
+            groups: {
+                locked: true,
+                skills: ["beginner"],
+                assignees: UNREAD,
+                links: UNREAD,
+                command: UNREAD,
+            },
         });
         expect(deliveredGroups("pull_request", "pullRequest", delivery)).toEqual({
             ok: true,
@@ -83,6 +89,18 @@ describe("a webhook's groups", () => {
                 review: UNREAD,
                 readiness: { draft: false },
             },
+        });
+    });
+
+    it("reads a command only from a comment delivery that carries one", () => {
+        const command = { issued: "assign", by: "alice", at: new Date(0) } as const;
+        expect(deliveredGroups("issue_comment", "issue", { ...delivery, command })).toMatchObject({
+            ok: true,
+            groups: { command },
+        });
+        expect(deliveredGroups("issue_comment", "issue", delivery)).toMatchObject({
+            ok: true,
+            groups: { command: UNREAD },
         });
     });
 

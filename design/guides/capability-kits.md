@@ -97,6 +97,7 @@ nothing more:
 | `flag({ default })` | a boolean | `default` |
 | `duration({ default })` | a length of time, written 4h or 14d | `default` |
 | `duration({ inherits })` | a length of time, written 4h or 14d | `inherited` |
+| `count({ default })` | a whole number, zero or more | `default` |
 | `text({ optional: true })` | a string | `null` |
 | `text({ optional: false })` | a string | `problem` |
 | `meanings()` | a list of mapped label meanings | `empty` |
@@ -126,6 +127,11 @@ The rule each constructor carries beyond that is prose no `describe()` reports, 
   value is bounded above by `MAX_CLOCK_HOURS`, a century, because a clock becomes a date: a
   capability that renders the day it promises throws on a gap no `Date` can hold, and a bound is
   the only reading that catches that at the maintainer's own path.
+- **`count`** — a whole number, zero or more, held as written. A fraction, a negative, a string
+  such as `"2d"`, a boolean and `null` are each a problem. It has no ceiling and does not borrow
+  `MAX_CLOCK_HOURS`: a count is never added to an instant. It does not cascade: an absent key reads
+  its own `default`, never an enclosing level's. `0` means nothing the reader knows of; when a
+  capability gives it a meaning such as "uncapped", the field's `doc` says so.
 - **`text`** — for guide links and references. Never parsed, never followed. It is repository-written
   text, so a capability that prints one puts it through `inert()` first
   (`packages/core/src/capability/facts.ts`): a plain `https://host/path` survives that unchanged and
@@ -215,7 +221,7 @@ constructor in this file with its rule stated — never by a hook in a capabilit
 
 ## 4. Declined, with triggers
 
-- **A schema library** (zod and kin): declined — the vocabulary is six constructors with rules the
+- **A schema library** (zod and kin): declined — the vocabulary is seven constructors with rules the
   designs state in prose, and a library's error shape would replace `ConfigError`'s. Reopen never.
 - **A `Verdict` ladder with a `climb` combinator**: BUILT (D138) and removed (D143). It was the one
   shape whose cost the first promotion could measure, and the measurement was against it: a verdict

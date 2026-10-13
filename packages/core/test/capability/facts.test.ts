@@ -91,6 +91,7 @@ const issue = (projection: Projection<IssueMeaning>): IssueFacts => ({
     position: projection,
     assignees: UNREAD,
     links: UNREAD,
+    command: UNREAD,
 });
 
 const assignee = (

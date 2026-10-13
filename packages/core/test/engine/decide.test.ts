@@ -100,6 +100,7 @@ const webhookIssue = (over: Partial<IssueFacts> = {}): IssueFacts => ({
     },
     assignees: UNREAD,
     links: UNREAD,
+    command: UNREAD,
     ...over,
 });
 

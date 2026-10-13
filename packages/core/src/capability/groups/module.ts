@@ -34,6 +34,8 @@ export type AnyGroupValue<G extends FactGroup> = {
 export interface GroupDelivery {
     readonly item: Record<string, unknown>;
     readonly skills: readonly Skill[];
+    /** Present only on a comment delivery, which is the one that can issue a command. */
+    readonly command?: GroupValue<"issue", "command">;
 }
 
 /** Engine refusal codes, spelled here; `malformed()` fails to compile if one drifts. */

@@ -20,6 +20,7 @@ import {
     spec,
     intentFactory,
     writeRequestFor,
+    UNREAD,
     type AnyIntent,
     type DestructiveGrace,
     type DestructiveWarning,
@@ -109,6 +110,7 @@ const facts: IssueFacts = {
     },
     assignees: [],
     links: { openPullRequests: [] },
+    command: UNREAD,
 };
 
 const config = (mode: RepositoryMode = "active") =>

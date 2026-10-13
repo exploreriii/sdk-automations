@@ -157,7 +157,7 @@ pnpm -r test
 
 The matrix in `packages/capabilities/test/engine-matrix.test.ts` now runs the capability alone and
 beside every other, at its spec's fullest valid settings, and the citation and design-page checks
-read the folder. One pin there is hand-written on purpose: the list of managed comments the four
+read the folder. One pin there is hand-written on purpose: the list of managed comments the five
 fixture records earn, in record then registry order. A capability that posts a comment adds its
 rows, and the failure names the rule. Green here is the capability shipped. Mutation testing is
 CI's; do not run it locally.

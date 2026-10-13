@@ -11,8 +11,8 @@ the other one (D131).
 | `prDashboard` | `packages/capabilities/src/prDashboard/design.md` |
 | `inactivity` | `packages/capabilities/src/inactivity/design.md` |
 | `configReport` | `packages/capabilities/src/configReport/design.md` |
+| `assignment` | `packages/capabilities/src/assignment/design.md` |
 | `advancement` | [`advancement.md`](advancement.md) — no folder yet |
-| `assignment` | [`assignment.md`](assignment.md) — no folder yet |
 | `notifications` | [`notifications.md`](notifications.md) — no folder yet |
 | `onboarding` | [`onboarding.md`](onboarding.md) — no folder yet |
 | `reviews` | [`reviews.md`](reviews.md) — no folder yet |

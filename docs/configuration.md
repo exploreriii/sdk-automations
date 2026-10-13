@@ -264,6 +264,11 @@ with labels, the duplicate check ignores case and surrounding spaces, because a 
 `/Assign` is the same instruction as `/assign`. A bare word is rejected rather than silently given a
 slash — a command nobody can type is worse than an error.
 
+A command counts only as the first word of a line, outside a code block, in a newly created
+comment. A code block is fenced with ```` ``` ```` or `~~~`, or indented by four spaces or a tab. So
+quoting a command, putting it in a code block, or mentioning it mid-sentence does nothing, and
+neither does editing it into an older comment.
+
 Map nothing here and no command works. An unmapped act is invisible, exactly as an unmapped label is.
 
 ## Skill mappings

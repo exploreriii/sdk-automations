@@ -8,10 +8,11 @@
  * C, C's OBSERVABLE DECISION — its approved intents and its findings — is
  * identical to C running alone. Enabling a neighbour changes nothing.
  *
- * Four records, one decision each (contracts/facts.md §4): a webhook-shaped
- * issue and pull request, and a sweep-shaped one of each. The webhook pair is
- * where `inactivity` meets `factsUnread` — it needs every group and a webhook
- * reads none — and the sweep pair is where its reminder is gated and approved.
+ * Five records, one decision each (contracts/facts.md §4): a webhook-shaped
+ * issue and pull request, a sweep-shaped one of each, and a comment that issues
+ * `assign`. The webhook pair is where `inactivity` meets `factsUnread` — it
+ * needs every group and a webhook reads none — and the sweep pair is where its
+ * reminder is gated and approved.
  * What has not changed is that the claim is checked, never taken: an adapter
  * recheck cannot make an unapproved intent safe by itself (D116).
  */
@@ -31,6 +32,7 @@ import {
 import type { Facts } from "@hiero-hackers/automation-core";
 import { CAPABILITIES } from "../src/index.js";
 import {
+    commentedIssue,
     configEnabling,
     fullestValidSettings,
     namesOffered,
@@ -45,6 +47,15 @@ import {
 const ALL = CAPABILITIES;
 const NAMES = CAPABILITIES.map((capability) => capability.declaration.name);
 const DECLARATIONS = CAPABILITIES.map((capability) => capability.declaration);
+
+/** A comment that claims its issue: the record assignment acts on. */
+const CLAIM = commentedIssue({
+    command: {
+        issued: "assign",
+        by: "contributor",
+        at: new Date("2026-08-03T08:59:00.000Z"),
+    },
+});
 
 const RECORDS: readonly Facts[] = [
     webhookIssue(),
@@ -72,6 +83,7 @@ const RECORDS: readonly Facts[] = [
             },
         ],
     }),
+    CLAIM,
 ];
 
 /**
@@ -90,6 +102,8 @@ const MAPPINGS = {
         blocked: "blocked",
         needsRevision: "status: needs revision",
     },
+    // A command word has no default spelling, and an enabled block without one is unusable.
+    commands: { assign: "/assign", unassign: "/unassign" },
 };
 
 /**
@@ -121,6 +135,7 @@ const externals: Externals = {
         if (query === "linkedIssues") return { ok: true, value: [] } as never;
         if (query === "commitAttestations") return { ok: true, value: [] } as never;
         if (query === "assigneesOf") return { ok: true, value: [] } as never;
+        if (query === "openAssignments") return { ok: true, value: [] } as never;
         if (query === "configAtHead") return { ok: true, value: { touched: false } } as never;
         return { ok: true, value: false } as never;
     },
@@ -192,7 +207,7 @@ describe("P3 through the engine", () => {
         const prAlone = sliceFor(await runAll(["prDashboard"]), "prDashboard");
         expect(prAlone.approved.length).toBeGreaterThan(0);
         /**
-         * Both halves of facts.md §4 in one list, in record order: the two
+         * Both halves of facts.md §4 in one list, in record order: the three
          * webhook records are skipped because inactivity needs groups a
          * webhook does not read, and the swept issue's reminder is gated and
          * approved. The swept pull request earns its own pair now — every
@@ -208,7 +223,11 @@ describe("P3 through the engine", () => {
             "applied",
             "capabilityExplained",
             "applied",
+            "factsUnread",
         ]);
+        // The comment's claim: the commenter assigned, carrying their notice.
+        const claimAlone = sliceFor(await runAll(["assignment"]), "assignment");
+        expect(claimAlone.approved.map((effect) => effect.intent.operation)).toEqual(["assign"]);
     });
 });
 
@@ -275,12 +294,13 @@ describe("prDashboard on a conflicted pull request", () => {
  * approvable, so the warning earns the identity a warning is found again by.
  */
 describe("managed-comment identity is minted by the platform", () => {
+    /** A comment of its own, or one an act carries: either way the effect holds an identity. */
     const approvedComments = async () => {
         const effects = (await runAll(NAMES)).flatMap((decision) => decision.approved);
-        return effects.filter((effect) => effect.intent.operation === "postManagedComment");
+        return effects.filter((effect) => effect.managedComment !== null);
     };
 
-    it("marks every comment the four records earn, and none of the labels", async () => {
+    it("marks every comment the five records earn, and none of the labels", async () => {
         const comments = await approvedComments();
         /**
          * Record order. A sweep record carries no `arrival`, so triageQueue asks
@@ -293,7 +313,7 @@ describe("managed-comment identity is minted by the platform", () => {
                 kind: effect.managedComment?.identity.kind,
                 topic: effect.managedComment?.identity.topic,
             })),
-            "one row per managed comment the four fixture records earn, in record then registry order — a new capability that posts one adds its rows here by hand",
+            "one row per managed comment the five fixture records earn, in record then registry order — a new capability that posts one adds its rows here by hand",
         ).toEqual([
             { capability: "triageQueue", item: 11, kind: "notice", topic: "welcome" },
             { capability: "prDashboard", item: 12, kind: "summary", topic: "" },
@@ -304,6 +324,8 @@ describe("managed-comment identity is minted by the platform", () => {
             // The same discriminator on a pull request is the REASON, so a
             // pull request re-warned under another one gets its own comment.
             { capability: "inactivity", item: 14, kind: "warning", topic: "draft" },
+            // One notice per person per issue, carried by the assign: the topic is the commenter.
+            { capability: "assignment", item: 15, kind: "notice", topic: "contributor" },
         ]);
         // The identity is minted from the intent's OWN fields, never chosen —
         // and it names the ITEM and the purpose, never the occasion.
@@ -381,5 +403,83 @@ describe("triageQueue conflict behavior", () => {
                 .filter((finding) => finding.code === "capabilityExplained")
                 .map((finding) => finding.summary),
         ).toContain("Skipped: the item holds more than one workflow position.");
+    });
+});
+
+/**
+ * assignment's rows only the engine can prove: what the mode and the installation
+ * do to a claim, and that a delivery other than a comment never reaches it.
+ */
+describe("assignment through the engine", () => {
+    const config = configEnabling(["assignment"], DECLARATIONS, SETTINGS, MAPPINGS);
+    const claim = { kind: "facts", facts: CLAIM } as const;
+    const operationOf = (finding: Finding) =>
+        finding.subject.kind === "effect" ? finding.subject.operation : null;
+
+    it("records a dry-run claim as wouldApply, and writes nothing", async () => {
+        const dry = await decide(claim, { ...config, mode: "dry-run" as const }, ALL, externals);
+
+        expect(dry.approved).toEqual([]);
+        const recorded = dry.report.findings.filter((finding) => finding.code === "wouldApply");
+        expect(recorded.map(operationOf)).toEqual(["assign"]);
+        expect(recorded[0]?.summary).toContain("would assign");
+        expect(recorded[0]?.summary).toContain("assign contributor. Nothing was written.");
+
+        const live = await decide(claim, config, ALL, externals);
+        expect(live.approved.map((effect) => effect.intent.operation)).toEqual(["assign"]);
+    });
+
+    it("refuses the claim permissionMissing without issues:write, and approves nothing", async () => {
+        const ungranted = await decide(claim, config, ALL, {
+            ...externals,
+            installationGrants: [],
+        });
+
+        expect(ungranted.approved).toEqual([]);
+        expect(
+            ungranted.report.findings.map((finding) => [finding.code, operationOf(finding)]),
+        ).toEqual([["permissionMissing", "assign"]]);
+        expect(ungranted.report.findings[0]?.summary).toContain("lacks issues:write");
+    });
+
+    it("rewrites one comment per person: a refusal and the claim after it share an identity", async () => {
+        const held = async (holders: readonly string[]) =>
+            await decide(claim, config, ALL, {
+                ...externals,
+                resolve: async (query, input) =>
+                    query === "assigneesOf"
+                        ? ({ ok: true, value: holders } as never)
+                        : await externals.resolve!(query, input),
+            });
+
+        const refused = (await held(["someone"])).approved;
+        const claimed = (await held([])).approved;
+        expect(refused.map((effect) => effect.intent.operation)).toEqual(["postManagedComment"]);
+        expect(claimed.map((effect) => effect.intent.operation)).toEqual(["assign"]);
+        expect(claimed[0]!.managedComment!.marker).toBe(refused[0]!.managedComment!.marker);
+    });
+
+    it("never evaluates on an `issues` delivery: a label or an assignee changed by hand", async () => {
+        const asked: string[] = [];
+        const changed = webhookIssue({
+            arrival: null,
+            position: {
+                kind: "position",
+                state: { meaning: "inProgress", blocked: true, closedBy: null },
+                ignored: [],
+            },
+        });
+
+        const decision = await decide({ kind: "facts", facts: changed }, config, ALL, {
+            ...externals,
+            resolve: async (query, input) => {
+                asked.push(query);
+                return await externals.resolve!(query, input);
+            },
+        });
+
+        expect(decision.approved).toEqual([]);
+        expect(decision.report.findings.map((finding) => finding.code)).toEqual(["factsUnread"]);
+        expect(asked).toEqual([]);
     });
 });

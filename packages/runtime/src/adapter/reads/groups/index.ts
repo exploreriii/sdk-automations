@@ -3,6 +3,7 @@
 import type { FactGroup } from "@hiero-hackers/automation-core";
 import type { SweepRead } from "../items.js";
 import { assignees } from "./assignees.js";
+import { command } from "./command.js";
 import { links } from "./links.js";
 import { locked } from "./locked.js";
 import type { SweepGroup } from "./module.js";
@@ -20,6 +21,7 @@ export const SWEEP_GROUPS: { readonly [G in FactGroup]: SweepGroup<G> } = {
     links,
     review,
     readiness,
+    command,
 };
 
 /** The reads each group is built from; a group is read only when every one is confirmed. */

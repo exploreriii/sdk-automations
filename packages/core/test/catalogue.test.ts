@@ -29,6 +29,7 @@ const issue: IssueFacts = {
     position: POSITION,
     assignees: [],
     links: UNREAD,
+    command: UNREAD,
 };
 const pullRequest: PullRequestFacts = {
     kind: "pullRequest",
@@ -52,6 +53,7 @@ describe("which kind carries which group", () => {
             "skills",
             "assignees",
             "links",
+            "command",
         ]);
         expect(FACT_GROUPS.filter((group) => carriesFactGroup("pullRequest", group))).toEqual([
             "assignees",
@@ -71,6 +73,7 @@ describe("whether a producer left a group unread", () => {
             true,
             false,
             false,
+            true,
         ]);
     });
 
@@ -82,6 +85,7 @@ describe("whether a producer left a group unread", () => {
             false,
             true,
             true,
+            false,
         ]);
     });
 

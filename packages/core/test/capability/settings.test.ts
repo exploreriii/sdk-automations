@@ -29,6 +29,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
     block,
+    count,
     declareCapability,
     describeSpec,
     duration,
@@ -443,6 +444,55 @@ describe("the written form", () => {
         expect(writeDuration(MAX_CLOCK_HOURS)).toBe("36500d");
     });
 });
+describe("count", () => {
+    const fields = spec({ maxOpen: count({ default: 2 }) });
+
+    it("reads a whole number, zero included — what zero MEANS is the capability's", () => {
+        expect(readFrom(fields, view({ maxOpen: 0 }))).toEqual({
+            ok: true,
+            value: { maxOpen: 0 },
+        });
+        expect(readFrom(fields, view({}))).toEqual({ ok: true, value: { maxOpen: 2 } });
+    });
+
+    it.each([
+        ["a fraction", 1.5],
+        ["a negative cap", -2],
+        ["a string", "2"],
+        ["a boolean", true],
+        ["null", null],
+        ["a duration's spelling", "2d"],
+    ])("reports %s", (_why, value) => {
+        expect(problemsOf(readFrom(fields, view({ maxOpen: value })))).toEqual([
+            "maxOpen: must be a whole number, zero or more",
+        ]);
+    });
+
+    /**
+     * A count is never added to an instant, so `duration`'s ceiling is not its:
+     * `maxOpen: 2147483647` is an absurd cap and an honest one, and the
+     * capability's own prose is what says whether it means anything.
+     */
+    it("has no ceiling of its own", () => {
+        expect(readFrom(fields, view({ maxOpen: Number.MAX_SAFE_INTEGER }))).toEqual({
+            ok: true,
+            value: { maxOpen: Number.MAX_SAFE_INTEGER },
+        });
+    });
+
+    /**
+     * What `0` means is said in the sentence or nowhere: the description
+     * carries the `doc` its constructor was given and invents no reading of
+     * zero, so a generated page or schema cannot promise one either.
+     */
+    it("says what zero means only when the capability's sentence says it", () => {
+        expect(count({ default: 0 }).describe().doc).toBe(null);
+        expect(count({ default: 0, doc: "How many at once; 0 is uncapped" }).describe().doc).toBe(
+            "How many at once; 0 is uncapped",
+        );
+    });
+});
+
 describe("text", () => {
     it("reads a string, and renders without it when it is optional", () => {
         const fields = spec({ guide: text({ optional: true }) });
@@ -1072,6 +1122,15 @@ describe("describe", () => {
         });
         // A key that is absent, not a key whose value is undefined.
         expect(Object.keys(duration().describe())).toEqual(["kind", "doc", "absent"]);
+    });
+
+    it("count: a whole number, and its default", () => {
+        expect(count({ default: 2, doc: "How many at once" }).describe()).toStrictEqual({
+            kind: "count",
+            doc: "How many at once",
+            absent: "default",
+            default: 2,
+        });
     });
 
     it("text: optional reads null, required is a problem", () => {

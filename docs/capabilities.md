@@ -16,6 +16,7 @@ spelling), its own block's keys, and nothing another capability was given.
 | `prDashboard` | one dashboard comment that tells a contributor what stops their pull request from being ready to review | the `pull_request` webhook, a schedule (hourly recheck of every open pull request) | nothing required | `checks`, `applyLabels` | a comment it keeps up to date; the `needsRevision`, `needsReview` labels, at your spelling or the default | [design page](../packages/capabilities/src/prDashboard/design.md) |
 | `inactivity` | remind about stalled work, then release it | a schedule (hourly stale-assignment sweep) | nothing required | `exemptBlocked`, `remindAfter`, `reap`, `issues`, `pullRequests` | a comment it keeps up to date; an assignment's release, after a warning; a pull request's closure, after a warning | [design page](../packages/capabilities/src/inactivity/design.md) |
 | `configReport` | one comment on a pull request that changes `sdk-automations.yml`, saying what the App would read from it | the `pull_request` webhook | nothing required | none | a comment it keeps up to date | [design page](../packages/capabilities/src/configReport/design.md) |
+| `assignment` | let a contributor claim work, and release it again | the `issue_comment` webhook | nothing required | `autoAssign`, `unassign` | a comment it keeps up to date; an assignment; an unassignment | [design page](../packages/capabilities/src/assignment/design.md) |
 <!-- /generated -->
 
 Three things to read off the table:
@@ -117,6 +118,20 @@ pullRequests: # off until enabled — Run the ladder on pull requests, linked to
 ### `configReport`
 
 No settings. `configReport` declares no keys, so its block holds `enabled` and nothing else.
+
+### `assignment`
+
+```yaml
+enabled: true
+autoAssign: # off until enabled — Assign a commenter who uses this repository's assign command — needs mappings.commands.assign
+  enabled: true
+  claimableOnlyWhen: [] # none — An issue is claimable only while it carries one of these meanings; empty means any open issue
+  notClaimableWhen: [] # none — An issue carrying any of these meanings is not claimable, whatever claimableOnlyWhen says
+  capIgnores: [] # none — An open assignment carrying any of these meanings does not count toward maxOpen
+  maxOpen: 2 # default — How many open assignments in this repository a person may hold before a claim is refused; 0 means uncapped
+unassign: # off until enabled — Release the commenter's own assignment when they use this repository's unassign command — needs mappings.commands.unassign
+  enabled: true
+```
 <!-- /generated -->
 
 ## How the App wakes

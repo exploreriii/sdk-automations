@@ -90,7 +90,7 @@ function strangers(
         }));
 }
 
-// ─── The six constructors ────────────────────────────────────────────
+// ─── The seven constructors ──────────────────────────────────────────
 
 /** The spec, pinned. Identity at runtime; the point is the `const` parameter. */
 export function spec<const S extends Spec>(fields: S): S {
@@ -241,6 +241,27 @@ export function duration(options: DurationOptions & { readonly doc?: string } = 
             const resolved = inherited ?? declared;
             if (resolved === null) return problem(path, "must be set to a duration");
             return bounded(resolved, path, scope);
+        },
+    };
+}
+
+/** A whole number, zero or more. */
+export function count(options: { readonly default: number; readonly doc?: string }): Field<number> {
+    return {
+        describe: () => ({
+            kind: "count",
+            doc: options.doc ?? null,
+            absent: "default",
+            default: options.default,
+        }),
+        read(key, scope) {
+            const path = dot(scope.path, key);
+            if (!Object.hasOwn(scope.raw, key)) return { ok: true, value: options.default };
+            const value = scope.raw[key];
+            if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+                return problem(path, "must be a whole number, zero or more");
+            }
+            return { ok: true, value };
         },
     };
 }

@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { NO_CONFIG, type ItemRef } from "@hiero-hackers/automation-core";
+import { capture } from "@hiero-hackers/automation-testkit";
 import { createAllowance } from "../../../src/adapter/client/allowance.js";
 import {
     causeFingerprintOf,
@@ -452,6 +453,13 @@ describe("the platform's own assignment writes", () => {
         expect(await lookup(ITEM)).toBeNull();
     });
 
+    it("does not count a release the commenter asked for, which its journal claims too", async () => {
+        const asked: LandedWrite = { verb: "unassign", login: "alice", at: RELEASED_AT };
+        const lookup = journalled([page([unassigned("alice", EVENT_AT)])], [asked]);
+
+        expect(await lookup(ITEM)).toBeNull();
+    });
+
     it("counts a human unassigning a different login in the same second", async () => {
         const lookup = journalled([page([unassigned("bob", EVENT_AT)])], [release("alice")]);
 
@@ -679,6 +687,108 @@ describe("the cause fingerprint", () => {
             ...CAUSE,
             itemNumber: 1,
         });
+    });
+});
+
+/**
+ * A created comment is its own cause: the timeline records it as `commented`, by the comment's
+ * author at the comment's own instant. Unexcluded, every command would conflict with itself, as
+ * the sandbox's first `/assign` was refused `newerHumanChange`.
+ */
+describe("the cause a created comment leaves", () => {
+    const COMMENTED_AT = "2026-08-20T10:00:00Z";
+    const COMMENT = {
+        action: "created",
+        comment: { user: { login: "contributor" }, created_at: COMMENTED_AT },
+        sender: { login: "contributor" },
+        issue: { number: 7, updated_at: COMMENTED_AT },
+    };
+    const COMMENTED: CauseFingerprint = {
+        actorLogin: "contributor",
+        observedAt: new Date(COMMENTED_AT),
+        itemNumber: 7,
+        action: "commented",
+        target: null,
+    };
+
+    it("reads the captured delivery as its timeline entry: commented, by its author", () => {
+        expect(causeFingerprintOf(capture("issue_comment.created.json").json())).toEqual({
+            actorLogin: "scrubbed-1",
+            observedAt: new Date("2026-10-02T06:35:41Z"),
+            itemNumber: 197,
+            action: "commented",
+            target: null,
+        });
+    });
+
+    it("dates the cause by the comment, not by the issue", () => {
+        const later = { ...COMMENT, issue: { number: 7, updated_at: "2026-08-20T10:05:00Z" } };
+        expect(causeFingerprintOf(later)).toEqual(COMMENTED);
+    });
+
+    it.each([
+        ["no comment", { ...COMMENT, comment: undefined }],
+        ["a comment with no author", { ...COMMENT, comment: { created_at: COMMENTED_AT } }],
+        [
+            "a comment with an unreadable instant",
+            { ...COMMENT, comment: { user: { login: "contributor" }, created_at: "later" } },
+        ],
+        [
+            "a comment with a numeric instant",
+            { ...COMMENT, comment: { user: { login: "contributor" }, created_at: 0 } },
+        ],
+        ["an edited comment", { ...COMMENT, action: "edited" }],
+        ["a deleted comment", { ...COMMENT, action: "deleted" }],
+    ])("answers nothing to exclude for %s", (_label, payload) => {
+        expect(causeFingerprintOf(payload)).toBeUndefined();
+    });
+
+    it("excludes the comment itself, and answers the change before it", async () => {
+        const { lookup } = source(
+            [
+                page([
+                    entry("labeled", "maintainer", "2026-08-20T09:56:28Z"),
+                    entry("commented", "contributor", COMMENTED_AT),
+                ]),
+            ],
+            COMMENTED,
+        );
+        expect(await lookup(ITEM)).toEqual(new Date("2026-08-20T09:56:28Z"));
+    });
+
+    it("still counts another person's comment, and a second one of the author's, in that second", async () => {
+        const other = source([page([entry("commented", "maintainer", COMMENTED_AT)])], COMMENTED);
+        expect(await other.lookup(ITEM)).toEqual(new Date(COMMENTED_AT));
+
+        const twice = source(
+            [
+                page([
+                    entry("commented", "contributor", COMMENTED_AT),
+                    entry("commented", "contributor", COMMENTED_AT),
+                ]),
+            ],
+            COMMENTED,
+        );
+        expect(await twice.lookup(ITEM)).toEqual(new Date(COMMENTED_AT));
+    });
+
+    it("carries the comment's cause through a delivery's live externals", async () => {
+        const built = harness([page([entry("commented", "contributor", COMMENTED_AT)])]);
+        const outcome = await liveExternalsForDelivery(
+            {
+                tokenSource: tokenSource([{ ok: true, token: token("t") }]).source,
+                http: built.client,
+                repository: REPOSITORY,
+                config: NO_CONFIG,
+                knownCapabilities: [],
+                ownWrites: () => [],
+            },
+            COMMENT,
+        );
+
+        expect(outcome.ok).toBe(true);
+        if (!outcome.ok) return;
+        expect(await outcome.facts.latestHumanChangeAt(ITEM)).toBeNull();
     });
 });
 

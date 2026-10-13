@@ -280,7 +280,7 @@ export function sweptIssue(
     return recordFrom("sweep", "issue", over);
 }
 
-/** An issue as a comment delivery produces it: no group read. */
+/** An issue as a comment delivery produces it: `locked`, `skills` and `command` read, the rest unread. */
 export function commentedIssue(
     over: Partial<RecordFrom<"issue_comment", "issue">> = {},
 ): RecordFrom<"issue_comment", "issue"> {

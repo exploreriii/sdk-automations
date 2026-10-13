@@ -1,9 +1,11 @@
 /**
  * The issue-comment family: what an `issue_comment` delivery becomes once the
- * shared preamble has read it — an ordinary issue record.
+ * shared preamble has read it — an issue record whose `command` is projected
+ * through `mappings.commands`, so a capability reads `assign`, never `/assign`.
  */
 
-import { deliveredGroups, type ProducedFacts } from "../../capability/index.js";
+import { deliveredGroups, type GroupValue, type ProducedFacts } from "../../capability/index.js";
+import { commandInComment } from "../../config/index.js";
 import { projectIssue, type ClosureReason } from "../../workflow/index.js";
 import { isRecord, timestamp, type DeliveryFacts } from "./payload.js";
 import { malformed, type NormalizeResult } from "./verdict.js";
@@ -26,6 +28,15 @@ function commentOf(
     return { body: comment["body"], by: user["login"], at };
 }
 
+/** The command group; only a `created` comment issues one, so an edit reads `issued: null`. */
+function commandOf(
+    facts: DeliveryFacts,
+    comment: { readonly body: string; readonly by: string; readonly at: Date },
+): GroupValue<"issue", "command"> {
+    const issued = facts.action === "created" ? commandInComment(facts.config, comment.body) : null;
+    return { issued, by: comment.by, at: comment.at };
+}
+
 /** The `issue_comment` entry of the registry. */
 export const issueCommentNormalizer = {
     event: "issue_comment",
@@ -41,7 +52,10 @@ export const issueCommentNormalizer = {
         if (comment === null) {
             return malformed("commentUnreadable", "issue_comment: comment unreadable");
         }
-        const delivered = deliveredGroups("issue_comment", "issue", facts);
+        const delivered = deliveredGroups("issue_comment", "issue", {
+            ...facts,
+            command: commandOf(facts, comment),
+        });
         if (!delivered.ok) return malformed(delivered.code, delivered.detail);
         return {
             kind: "facts",

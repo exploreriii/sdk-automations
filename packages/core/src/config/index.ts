@@ -30,5 +30,6 @@ export {
 export type { ConfigError, ConfigErrorCode, ConfigResult } from "./results.js";
 export { parseConfig, NO_CONFIG } from "./parse.js";
 export { parseConfigDocument } from "./document.js";
+export { commandInComment } from "./commands.js";
 export { labelKey, meaningOfLabel, meaningsOfLabels, skillsOfLabels } from "./labels.js";
 export { DEFAULT_LABEL_MAPPINGS, LABEL_DEFAULTS, type LabelDefault } from "./label-defaults.js";

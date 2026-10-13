@@ -136,6 +136,8 @@ describe("openAssignments", () => {
         });
         expect(calls[0]?.url).toContain("assignee=alice");
         expect(calls[0]?.url).toContain("state=open");
+        // This repository's issues alone: a sibling repository's assignment never counts (D57).
+        expect(calls[0]?.url).toContain("/repos/Hiero-Hackers/SDK-Automations/issues?");
     });
 
     it("drops an unmapped label rather than inventing a meaning for it", async () => {

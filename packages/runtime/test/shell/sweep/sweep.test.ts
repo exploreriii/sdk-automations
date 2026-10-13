@@ -196,6 +196,7 @@ function scriptedReader(script: Script = {}): ScriptedReader {
                 position: POSITION,
                 assignees: CLOCK,
                 links: links === UNREAD ? UNREAD : { openPullRequests: links },
+                command: UNREAD,
             };
             return Promise.resolve(record);
         },

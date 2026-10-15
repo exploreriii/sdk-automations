@@ -27,9 +27,12 @@ rest to stdout. A refusal to boot is the exception and stays a human sentence: i
 ## Run it in a container
 
 ```bash
-docker build -t sdk-automations .
-docker run -d -p 8790:8790 -v sdk-state:/state -e WEBHOOK_SECRET=… -e REPO_OWNER=… -e REPO_NAME=… sdk-automations
+docker pull ghcr.io/hiero-hackers/sdk-automations:0.1.0   # or build it: docker build -t sdk-automations .
+docker run -d -p 8790:8790 -v sdk-state:/state -e WEBHOOK_SECRET=… -e REPO_OWNER=… -e REPO_NAME=… ghcr.io/hiero-hackers/sdk-automations:0.1.0
 ```
+
+A `v*` tag publishes the image with the commit in its `org.opencontainers.image.revision` label, which
+`docker inspect` reads back: that label is the version an operator records.
 
 The image binds `0.0.0.0` and keeps its store under `/state`, so mount a volume there or a redeploy
 takes the decision rows with it. Wait on `GET /readyz`, not on the port: it answers `200` only after
@@ -47,7 +50,7 @@ INSTALLATION_ID=…
 APP_SLUG=…                  # optional; the App's URL slug. Arms the write path
 PORT=8790                   # optional
 HOST=127.0.0.1              # optional; omit to use Node's default bind host
-CONFIG_FILE=…               # credential-free fallback; default <state home>/automations.yml
+CONFIG_FILE=…               # credential-free fallback; default <state home>/sdk-automations.yml
 STORE_PATH=…                # optional; default <state home>/shell.sqlite
 TICK_SECONDS=60             # optional; the reconciliation tick: requeue, recover, drain, fire
 SWEEP_CADENCE_HOURS=1       # optional; arms the fact sweep and sets how often a repository is read
@@ -130,7 +133,7 @@ a `limits` line reports GitHub's own `limit`, `remaining` and `resetAt` once per
 
 The state home is `$XDG_STATE_HOME/sdk-automations`, or `~/.local/state/sdk-automations` when that
 variable is unset or relative. The store is `shell.sqlite` there unless `STORE_PATH` names another
-file, and the credential-free configuration copy is `automations.yml` beside it unless `CONFIG_FILE`
+file, and the credential-free configuration copy is `sdk-automations.yml` beside it unless `CONFIG_FILE`
 does. It is deliberately outside the package: in a container `packages/runtime/data/` is an image
 layer, and a redeploy would take the decision rows with it. That directory is never tracked, and an
 operator who points `STORE_PATH` back at it is still writing raw payloads and real repository names.

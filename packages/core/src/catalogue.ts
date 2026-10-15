@@ -181,7 +181,7 @@ export interface CommitAttestation {
     readonly merge: boolean;
 }
 
-/** What a pull request does to `automations.yml`: the PARSED result, never the text. */
+/** What a pull request does to `sdk-automations.yml`: the PARSED result, never the text. */
 export type ConfigAtHead =
     | { readonly touched: false }
     | { readonly touched: true; readonly revision: string; readonly result: ConfigResult };
@@ -219,7 +219,7 @@ export interface ResolverCatalogue extends Record<ResolverName, unknown> {
             readonly meanings: readonly MappableMeaning[];
         }[];
     };
-    /** Did this pull request change `automations.yml`, and what does it parse to at head? */
+    /** Did this pull request change `sdk-automations.yml`, and what does it parse to at head? */
     readonly configAtHead: {
         readonly input: { readonly item: ItemRef };
         readonly output: ConfigAtHead;
@@ -249,6 +249,15 @@ export const MANAGED_COMMENT_KINDS = ["summary", "warning", "notice"] as const;
 export type ManagedCommentKind = (typeof MANAGED_COMMENT_KINDS)[number];
 
 /**
+ * What the App says once an act has landed, under the managed notice `topic` names. The platform
+ * posts it after the act and only then, so it can never announce an act that did not happen.
+ */
+export interface ActNotice {
+    readonly topic: string;
+    readonly body: string;
+}
+
+/**
  * The desired-outcome payload per operation (contract.md §3 `desired`); comment
  * identity D125/D145, `applyMappedLabel` D4/D78, `releaseAssignment` D63/D141.
  */
@@ -264,8 +273,8 @@ export interface IntentCatalogue {
         readonly meaning: MappableMeaning;
         readonly cause: TransitionCause;
     };
-    readonly assign: { readonly login: string };
-    readonly unassign: { readonly login: string };
+    readonly assign: { readonly login: string; readonly notice?: ActNotice };
+    readonly unassign: { readonly login: string; readonly notice?: ActNotice };
     readonly releaseAssignment: { readonly login: string };
     readonly closePullRequest: { readonly reason: string };
     readonly lockIssue: { readonly reason: string };

@@ -126,6 +126,15 @@ describe("the verbs name their endpoints", () => {
         expect(scripted.calls[0]!.init.body).toBe('{"assignees":["alice"]}');
     });
 
+    it("assigns ONE named login, on a POST that carries the name", async () => {
+        const { verbs, scripted } = harness([new Response("{}", { status: 201 })]);
+
+        expect(await verbs.assign(ITEM, "alice")).toEqual({ outcome: "applied" });
+        expect(scripted.calls[0]!.url).toBe(`${ISSUE}/assignees`);
+        expect(scripted.calls[0]!.init.method).toBe("POST");
+        expect(scripted.calls[0]!.init.body).toBe('{"assignees":["alice"]}');
+    });
+
     it("locks an issue without inventing a GitHub lock reason", async () => {
         const { verbs, scripted } = harness([new Response(null, { status: 204 })]);
 

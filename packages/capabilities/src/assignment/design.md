@@ -154,8 +154,12 @@ flowchart TD
     U1 -->|yes| W2["unassign the commenter, and notice: released"]
 ```
 
-Each refusal posts a notice and claims nothing absent. The assign and its notice both claim every
-`notClaimableWhen` meaning absent, so a deny label added before the write lands stops both. A
+Each refusal posts a notice and claims nothing absent. A claim is one `assign` carrying its notice,
+and a release one `unassign` carrying its own: the platform posts the notice after the act, and only
+once the issue's assignees read back with the act done. GitHub answers `201` for a login it silently
+declined to assign (6.16), so a declined claim ends `postconditionUnconfirmed` and is never
+announced. The assign claims every `notClaimableWhen` meaning absent, so a deny label added before
+the write lands stops it, and its notice with it. A
 `maxOpen` of 0 never asks for the commenter's open assignments. A resolver nobody could answer — who
 is a bot, who holds the issue, how many the commenter holds — ends the evaluation in an operator
 skip: nothing is assigned, nothing is released, and the commenter sees no comment.
@@ -206,10 +210,10 @@ Each built row names the test that proves it, as file › title; `·` separates 
 | Assigned to a `blocked` issue, `blocked` in `capIgnores` | does not count toward the cap; remove it from the set and it does — the meaning-set decides | `capability.test.ts` › Assigned to a `blocked` issue, `blocked` in `capIgnores` |
 | Maintainer natively assigns someone past the cap | it counts; their next `/assign` is refused — native bypasses the gates, never the arithmetic | `capability.test.ts` › Maintainer natively assigns someone past the cap |
 | Skill or block label added after a claim | nothing — an `issues` delivery stops at `factsUnread` and asks nothing, so gates run at claim time and this capability never releases | `engine-matrix.test.ts` › never evaluates on an `issues` delivery: a label or an assignee changed by hand |
-| Issue carrying both `ready` and `blocked` | not claimable — deny wins; the assign and its notice claim `blocked` absent | `capability.test.ts` › Issue carrying both `ready` and `blocked` |
+| Issue carrying both `ready` and `blocked` | not claimable — deny wins; the assign, which carries its notice, claims `blocked` absent | `capability.test.ts` › Issue carrying both `ready` and `blocked` |
 | Issue carrying a `notClaimableWhen` meaning and none of `claimableOnlyWhen` | the deny notice, never the not-yet one — deny is asked first | `capability.test.ts` › denies before it asks for a required meaning |
 | Issue carrying two `notClaimableWhen` meanings | both named — `blocked` and `awaitingTriage` | `capability.test.ts` › names two denying meanings as `a` and `b` |
-| Every refusal, with `notClaimableWhen` set | claims nothing absent; only the assign and its notice claim the deny set | `capability.test.ts` › claims nothing absent on any refusal, and the deny set on a claim |
+| Every refusal, with `notClaimableWhen` set | claims nothing absent; only the assign claims the deny set | `capability.test.ts` › claims nothing absent on any refusal, and the deny set on a claim |
 | Second `/assign` by the same person | an operator skip, no second comment — they already hold it | `capability.test.ts` › Second `/assign` by the same person |
 | A second contributor's `/assign` after the first claim landed | the already-claimed notice, the holder named and not pinged | `capability.test.ts` › A second contributor's `/assign` after the first claim landed |
 | `/assign` on a held issue that is no longer claimable | the commenter's own: an operator skip; someone else's: the already-claimed notice — holders are asked before claimability | `capability.test.ts` › tells nobody when the commenter already holds it · tells the commenter it is already claimed when someone else holds it |
@@ -218,6 +222,11 @@ Each built row names the test that proves it, as file › title; `·` separates 
 | A count or holder list nobody could answer | an operator skip, never an assignment (unknown ≠ under the cap) | `capability.test.ts` › A count or holder list nobody could answer · assigns nobody when the holders cannot be read |
 | `maxOpen: 0` | assigned past any number held, and `openAssignments` never asked | `capability.test.ts` › asks no count when the cap is 0, and assigns past any number held |
 | Maintainer assigns via the UI over every gate | untouched — the `issues` delivery stops at `factsUnread`, so nothing counter-writes | `engine-matrix.test.ts` › never evaluates on an `issues` delivery: a label or an assignee changed by hand |
+| A claim GitHub takes | assigned, read back on the issue's assignees, and only then the notice | `apply.test.ts` › assigns, proves it on the list, and only then posts the notice the assign carries |
+| A claim GitHub declines while answering `201` | `postconditionUnconfirmed`; the notice is never posted (6.16) | `apply.test.ts` › never announces an assign GitHub declined while answering 201 (6.16) |
+| A refusal, then a claim, by one person | one comment, rewritten — the claim's notice carries the refusal's identity | `engine-matrix.test.ts` › rewrites one comment per person: a refusal and the claim after it share an identity |
+| A release | one named login off, through the release endpoint, read back gone, then the notice | `apply.test.ts` › releases one login through the release endpoint, proves it gone, then posts the notice |
+| A release the issue still shows | never announced | `apply.test.ts` › never announces a release the list still shows |
 | `/unassign` by a non-assignee | an operator skip, nothing released | `capability.test.ts` › `/unassign` by a non-assignee |
 | `/unassign` naming someone else | only the commenter's own claim ever releases — self-only is definitional; reaping stays inactivity's own `unassign` (P3) | `capability.test.ts` › `/unassign` naming someone else |
 | A maintainer types `/assign` at the cap | refused like anyone — no role exemptions exist; the sidebar is their ungated path | `capability.test.ts` › A maintainer types `/assign` at the cap |
@@ -228,8 +237,8 @@ Each built row names the test that proves it, as file › title; `·` separates 
 | `autoAssign` or `unassign` off | its command does nothing and asks nothing | `capability.test.ts` › does nothing, and asks nothing, while autoAssign is off · does nothing, and asks nothing, while unassign is off |
 | An enabled block's command word unmapped | every comment is an operator skip naming the dotted path, one issuing no command too, whichever word is missing; a block that is off demands nothing | `capability.test.ts` › skips with the dotted path when an enabled block's word is unmapped · skips every comment while a word is unmapped, one that issues nothing too · catches an unmapped assign word as well as an unmapped unassign one · demands no word of a block that is switched off |
 | A login spelt in another case | the same person — holders are compared case-insensitively | `capability.test.ts` › reads a login the same whatever its case |
-| A claim without `issues:write` | the assign and its notice each refused `permissionMissing` (rule 2); nothing is approved, so nothing is written | `engine-matrix.test.ts` › refuses the claim permissionMissing without issues:write, and approves nothing |
-| A claim under `mode: dry-run` | the assign and its notice each recorded as `wouldApply`; nothing is approved, so nothing is written | `engine-matrix.test.ts` › records a dry-run claim as wouldApply, and writes nothing |
+| A claim without `issues:write` | the assign refused `permissionMissing` (rule 2); nothing is approved, so nothing is written | `engine-matrix.test.ts` › refuses the claim permissionMissing without issues:write, and approves nothing |
+| A claim under `mode: dry-run` | the assign, notice and all, recorded as `wouldApply`; nothing is approved, so nothing is written | `engine-matrix.test.ts` › records a dry-run claim as wouldApply, and writes nothing |
 | At a tier's `maxOpen`, under the default cap (phase 2) | refused — the tier override governs | not built |
 | Issue closed as not-planned (phase 2) | not a completion; the gate count is unchanged | not built |
 | `/unassign` then `/assign` the same day (phase 2) | `maxPerDay` counts the earlier claim; releasing is not a refund | not built |

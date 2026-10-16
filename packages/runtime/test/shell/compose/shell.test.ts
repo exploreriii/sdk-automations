@@ -535,12 +535,22 @@ capabilities:
     enabled: true
 `;
 
-    /** Both capabilities are known; which is enabled is the file's business. */
+    const DASHBOARD_CONFIG = `schemaVersion: 2
+mode: dry-run
+capabilities:
+  prDashboard:
+    enabled: true
+    checks:
+      mergeConflicts:
+        enabled: true
+`;
+
+    /** All three capabilities are known; which is enabled is the file's business. */
     function build(sweep: boolean): Shell {
         const shell = createShell({
             secret: SECRET,
             store,
-            capabilities: [toEngine(triageQueue), toEngine(inactivity)],
+            capabilities: [toEngine(triageQueue), toEngine(inactivity), toEngine(prDashboard)],
             seams: seamsOn(configFile),
             repository: REPOSITORY,
             clock: () => BASE,
@@ -567,7 +577,24 @@ capabilities:
                 event: "scheduledCapabilityIdle",
                 repository: "scrubbed-1/scrubbed-2",
                 capability: "inactivity",
-                detail: expect.stringContaining("SWEEP_CADENCE_HOURS"),
+                detail: expect.stringContaining("so it will not run"),
+            },
+        ]);
+    });
+
+    it("says a capability that also hears events loses only its recheck", async () => {
+        writeFileSync(configFile, DASHBOARD_CONFIG);
+        const shell = build(false);
+        await deliver(shell);
+        await shell.drain();
+
+        expect(completions()).toHaveLength(1);
+        expect(idle()).toEqual([
+            {
+                event: "scheduledCapabilityIdle",
+                repository: "scrubbed-1/scrubbed-2",
+                capability: "prDashboard",
+                detail: expect.stringContaining("its scheduled recheck will not run"),
             },
         ]);
     });

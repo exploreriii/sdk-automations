@@ -35,18 +35,24 @@ export function wantsSweeping(
     );
 }
 
-/** The enabled capabilities that run only on a clock: with no sweep, nothing ever wakes them. */
-export function scheduleOnlyCapabilities(
+/** One enabled capability a sweep would wake: `only` when no event wakes it either. */
+export interface IdleSchedule {
+    readonly name: string;
+    readonly only: boolean;
+}
+
+/** The enabled capabilities that lose something without a sweep — the same set `wantsSweeping` counts. */
+export function idleWithoutSweep(
     config: RepositoryConfig,
     capabilities: readonly EngineCapability[],
-): string[] {
-    return capabilities.flatMap(({ declaration }) =>
-        config.capabilities[declaration.name]?.enabled === true &&
-        declaration.triggers.length > 0 &&
-        declaration.triggers.every((trigger) => trigger.kind === "schedule")
-            ? [declaration.name]
-            : [],
-    );
+): IdleSchedule[] {
+    return capabilities.flatMap(({ declaration }) => {
+        if (config.capabilities[declaration.name]?.enabled !== true) return [];
+        const scheduled = declaration.triggers.filter((t) => t.kind === "schedule").length;
+        return scheduled === 0
+            ? []
+            : [{ name: declaration.name, only: scheduled === declaration.triggers.length }];
+    });
 }
 
 /** Everything the declaration below needs; the delivery lane holds all of it. */

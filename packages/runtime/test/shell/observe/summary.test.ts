@@ -92,6 +92,7 @@ describe("the job summary", () => {
         expect(text).toContain("issue#164");
         expect(text.match(/modeRecordsOnly/g)).toHaveLength(2);
         expect(text).not.toContain("dry-run because");
+        expect(text).not.toContain("Items decided with no rows");
         expect(annotations(outcome)).toEqual([]);
         store.close();
     });
@@ -217,6 +218,41 @@ describe("appendSummary", () => {
         expect(annotations(outcome)).toEqual([
             "::warning::deliveryAttemptFailed GitHub answered 502",
         ]);
+        store.close();
+    });
+
+    it("renders only the items with a row, then counts the rest once", () => {
+        const store = runStore();
+        const repository = { owner: "o", repo: "r" } as const;
+        const decided = { kind: "issue", number: 5 } as const;
+        store.ledger.decide({
+            passId: "pass-1",
+            source: "sweep",
+            sourceId: "pass-1",
+            at: "2026-09-15T10:00:00.000Z",
+            repository,
+            item: decided,
+            capability: "inactivity",
+            verdict: "info",
+            code: "wouldApply",
+            detail: "dry-run: inactivity would postManagedComment",
+            effectId: null,
+        });
+        const outcome: RunOutcome = {
+            kind: "sweep",
+            events: [],
+            items: [{ kind: "issue", number: 6 }, decided, { kind: "pullRequest", number: 7 }],
+            modeLowered: false,
+            exitCode: 0,
+        };
+        const text = renderSummary(
+            store,
+            { repository, eventName: "schedule", runUrl: null },
+            outcome,
+        );
+        expect(text.match(/^### .*$/gm)).toEqual(["### issue#5"]);
+        expect(text).toContain("| inactivity | info | wouldApply |");
+        expect(text).toContain("\nItems decided with no rows: 2.\n");
         store.close();
     });
 

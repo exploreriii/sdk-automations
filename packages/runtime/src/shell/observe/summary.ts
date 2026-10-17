@@ -61,9 +61,11 @@ const detailOf = (event: ShellEvent): string =>
 const named = (event: ShellEvent): string =>
     event.event === "deliveryCompleted" ? `${event.event} (${event.kind})` : event.event;
 
+/** One item's heading and tables, or nothing when no decision and no effect names it. */
 function itemSection(store: Store, repository: RepositoryRef, item: ItemRef): string[] {
     const decisions = store.ledger.decisionsOn(repository, item);
     const effects = store.ledger.effectsOn(repository, item);
+    if (decisions.length === 0 && effects.length === 0) return [];
     return [
         `### ${spelled(item)}`,
         "",
@@ -85,9 +87,12 @@ export function renderSummary(store: Store, run: SummaryRun, outcome: RunOutcome
     const link = run.runUrl === null ? "" : ` ([run](${run.runUrl}))`;
     const lines = [`## ${owner}/${repo}: ${run.eventName} (${outcome.kind})${link}`, ""];
     if (outcome.modeLowered) lines.push(LOWERED, "");
-    for (const item of distinct(outcome.items)) {
-        lines.push(...itemSection(store, run.repository, item));
-    }
+    const sections = distinct(outcome.items).map((item) =>
+        itemSection(store, run.repository, item),
+    );
+    const silent = sections.filter((section) => section.length === 0).length;
+    lines.push(...sections.flat());
+    if (silent > 0) lines.push(`Items decided with no rows: ${String(silent)}.`, "");
     const [cause] = failures(outcome.events);
     if (outcome.exitCode !== 0 && cause !== undefined) {
         const detail = detailOf(cause);

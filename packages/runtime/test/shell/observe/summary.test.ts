@@ -136,6 +136,20 @@ describe("the job summary", () => {
         store.close();
     });
 
+    it("carries what became of each effect an armed run applied, and logs only applied or refused", async () => {
+        const run = runOf({ armWrites: true });
+        const { store, outcome } = await decided(run, "active");
+        expect(outcome.modeLowered).toBe(false);
+        expect(
+            outcome.effects.map(({ operation, outcome: fate, code }) => [operation, fate, code]),
+        ).toEqual([
+            ["applyMappedLabel", "retryLater", "itemUnreadable"],
+            ["postManagedComment", "retryLater", "itemUnreadable"],
+        ]);
+        expect(annotations(outcome)).toEqual([]);
+        store.close();
+    });
+
     it("closes with the event that made the run exit non-zero", async () => {
         const run = runOf({ repository: { owner: "other", repo: "place" } });
         const { store, outcome } = await decided(run, "dry-run");
@@ -204,6 +218,7 @@ describe("appendSummary", () => {
                 },
             ],
             items: [item, item],
+            effects: [],
             modeLowered: false,
             exitCode: 1,
         };
@@ -242,6 +257,7 @@ describe("appendSummary", () => {
             kind: "sweep",
             events: [],
             items: [{ kind: "issue", number: 6 }, decided, { kind: "pullRequest", number: 7 }],
+            effects: [],
             modeLowered: false,
             exitCode: 0,
         };
@@ -269,6 +285,7 @@ describe("appendSummary", () => {
             kind: "delivery",
             events: [{ event: "deliveryDeadLettered", deliveryId: "d", attempts: 5 }],
             items: [],
+            effects: [],
             modeLowered: false,
             exitCode: 1,
         };
@@ -289,6 +306,7 @@ describe("appendSummary", () => {
             kind: "idle",
             events: [{ event: "deliveryCompleted", deliveryId: "d", kind: "decision" }],
             items: [],
+            effects: [],
             modeLowered: false,
             exitCode: 1,
         };
@@ -301,6 +319,68 @@ describe("appendSummary", () => {
         expect(text).not.toContain("exited non-zero");
         expect(annotations(outcome)).toEqual([]);
         store.close();
+    });
+
+    it("logs one notice per applied effect and one warning per refused, in run order", () => {
+        const item = { kind: "issue", number: 164 } as const;
+        const effect = (
+            over: Partial<RunOutcome["effects"][number]>,
+        ): RunOutcome["effects"][number] => ({
+            effectId: "e",
+            capability: "triageQueue",
+            operation: "applyMappedLabel",
+            item,
+            outcome: "applied",
+            code: null,
+            detail: null,
+            ...over,
+        });
+        const outcome: RunOutcome = {
+            kind: "delivery",
+            events: [],
+            items: [item],
+            effects: [
+                effect({
+                    outcome: "refused",
+                    operation: "postManagedComment",
+                    code: "writeForbidden",
+                }),
+                effect({ outcome: "already", code: "leaseHeld" }),
+                effect({}),
+                effect({ outcome: "unknown", code: "postconditionUnconfirmed" }),
+            ],
+            modeLowered: false,
+            exitCode: 0,
+        };
+        expect(annotations(outcome)).toEqual([
+            "::warning::triageQueue postManagedComment issue#164 refused writeForbidden",
+            "::notice::triageQueue applyMappedLabel issue#164 applied",
+        ]);
+    });
+
+    it("escapes a message so a percent sign or a line break cannot end the command", () => {
+        const outcome: RunOutcome = {
+            kind: "delivery",
+            events: [
+                {
+                    event: "deliveryAttemptFailed",
+                    deliveryId: "d",
+                    disposition: "retryScheduled",
+                    attempts: 1,
+                    maxAttempts: 5,
+                    retryNotBefore: null,
+                    detail: "GitHub answered 502\r\n100% of the time",
+                },
+            ],
+            items: [],
+            effects: [],
+            modeLowered: true,
+            exitCode: 1,
+        };
+        expect(annotations(outcome)).toEqual([
+            `::notice::${"The configuration asked for `active`; it was decided as `dry-run` because the workflow did not arm writes."}`,
+            "::warning::deliveryAttemptFailed GitHub answered 502%0D%0A100%25 of the time",
+        ]);
     });
 
     it("writes nothing without a path and appends with one", () => {

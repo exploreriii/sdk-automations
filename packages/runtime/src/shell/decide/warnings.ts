@@ -1,12 +1,13 @@
 /**
  * The warnings an item carries, read back from its comments: a composition with no store
  * between runs recovers the act's authority from the marker the warning comment holds. Only the
- * App's own comments count, the first record for an effect binds, and a comment GitHub did not
- * date authorises nothing (grace.md §3).
+ * App's own comments count, the first record for an effect binds, a comment GitHub did not date
+ * authorises nothing, and a rewritten warning is dated at its rewrite (grace.md §3).
  */
 
 import {
     parseManagedMarker,
+    type CommentFact,
     type ItemRef,
     type ReadBack,
     type RepositoryRef,
@@ -31,6 +32,14 @@ function instantOf(value: string | undefined): string | null {
     return Number.isNaN(time) ? null : new Date(time).toISOString();
 }
 
+/** When the warning was last written: a rewrite in place restarts the grace, never shortens it. */
+function warnedInstantOf(comment: CommentFact): string | null {
+    const created = instantOf(comment.createdAt);
+    const updated = instantOf(comment.updatedAt);
+    if (created === null) return null;
+    return updated !== null && updated > created ? updated : created;
+}
+
 /** Record every warning the item's comments carry; answers how many rows were offered. */
 export async function hydrateWarnings(options: HydrateOptions): Promise<number> {
     const { ledger, reader, repository, item, revision } = options;
@@ -41,7 +50,7 @@ export async function hydrateWarnings(options: HydrateOptions): Promise<number> 
         if (!comment.authoredByApp) continue;
         const reading = parseManagedMarker(comment.body);
         if (!("recognized" in reading) || reading.recognized.record === undefined) continue;
-        const warnedAt = instantOf(comment.createdAt);
+        const warnedAt = warnedInstantOf(comment);
         if (warnedAt === null) continue;
         const { record } = reading.recognized;
         const snapshot: Omit<StoredWarning, "effectId"> = {

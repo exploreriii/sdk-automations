@@ -42,6 +42,13 @@ configuration that says `active` is decided as `dry-run`, and the job summary sa
 request that changes it to `"true"` is the approval. Make it after you have read the dry-run
 records and are content with what they show.
 
+## Another token
+
+The default token is the workflow's own, and the run recognises its earlier comments as the
+runner's. If you pass an App's installation token as `token`, set `bot-login` to that App's
+`<slug>[bot]` and `app-id` to its id, or the run will not know its own comments and will post a
+fresh one each time. A personal token is not supported: its comments read as a person's.
+
 ## Turning it off
 
 Use **Disable workflow** on the workflow's page in the Actions tab, or delete the workflow file.

@@ -40,6 +40,8 @@ export const ACTION_REFUSAL = {
     token: "the token input is required: pass `token: ${{ github.token }}` or leave the default.",
     arm: 'arm-writes must be "true" or "false".',
     run: "GITHUB_RUN_ID is required; the runner sets it.",
+    identity:
+        "bot-login must end in [bot] and app-id must be a whole number: the identity the token writes as, so a run recognises its own comments.",
 } as const;
 
 /** What one run is, read from the runner's environment and the action's inputs. */
@@ -50,6 +52,8 @@ export interface ActionRun {
     readonly token: string;
     /** The second gate on writes beside the config's mode; `false` lowers `active` to `dry-run`. */
     readonly armWrites: boolean;
+    /** Whose comments are the run's own: the runner's unless the token belongs to another App. */
+    readonly identity: { readonly appId: string; readonly botLogin: string };
     /** One GUID per run attempt, so a re-run is a new delivery and a redelivery is not. */
     readonly deliveryId: DeliveryGuid;
     readonly runUrl: string | null;
@@ -85,6 +89,9 @@ export function parseActionEnvironment(env: Environment): ParsedRun {
     if (arm !== "true" && arm !== "false") errors.push(ACTION_REFUSAL.arm);
     const runId = env["GITHUB_RUN_ID"] ?? "";
     if (runId === "") errors.push(ACTION_REFUSAL.run);
+    const botLogin = env["INPUT_BOT-LOGIN"] ?? RUNNER_IDENTITY.botLogin;
+    const appId = env["INPUT_APP-ID"] ?? RUNNER_IDENTITY.appId;
+    if (!botLogin.endsWith("[bot]") || !/^\d+$/.test(appId)) errors.push(ACTION_REFUSAL.identity);
     if (errors.length > 0 || repository === null) return { ok: false, errors };
     const server = env["GITHUB_SERVER_URL"];
     return {
@@ -95,6 +102,7 @@ export function parseActionEnvironment(env: Environment): ParsedRun {
             eventPath,
             token,
             armWrites: arm === "true",
+            identity: { appId, botLogin },
             deliveryId: deliveryIdOf(runId, env["GITHUB_RUN_ATTEMPT"] ?? "1"),
             runUrl:
                 server === undefined
@@ -185,9 +193,9 @@ export async function runAction(run: ActionRun, options: RunActionOptions): Prom
                 expiresAt: new Date(clock().getTime() + TOKEN_LIFETIME_MS),
                 grants: RUNNER_GRANTS,
             },
-            identity: RUNNER_IDENTITY,
+            identity: run.identity,
         },
-        writes: run.armWrites ? { appSlug: "github-actions" } : null,
+        writes: run.armWrites ? { appSlug: run.identity.botLogin.slice(0, -"[bot]".length) } : null,
         killSwitchActive: false,
         clock,
         share: sweeping ? SWEEP_SHARE_ON_SCHEDULE : SWEEP_SHARE_ON_EVENT,

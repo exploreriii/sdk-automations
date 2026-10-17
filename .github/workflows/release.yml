@@ -77,9 +77,10 @@ jobs:
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: packages/runtime/dist/action.js
-      # The bundle goes through the contents API, which GitHub signs, onto a
-      # branch cut at the tagged commit; the major tag then moves to its head.
-      # No `git push`, and no credential is ever written to the checkout.
+      # The bundle goes through the contents API, which GitHub signs, onto a ref cut at the
+      # tagged commit; the release branch and the major tag move only once it has landed, so a
+      # failed publish strips nothing. The body travels as a file: a bundle is larger than one
+      # argument may be. No `git push`, and no credential is ever written to the checkout.
       - name: publish the bundle and move the major tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -88,11 +89,14 @@ jobs:
           set -euo pipefail
           REPO="repos/${GITHUB_REPOSITORY}"
           MAJOR="${GITHUB_REF_NAME%%.*}"
-          BRANCH="releases/${MAJOR}"
-          gh api -X PATCH "${REPO}/git/refs/heads/${BRANCH}" -f sha="${GITHUB_SHA}" -F force=true >/dev/null \
-            || gh api -X POST "${REPO}/git/refs" -f ref="refs/heads/${BRANCH}" -f sha="${GITHUB_SHA}" >/dev/null
-          HEAD=$(gh api -X PUT "${REPO}/contents/${FILE}" -f branch="${BRANCH}" \
-            -f message="$(printf 'release: %s\n\nSigned-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>' "${GITHUB_REF_NAME}")" \
-            -f content="$(base64 -w0 "${FILE}")" --jq .commit.sha)
+          STAGING="release/${GITHUB_REF_NAME}"
+          export FILE STAGING
+          export MSG="$(printf 'release: %s\n\nSigned-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>' "${GITHUB_REF_NAME}")"
+          gh api -X POST "${REPO}/git/refs" -f ref="refs/heads/${STAGING}" -f sha="${GITHUB_SHA}" >/dev/null
+          node -e 'const fs=require("node:fs");fs.writeFileSync(process.env.RUNNER_TEMP+"/put.json",JSON.stringify({message:process.env.MSG,branch:process.env.STAGING,content:fs.readFileSync(process.env.FILE).toString("base64")}))'
+          HEAD=$(gh api -X PUT "${REPO}/contents/${FILE}" --input "${RUNNER_TEMP}/put.json" --jq .commit.sha)
+          gh api -X PATCH "${REPO}/git/refs/heads/releases/${MAJOR}" -f sha="${HEAD}" -F force=true >/dev/null \
+            || gh api -X POST "${REPO}/git/refs" -f ref="refs/heads/releases/${MAJOR}" -f sha="${HEAD}" >/dev/null
           gh api -X PATCH "${REPO}/git/refs/tags/${MAJOR}" -f sha="${HEAD}" -F force=true >/dev/null \
             || gh api -X POST "${REPO}/git/refs" -f ref="refs/tags/${MAJOR}" -f sha="${HEAD}" >/dev/null
+          gh api -X DELETE "${REPO}/git/refs/heads/${STAGING}" >/dev/null

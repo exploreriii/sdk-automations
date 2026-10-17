@@ -12,6 +12,7 @@ import {
     deliveryIdOf,
     itemNamedBy,
     parseActionEnvironment,
+    RUNNER_IDENTITY,
     runAction,
     runStore,
     type ActionRun,
@@ -61,7 +62,7 @@ const kinds = (events: readonly ShellEvent[]): string[] => events.map(({ event }
 describe("the runner's environment", () => {
     it("refuses an empty one, naming every missing piece", () => {
         const parsed = parseActionEnvironment({});
-        const { arm: _unasked, ...required } = ACTION_REFUSAL;
+        const { arm: _unasked, identity: _defaulted, ...required } = ACTION_REFUSAL;
         expect(parsed).toEqual({ ok: false, errors: Object.values(required) });
     });
 
@@ -81,6 +82,33 @@ describe("the runner's environment", () => {
         expect(parsed.run.deliveryId).toBe(deliveryIdOf("42", "1"));
         expect(deliveryIdOf("42", "2")).not.toBe(parsed.run.deliveryId);
         expect(runOf().armWrites).toBe(false);
+    });
+});
+
+describe("the identity the token writes as", () => {
+    it("is the runner's unless the workflow names another App's", () => {
+        const runner = parseActionEnvironment(ENVIRONMENT);
+        expect(runner.ok && runner.run.identity).toEqual(RUNNER_IDENTITY);
+        const other = parseActionEnvironment({
+            ...ENVIRONMENT,
+            "INPUT_BOT-LOGIN": "hiero-automations[bot]",
+            "INPUT_APP-ID": "4377258",
+        });
+        expect(other.ok && other.run.identity).toEqual({
+            appId: "4377258",
+            botLogin: "hiero-automations[bot]",
+        });
+    });
+
+    it("refuses a login that is not a bot's, and an app id that is not a number", () => {
+        expect(parseActionEnvironment({ ...ENVIRONMENT, "INPUT_BOT-LOGIN": "alice" })).toEqual({
+            ok: false,
+            errors: [ACTION_REFUSAL.identity],
+        });
+        expect(parseActionEnvironment({ ...ENVIRONMENT, "INPUT_APP-ID": "fifteen" })).toEqual({
+            ok: false,
+            errors: [ACTION_REFUSAL.identity],
+        });
     });
 });
 

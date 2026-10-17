@@ -89,11 +89,13 @@ function commentFactOf(entry: unknown, identity: AppIdentity): CommentFact | nul
         return null;
     }
     const createdAt = field(entry, "created_at");
+    const updatedAt = field(entry, "updated_at");
     return {
         id,
         body,
         authoredByApp: authoredByApp(entry, identity),
         ...(typeof createdAt === "string" ? { createdAt } : {}),
+        ...(typeof updatedAt === "string" ? { updatedAt } : {}),
     };
 }
 

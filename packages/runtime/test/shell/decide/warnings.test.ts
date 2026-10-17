@@ -91,6 +91,18 @@ describe("warnings read back from an item's comments", () => {
         expect(store.ledger.warningFor(record.effectId)).toBeNull();
     });
 
+    it("dates a warning rewritten in place at its rewrite, never earlier than its creation", async () => {
+        expect(await hydrate([warning({ updatedAt: "2026-10-05T10:00:00Z" })])).toBe(1);
+        expect(store.ledger.warningFor(record.effectId)).toMatchObject({
+            warnedAt: "2026-10-05T10:00:00.000Z",
+            earliestActionAt: "2026-10-12T10:00:00.000Z",
+        });
+        store.close();
+        store = new Store(":memory:");
+        await hydrate([warning({ updatedAt: "2026-09-30T10:00:00Z" })]);
+        expect(store.ledger.warningFor(record.effectId)?.warnedAt).toBe("2026-10-01T10:00:00.000Z");
+    });
+
     it("keeps the first record for an effect when a later comment carries the same one", async () => {
         await hydrate([warning()]);
         await hydrate([warning({ id: 5, createdAt: "2026-10-03T10:00:00Z" })]);

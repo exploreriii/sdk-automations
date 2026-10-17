@@ -13,7 +13,7 @@ import {
     type ReadBack,
 } from "@hiero-hackers/automation-core";
 import { triageQueueDeclaration } from "@hiero-hackers/automation-capabilities";
-import { capture } from "@hiero-hackers/automation-testkit";
+import { capture, configFor } from "@hiero-hackers/automation-testkit";
 import { hydrateWarnings } from "../../../src/shell/decide/warnings.js";
 import {
     parseActionEnvironment,
@@ -28,8 +28,9 @@ import {
     appendSummary,
     cell,
     renderSummary,
+    ROW_MARKER,
+    rowLines,
 } from "../../../src/shell/observe/summary.js";
-import { CONFIGS } from "../compose/journeys.js";
 import { scriptedGitHub } from "../compose/scripted-github.js";
 
 const START = new Date("2026-09-15T10:00:00.000Z");
@@ -43,18 +44,6 @@ const ENVIRONMENT = {
     GITHUB_RUN_ATTEMPT: "1",
     GITHUB_SERVER_URL: "https://github.com",
 };
-
-const configFor = (capability: string, mode = "dry-run"): string => `schemaVersion: 2
-mode: ${mode}
-capabilities:
-${CONFIGS[capability] ?? ""}mappings:
-  labels:
-    awaitingTriage: "status: triage"
-  commands:
-    assign: /assign
-    unassign: /unassign
-    working: /working
-`;
 
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -185,6 +174,93 @@ describe("the job summary", () => {
         const lines = annotations(outcome);
         expect(lines).toHaveLength(1);
         expect(lines[0]).toMatch(/^::warning::deliveryCompleted \(repositoryMismatch\)/);
+        store.close();
+    });
+});
+
+describe("the machine-readable rows", () => {
+    const parsed = (line: string): unknown => JSON.parse(line.slice(`${ROW_MARKER} `.length));
+
+    it("prints one line per decision row on each decided item, in the store's order", async () => {
+        const run = runOf();
+        const { store, outcome } = await decided(run, "dry-run");
+        const item = { kind: "issue", number: 164 } as const;
+        const rows = store.ledger.decisionsOn(run.repository, item);
+        const lines = rowLines(store, run.repository, outcome);
+        expect(rows.length).toBeGreaterThan(1);
+        expect(lines).toHaveLength(rows.length);
+        expect(lines[0]).toMatch(
+            /^sdk-automations\.row \{"item":\{"kind":"issue","number":164\},"capability":"triageQueue","verdict":"info","code":"capabilityExplained","detail":"[^\n]*"\}$/,
+        );
+        expect(lines.map(parsed)).toEqual(
+            rows.map(({ capability, verdict, code, detail }) => ({
+                item,
+                capability,
+                verdict,
+                code,
+                detail,
+            })),
+        );
+        store.close();
+    });
+
+    it("keeps a detail carrying a newline and a pipe on one line, and round-trips it", async () => {
+        const skipping: EngineCapability = {
+            declaration: triageQueueDeclaration,
+            evaluate: async (_facts: never, _view: never, platform: never) =>
+                (platform as EngineHandle).skip("Skipped: a | b.", "c\nd"),
+        };
+        scriptedGitHub({ now: () => START, config: () => configFor("triageQueue") });
+        const run = runOf();
+        const store = runStore();
+        const outcome = await runAction(run, {
+            payload: capture("issues.opened.json").bytes(),
+            store,
+            clock: () => START,
+            log: () => undefined,
+            capabilities: [skipping],
+        });
+        const lines = rowLines(store, run.repository, outcome);
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).not.toContain("\n");
+        expect(lines[0]).toContain("|");
+        expect(parsed(lines[0]!)).toMatchObject({
+            code: "capabilitySkipped",
+            detail: "Skipped: a | b. (c\nd)",
+        });
+        store.close();
+    });
+
+    it("prints nothing for a run that decided no item, and an item once however often decided", () => {
+        const store = runStore();
+        const repository = { owner: "o", repo: "r" } as const;
+        const item = { kind: "pullRequest", number: 7 } as const;
+        const idle: RunOutcome = {
+            kind: "idle",
+            events: [],
+            items: [],
+            effects: [],
+            modeLowered: false,
+            exitCode: 0,
+        };
+        expect(rowLines(store, repository, idle)).toEqual([]);
+        store.ledger.decide({
+            passId: "pass-1",
+            source: "webhook",
+            sourceId: "d",
+            at: "2026-09-15T10:00:00.000Z",
+            repository,
+            item,
+            capability: "prDashboard",
+            verdict: "info",
+            code: "wouldApply",
+            detail: null,
+            effectId: null,
+        });
+        const twice: RunOutcome = { ...idle, kind: "delivery", items: [item, item] };
+        expect(rowLines(store, repository, twice)).toEqual([
+            `${ROW_MARKER} {"item":{"kind":"pullRequest","number":7},"capability":"prDashboard","verdict":"info","code":"wouldApply","detail":null}`,
+        ]);
         store.close();
     });
 });

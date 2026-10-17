@@ -1,6 +1,7 @@
 /**
  * The run's job summary: what one Action run decided, item by item, as markdown, with the
- * workflow commands that surface an effect, a failure or a lowered mode on the run page.
+ * workflow commands that surface an effect, a failure or a lowered mode on the run page, and
+ * one machine-readable line per decision row for a reader of the log.
  */
 
 import { appendFileSync } from "node:fs";
@@ -132,6 +133,19 @@ export function annotations(outcome: RunOutcome): string[] {
             command("warning", `${named(event)}${detail(event)}`),
         ),
     ];
+}
+
+/** What a reader of the log greps for; the compact JSON after it is one decision row. */
+export const ROW_MARKER = "sdk-automations.row";
+
+/** One line per decision row on every item the run decided, in the order the store holds them. */
+export function rowLines(store: Store, repository: RepositoryRef, outcome: RunOutcome): string[] {
+    return distinct(outcome.items).flatMap((item) =>
+        store.ledger.decisionsOn(repository, item).map(({ capability, verdict, code, detail }) => {
+            const row = { item: { kind: item.kind, number: item.number }, capability, verdict };
+            return `${ROW_MARKER} ${JSON.stringify({ ...row, code, detail })}`;
+        }),
+    );
 }
 
 /** Appends to the step summary file when the runner names one. */

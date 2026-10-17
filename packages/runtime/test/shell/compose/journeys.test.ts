@@ -66,7 +66,10 @@ function buildShell(capability: EngineCapability): Shell {
         }).privateKey,
     );
     const built = liveGitHub({
-        credentials: { appId: "123456", installationId: "789", privateKeyPath },
+        auth: {
+            kind: "app",
+            credentials: { appId: "123456", installationId: "789", privateKeyPath },
+        },
         writes: null,
         killSwitchActive: false,
         clock: () => START,

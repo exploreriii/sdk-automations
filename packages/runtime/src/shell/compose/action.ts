@@ -9,15 +9,17 @@ import { CAPABILITIES } from "@hiero-hackers/automation-capabilities";
 import {
     asDeliveryGuid,
     type DeliveryGuid,
+    type DestructiveWarning,
     type EngineCapability,
     type ItemRef,
     type PermissionGrant,
     type RepositoryRef,
 } from "@hiero-hackers/automation-core";
 import { Store } from "../../store/index.js";
-import { createApplier } from "../apply/apply.js";
+import { createApplier, recordedWarningsIn } from "../apply/apply.js";
 import { createItemDecider, type DecideItem } from "../decide/item.js";
 import { declareSweep } from "../decide/schedule.js";
+import { hydrateWarnings } from "../decide/warnings.js";
 import { createDeliveries } from "../inbound/deliveries.js";
 import { contained, createLogger, type Log, type ShellEvent } from "../log.js";
 import {
@@ -201,10 +203,28 @@ export async function runAction(run: ActionRun, options: RunActionOptions): Prom
             seams.writePath === null
                 ? undefined
                 : createApplier({ ledger: store.ledger, ...seams.writePath, worker, clock, log });
+        /** The item under decision, so the warning seam below can read its comments. */
+        let deciding: { readonly item: ItemRef; readonly revision: string } | null = null;
+        const recorded = recordedWarningsIn(store.ledger);
+        /** Asked only for a destructive act: the comments are read once, then the store answers. */
+        const warningFor = async (effectId: string): Promise<DestructiveWarning | null> => {
+            if (deciding !== null && seams.reader !== undefined) {
+                const { item, revision } = deciding;
+                deciding = null;
+                await hydrateWarnings({
+                    ledger: store.ledger,
+                    reader: seams.reader,
+                    repository: run.repository,
+                    item,
+                    revision,
+                });
+            }
+            return recorded(effectId);
+        };
         const decide = createItemDecider({
             store,
             capabilities,
-            externals: seams.externals,
+            externals: async (delivery) => ({ ...(await seams.externals(delivery)), warningFor }),
             repository: run.repository,
             clock,
             ...(applier === undefined ? {} : { applier }),
@@ -212,6 +232,7 @@ export async function runAction(run: ActionRun, options: RunActionOptions): Prom
         return (input, config, at, allowance) => {
             const item = input.kind === "facts" ? input.facts.item : itemNamedBy(payload);
             if (item !== null) items.push(item);
+            deciding = item === null ? null : { item, revision: config.revision };
             if (config.mode === "active" && !run.armWrites) {
                 modeLowered = true;
                 return decide(input, { ...config, mode: "dry-run" }, at, allowance);

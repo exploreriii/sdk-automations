@@ -10,6 +10,7 @@ import type {
     Allowance,
     Externals,
     PermissionGrant,
+    ReadBack,
     RepositoryRef,
 } from "@hiero-hackers/automation-core";
 import {
@@ -88,9 +89,18 @@ export interface LiveOptions {
 function authenticate(
     auth: LiveAuth,
     clock: () => Date,
-): { readonly tokenSource: TokenSource; readonly identityFor: (appSlug: string) => AppIdentity } {
+): {
+    readonly tokenSource: TokenSource;
+    readonly identityFor: (appSlug: string) => AppIdentity;
+    /** The identity known before any write is armed: a token arm names its own. */
+    readonly identity: AppIdentity | null;
+} {
     if (auth.kind === "token") {
-        return { tokenSource: staticTokenSource(auth.token), identityFor: () => auth.identity };
+        return {
+            tokenSource: staticTokenSource(auth.token),
+            identityFor: () => auth.identity,
+            identity: auth.identity,
+        };
     }
     const { appId, installationId, privateKeyPath } = auth.credentials;
     let privateKeyPem: string;
@@ -108,6 +118,7 @@ function authenticate(
             clock,
         }),
         identityFor: (appSlug) => ({ appId, botLogin: `${appSlug}[bot]` }),
+        identity: null,
     };
 }
 
@@ -122,7 +133,7 @@ export function liveGitHub({
     ownWrites,
     log,
 }: LiveOptions): LiveGitHub {
-    const { tokenSource, identityFor } = authenticate(auth, clock);
+    const { tokenSource, identityFor, identity } = authenticate(auth, clock);
     const http = createGitHubHttpClient({
         tokenSource,
         ...(contentCreationHourly === null ? {} : { contentCreationHourly }),
@@ -149,6 +160,10 @@ export function liveGitHub({
         /** What every read of this seam set is charged to; one lane holds one set. */
         const charged = { allowance };
         const landed = ownWrites(repository);
+
+        /** The item as GitHub holds it, read as the given identity; the absence rule waits a real second. */
+        const readerAs = (as: AppIdentity): ReadBack =>
+            createReadBack({ http, repository, ...charged, identity: as, clock, sleep: wait });
 
         /** The applier's externals, built FRESH on every call, excluding the delivery's own cause. */
         const effectExternals = async (payload?: unknown): Promise<Externals> => {
@@ -209,18 +224,10 @@ export function liveGitHub({
                     ? null
                     : {
                           writer: createWriteVerbs({ http, repository }),
-                          reader: createReadBack({
-                              http,
-                              repository,
-                              ...charged,
-                              identity: identityFor(writes.appSlug),
-                              clock,
-                              // The read-back's absence rule is a real second apart, so production waits it.
-
-                              sleep: wait,
-                          }),
+                          reader: readerAs(identityFor(writes.appSlug)),
                           externals: effectExternals,
                       },
+            ...(identity === null ? {} : { reader: readerAs(identity) }),
         };
     };
 

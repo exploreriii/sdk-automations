@@ -86,7 +86,8 @@ describe("warnings read back from an item's comments", () => {
         const bare = warning({ id: 3, body: deriveManagedMarker(identity) });
         const { createdAt: _dated, ...undated } = warning({ id: 2 });
         const copy = warning({ id: 4, authoredByApp: false });
-        expect(await hydrate([copy, undated, bare])).toBe(0);
+        const misdated = warning({ id: 6, createdAt: "not a date" });
+        expect(await hydrate([copy, undated, bare, misdated])).toBe(0);
         expect(store.ledger.warningFor(record.effectId)).toBeNull();
     });
 

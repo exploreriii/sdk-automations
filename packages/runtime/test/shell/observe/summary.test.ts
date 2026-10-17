@@ -6,7 +6,9 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { deriveManagedMarker, type ReadBack } from "@hiero-hackers/automation-core";
 import { capture } from "@hiero-hackers/automation-testkit";
+import { hydrateWarnings } from "../../../src/shell/decide/warnings.js";
 import {
     parseActionEnvironment,
     runAction,
@@ -14,7 +16,12 @@ import {
     type ActionRun,
     type RunOutcome,
 } from "../../../src/shell/compose/action.js";
-import { annotations, appendSummary, renderSummary } from "../../../src/shell/observe/summary.js";
+import {
+    annotations,
+    appendSummary,
+    cell,
+    renderSummary,
+} from "../../../src/shell/observe/summary.js";
 import { CONFIGS } from "../compose/journeys.js";
 import { scriptedGitHub } from "../compose/scripted-github.js";
 
@@ -108,6 +115,123 @@ describe("the job summary", () => {
 });
 
 describe("appendSummary", () => {
+    it("lists an effect that stands on the item, and carries a failure's detail", async () => {
+        const store = runStore();
+        const item = { kind: "issue", number: 12 } as const;
+        const repository = { owner: "scrubbed-1", repo: "scrubbed-2" } as const;
+        const marker = deriveManagedMarker(
+            { capability: "inactivity", item, kind: "warning", topic: "ada" },
+            {
+                effectId: "planted",
+                actionClass: "clockTriggeredDestructive",
+                capability: "inactivity",
+                causeObservedAt: "2026-09-14T10:00:00.000Z",
+                cause: "assignmentWentStale",
+                item: "scrubbed-1/scrubbed-2#12",
+                change: "release ada",
+                gracePeriodHours: 168,
+                cancelledBy: "a /working comment",
+                reversesWith: "re-assign",
+            },
+        );
+        await hydrateWarnings({
+            ledger: store.ledger,
+            reader: {
+                comments: () =>
+                    Promise.resolve({
+                        ok: true,
+                        value: [
+                            {
+                                id: 1,
+                                body: marker,
+                                authoredByApp: true,
+                                createdAt: "2026-09-14T12:00:00Z",
+                            },
+                        ],
+                    }),
+            } as unknown as ReadBack,
+            repository,
+            item,
+            revision: "rev-1",
+        });
+        const outcome: RunOutcome = {
+            kind: "delivery",
+            events: [
+                {
+                    event: "deliveryAttemptFailed",
+                    deliveryId: "d",
+                    disposition: "retryScheduled",
+                    attempts: 1,
+                    maxAttempts: 5,
+                    retryNotBefore: null,
+                    detail: "GitHub answered 502",
+                },
+            ],
+            items: [item, item],
+            modeLowered: false,
+            exitCode: 1,
+        };
+        const text = renderSummary(
+            store,
+            { repository, eventName: "schedule", runUrl: null },
+            outcome,
+        );
+        expect(text).toContain("| planted |");
+        expect(text.match(/### issue#12/g)).toHaveLength(1);
+        expect(text).toContain("`deliveryAttemptFailed`, GitHub answered 502.");
+        expect(annotations(outcome)).toEqual([
+            "::warning::deliveryAttemptFailed GitHub answered 502",
+        ]);
+        store.close();
+    });
+
+    it("escapes a cell so no value can close it, and spells an empty one as a dash", () => {
+        expect(cell(null)).toBe("-");
+        expect(cell("")).toBe("-");
+        expect(cell(3)).toBe("3");
+        expect(cell("a|b\\c\n d")).toBe("a\\|b\\\\c d");
+    });
+
+    it("names a dead-lettered delivery without a detail, in the line and the warning", () => {
+        const store = runStore();
+        const outcome: RunOutcome = {
+            kind: "delivery",
+            events: [{ event: "deliveryDeadLettered", deliveryId: "d", attempts: 5 }],
+            items: [],
+            modeLowered: false,
+            exitCode: 1,
+        };
+        const repository = { owner: "o", repo: "r" } as const;
+        const text = renderSummary(
+            store,
+            { repository, eventName: "issues", runUrl: null },
+            outcome,
+        );
+        expect(text).toContain("The run exited non-zero: `deliveryDeadLettered`.");
+        expect(annotations(outcome)).toEqual(["::warning::deliveryDeadLettered"]);
+        store.close();
+    });
+
+    it("closes with no cause when a non-zero run logged none it recognises", () => {
+        const store = runStore();
+        const outcome: RunOutcome = {
+            kind: "idle",
+            events: [{ event: "deliveryCompleted", deliveryId: "d", kind: "decision" }],
+            items: [],
+            modeLowered: false,
+            exitCode: 1,
+        };
+        const repository = { owner: "o", repo: "r" } as const;
+        const text = renderSummary(
+            store,
+            { repository, eventName: "schedule", runUrl: null },
+            outcome,
+        );
+        expect(text).not.toContain("exited non-zero");
+        expect(annotations(outcome)).toEqual([]);
+        store.close();
+    });
+
     it("writes nothing without a path and appends with one", () => {
         const dir = mkdtempSync(join(tmpdir(), "summary-"));
         try {

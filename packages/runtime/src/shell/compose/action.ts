@@ -142,7 +142,7 @@ const SWEEP_SHARE_ON_SCHEDULE = 0.95;
 const SWEEP_SHARE_ON_EVENT = 0.05;
 
 /** The item an event payload is about, for the summary; the engine reads it again properly. */
-function itemNamedBy(payload: Uint8Array): ItemRef | null {
+export function itemNamedBy(payload: Uint8Array): ItemRef | null {
     let parsed: unknown;
     try {
         parsed = JSON.parse(Buffer.from(payload).toString("utf8"));

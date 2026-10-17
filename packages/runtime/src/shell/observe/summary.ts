@@ -20,8 +20,11 @@ export interface SummaryRun {
 const LOWERED =
     "The configuration asked for `active`; it was decided as `dry-run` because the workflow did not arm writes.";
 
-const cell = (value: string | number | null): string =>
-    value === null || value === "" ? "-" : String(value).replace(/\|/g, "\\|").replace(/\s+/g, " ");
+/** One table cell: backslashes first, then the pipe, so no input can close the cell. */
+export const cell = (value: string | number | null): string =>
+    value === null || value === ""
+        ? "-"
+        : String(value).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\s+/g, " ");
 
 const row = (cells: readonly (string | number | null)[]): string =>
     `| ${cells.map(cell).join(" | ")} |`;

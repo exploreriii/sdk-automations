@@ -56,3 +56,4 @@ error; the protocols themselves carry no secrets, credentials, tunnel URLs or pe
 | [9.6](protocols/9.6-re-run-of-an-old-run.md) | a day-old run re-run: live facts, stale cause refused, nothing written |
 | [9.7](protocols/9.7-budget.md) | the hourly sweep on 300 open items against the token's request budget |
 | [9.8](protocols/9.8-the-60-day-rule.md) | GitHub's 60-day rule for scheduled workflows, and the re-enable path |
+| [9.9](protocols/9.9-the-pilot-shape.md) | all five capabilities together in `active`, one write each, no write twice, no shared label |

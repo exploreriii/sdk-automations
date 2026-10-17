@@ -6,7 +6,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deriveManagedMarker, type ReadBack } from "@hiero-hackers/automation-core";
+import {
+    deriveManagedMarker,
+    type EngineCapability,
+    type EngineHandle,
+    type ReadBack,
+} from "@hiero-hackers/automation-core";
+import { triageQueueDeclaration } from "@hiero-hackers/automation-capabilities";
 import { capture } from "@hiero-hackers/automation-testkit";
 import { hydrateWarnings } from "../../../src/shell/decide/warnings.js";
 import {
@@ -16,6 +22,7 @@ import {
     type ActionRun,
     type RunOutcome,
 } from "../../../src/shell/compose/action.js";
+import { explainItem } from "../../../src/shell/observe/explain.js";
 import {
     annotations,
     appendSummary,
@@ -97,6 +104,34 @@ describe("the job summary", () => {
         expect(text).toContain("did not arm writes");
         expect(annotations(outcome)[0]).toMatch(/^::notice::/);
         expect(annotations(outcome)).toHaveLength(1);
+        store.close();
+    });
+
+    it("lists a capability's skip as one info row carrying its reason and lines", async () => {
+        const skipping: EngineCapability = {
+            declaration: triageQueueDeclaration,
+            evaluate: async (_facts: never, _view: never, platform: never) =>
+                (platform as EngineHandle).skip("Skipped: scripted.", "line a", "line b"),
+        };
+        scriptedGitHub({ now: () => START, config: () => configFor("triageQueue") });
+        const run = runOf();
+        const store = runStore();
+        const outcome = await runAction(run, {
+            payload: capture("issues.opened.json").bytes(),
+            store,
+            clock: () => START,
+            log: () => undefined,
+            capabilities: [skipping],
+        });
+        const text = renderSummary(store, run, outcome);
+        expect(text).toContain(
+            "| triageQueue | info | capabilitySkipped | Skipped: scripted. (line a; line b) |",
+        );
+        expect(text.match(/\| triageQueue \|/g)).toHaveLength(1);
+        const item = { kind: "issue", number: 164 } as const;
+        expect(explainItem(store, run.repository, item).lines).toContainEqual(
+            expect.stringContaining("capabilitySkipped"),
+        );
         store.close();
     });
 

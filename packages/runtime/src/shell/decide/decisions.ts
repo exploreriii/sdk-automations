@@ -36,11 +36,22 @@ type CapabilitySubject = Extract<Subject, { readonly kind: "capability" }>;
 /** The code a skip's row carries: core files the skip as an explanation on the capability (D186). */
 export const SKIPPED = "capabilitySkipped";
 
+/** The codes filed on the capability that its item's rows carry; a producer's unread group stays silent. */
+const ON_THE_CAPABILITY: Readonly<Record<string, string>> = {
+    capabilityExplained: SKIPPED,
+    capabilityFailed: "capabilityFailed",
+    resolverFailed: "resolverFailed",
+    undeclaredResolver: "undeclaredResolver",
+    intentsAfterSkip: "intentsAfterSkip",
+};
+
 const aboutAnItem = (finding: Finding): finding is Finding & { readonly subject: ItemSubject } =>
     finding.subject.kind === "item" || finding.subject.kind === "effect";
 
-const aSkip = (finding: Finding): finding is Finding & { readonly subject: CapabilitySubject } =>
-    finding.subject.kind === "capability" && finding.code === "capabilityExplained";
+const aboutTheCapability = (
+    finding: Finding,
+): finding is Finding & { readonly subject: CapabilitySubject } =>
+    finding.subject.kind === "capability";
 
 /** The reason, then its lines, in the one detail column. */
 const reasonOf = (finding: Finding): string =>
@@ -49,7 +60,7 @@ const reasonOf = (finding: Finding): string =>
         : `${finding.summary} (${finding.detail.join("; ")})`;
 
 /**
- * Every row one pass writes: its item verdicts and skips in report order, then its effects.
+ * Every row one pass writes: its item verdicts, skips and capability problems in report order, then its effects.
  * A record with no item finding and no effect writes none — a config rejection has no item.
  */
 export function decisionsOf(pass: DecidedPass): Decision[] {
@@ -72,13 +83,15 @@ export function decisionsOf(pass: DecidedPass): Decision[] {
                 detail: finding.summary,
             };
         }
-        if (pass.item === null || !aSkip(finding)) return null;
+        if (pass.item === null || !aboutTheCapability(finding)) return null;
+        const code = ON_THE_CAPABILITY[finding.code];
+        if (code === undefined) return null;
         return {
             ...common,
             item: pass.item,
             capability: finding.subject.capability,
             verdict: finding.severity,
-            code: SKIPPED,
+            code,
             detail: reasonOf(finding),
         };
     };

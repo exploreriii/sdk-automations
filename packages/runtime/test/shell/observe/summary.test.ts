@@ -136,6 +136,31 @@ describe("the job summary", () => {
         store.close();
     });
 
+    it("lists a capability that threw as one problem row on its item", async () => {
+        const throwing: EngineCapability = {
+            declaration: triageQueueDeclaration,
+            evaluate: async () => {
+                throw new Error("boom");
+            },
+        };
+        scriptedGitHub({ now: () => START, config: () => configFor("triageQueue") });
+        const run = runOf();
+        const store = runStore();
+        const outcome = await runAction(run, {
+            payload: capture("issues.opened.json").bytes(),
+            store,
+            clock: () => START,
+            log: () => undefined,
+            capabilities: [throwing],
+        });
+        expect(outcome.exitCode).toBe(0);
+        const text = renderSummary(store, run, outcome);
+        expect(text).toContain(
+            '| triageQueue | problem | capabilityFailed | "triageQueue" failed during evaluation: boom |',
+        );
+        store.close();
+    });
+
     it("carries what became of each effect an armed run applied, and logs only applied or refused", async () => {
         const run = runOf({ armWrites: true });
         const { store, outcome } = await decided(run, "active");

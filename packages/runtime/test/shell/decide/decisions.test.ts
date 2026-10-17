@@ -1,6 +1,6 @@
 /**
- * Which rows one decided pass writes: one per item finding, one per skip on the item it decided,
- * and none for a finding about the repository or the producer.
+ * Which rows one decided pass writes: one per item finding, one per skip or capability problem
+ * on the item it decided, and none for a finding about the repository or the producer.
  */
 
 import { describe, expect, it } from "vitest";
@@ -24,6 +24,13 @@ const unread: Finding = {
     severity: "info",
     code: "factsUnread",
     summary: "needs links",
+    detail: [],
+    subject: onCapability,
+};
+const failed: Finding = {
+    severity: "problem",
+    code: "capabilityFailed",
+    summary: '"triageQueue" failed during evaluation: boom',
     detail: [],
     subject: onCapability,
 };
@@ -84,8 +91,21 @@ describe("the rows one pass writes", () => {
         ]);
     });
 
-    it("writes no skip for a pass that named no item", () => {
-        expect(decisionsOf(pass([skip(["a: 1"])], null))).toEqual([]);
+    it("writes a capability's problem on the item too, under its own code", () => {
+        expect(decisionsOf(pass([failed])).map(shape)).toEqual([
+            [
+                ITEM,
+                "triageQueue",
+                "problem",
+                "capabilityFailed",
+                '"triageQueue" failed during evaluation: boom',
+                null,
+            ],
+        ]);
+    });
+
+    it("writes nothing on the capability for a pass that named no item", () => {
+        expect(decisionsOf(pass([skip(["a: 1"]), failed], null))).toEqual([]);
     });
 
     it("writes nothing for a finding about the repository or the producer", () => {

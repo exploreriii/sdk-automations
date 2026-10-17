@@ -109,9 +109,25 @@ export function deriveManagedMarker(identity: ManagedIdentity, record?: WarningR
         capability: payload.capability,
         kind: payload.kind,
         subject: payload.subject,
-        ...(payload.record === undefined ? {} : { record: payload.record }),
+        ...(payload.record === undefined ? {} : { record: orderedRecord(payload.record) }),
     });
     return `${MANAGED_MARKER_PREFIX}${encoded}${MANAGED_MARKER_SUFFIX}`;
+}
+
+/** The record's fields in one fixed order, so its bytes never depend on how it was built. */
+function orderedRecord(record: WarningRecord): WarningRecord {
+    return {
+        effectId: record.effectId,
+        actionClass: record.actionClass,
+        capability: record.capability,
+        causeObservedAt: record.causeObservedAt,
+        cause: record.cause,
+        item: record.item,
+        change: record.change,
+        gracePeriodHours: record.gracePeriodHours,
+        cancelledBy: record.cancelledBy,
+        reversesWith: record.reversesWith,
+    };
 }
 
 /** Both halves at once — what an approved effect carries downstream. */
@@ -181,7 +197,7 @@ function warningRecordOf(value: unknown): WarningRecord | null {
     const hours = fields["gracePeriodHours"];
     if (typeof hours !== "number" || !Number.isFinite(hours) || hours <= 0) return null;
     const record = Object.fromEntries(RECORD_STRINGS.map((name) => [name, fields[name]]));
-    return { ...record, gracePeriodHours: hours } as WarningRecord;
+    return orderedRecord({ ...record, gracePeriodHours: hours } as WarningRecord);
 }
 
 /**

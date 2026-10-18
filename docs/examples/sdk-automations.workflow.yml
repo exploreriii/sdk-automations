@@ -38,7 +38,8 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      # Pin the release SHA rather than the moving v1 tag where you can.
-      - uses: hiero-hackers/sdk-automations@v1
+      # The major tag moves with each release (v0 while the Action is pre-1.0); pin the
+      # release SHA where you can.
+      - uses: hiero-hackers/sdk-automations@v0
         with:
           arm-writes: "false"

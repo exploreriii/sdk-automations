@@ -63,7 +63,7 @@ export interface Sandbox {
     setVariable(name: string, value: string): Promise<void>;
     /** Enables or disables the workflow; it is enabled on restore. */
     setWorkflow(enabled: boolean): Promise<void>;
-    /** Starts the workflow by hand on the default branch, a sweep unless `inputs` say otherwise; answers GitHub's clock. */
+    /** Starts the workflow by hand on the default branch, a sweep unless `inputs` say otherwise; answers when the run was created. */
     dispatch(inputs?: Readonly<Record<string, string>>): Promise<string>;
     /** Sets `ARM_WRITES=true` and commits `text` as the config with `mode: active`. */
     arm(text: string, message: string): Promise<string>;
@@ -291,10 +291,18 @@ export function createSandbox(call: Call, owner: string, repo: string): Sandbox 
 
         async dispatch(inputs = SWEEP_INPUTS) {
             const path = `${repository}/actions/workflows/${WORKFLOW_FILE}/dispatches`;
+            // GitHub answered 204 for years and now answers 200 naming the run it raised. That
+            // run was created before the answer, so its own clock is the moment to watch from.
             const answer = await call("POST", path, {
                 body: { ref: sandboxBranch, inputs },
-                accept: [204],
+                accept: [200, 204],
             });
+            const raised = field(answer.body, "workflow_run_id");
+            if (typeof raised === "number") {
+                const run = await call("GET", `${repository}/actions/runs/${String(raised)}`);
+                const created = field(run.body, "created_at");
+                if (typeof created === "string") return created;
+            }
             return answer.date ?? new Date().toISOString();
         },
 

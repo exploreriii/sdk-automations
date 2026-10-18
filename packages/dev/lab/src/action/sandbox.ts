@@ -19,6 +19,13 @@ export const ARM_VARIABLE = "ARM_WRITES";
 
 export const REF_VARIABLE = "SDK_AUTOMATIONS_REF";
 
+/** The dispatch inputs that run a schedule sweep; the workflow's defaults replay a capture. */
+export const SWEEP_INPUTS: Readonly<Record<string, string>> = {
+    capture: "",
+    event: "schedule",
+    number: "",
+};
+
 const WORKFLOW_FILE = WORKFLOW_PATH.split("/").at(-1) ?? WORKFLOW_PATH;
 
 const LABELS_PAGE = 100;
@@ -56,7 +63,7 @@ export interface Sandbox {
     setVariable(name: string, value: string): Promise<void>;
     /** Enables or disables the workflow; it is enabled on restore. */
     setWorkflow(enabled: boolean): Promise<void>;
-    /** Starts the workflow by hand on the default branch; answers GitHub's clock as it did. */
+    /** Starts the workflow by hand on the default branch, a sweep unless `inputs` say otherwise; answers GitHub's clock. */
     dispatch(inputs?: Readonly<Record<string, string>>): Promise<string>;
     /** Sets `ARM_WRITES=true` and commits `text` as the config with `mode: active`. */
     arm(text: string, message: string): Promise<string>;
@@ -282,7 +289,7 @@ export function createSandbox(call: Call, owner: string, repo: string): Sandbox 
 
         setWorkflow,
 
-        async dispatch(inputs = {}) {
+        async dispatch(inputs = SWEEP_INPUTS) {
             const path = `${repository}/actions/workflows/${WORKFLOW_FILE}/dispatches`;
             const answer = await call("POST", path, {
                 body: { ref: sandboxBranch, inputs },

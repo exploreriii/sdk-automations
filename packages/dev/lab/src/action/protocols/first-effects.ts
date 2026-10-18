@@ -113,15 +113,16 @@ export const firstEffects: Protocol = {
         differences.push(...(await actionWrites(context, issueRef(three.number), three.since, {})));
         await sandbox.setWorkflow(true);
 
-        if (context.human) await reverse(context, one.number, differences, notes);
-        else notes.push("reversal skipped: it needs a person's token");
-
+        // Counted before the reversal: a deleted comment leaves the timeline.
         let written = 0;
         for (const number of [one.number, two.number, three.number]) {
             const events = await watch.timeline(issueRef(number));
             written += actionEventsSince(events, one.since).length;
         }
         differences.push(...writeCountDifferences(appliedIn(texts), written));
+
+        if (context.human) await reverse(context, one.number, differences, notes);
+        else notes.push("reversal skipped: it needs a person's token");
         return verdictOf(differences, notes);
     },
 };

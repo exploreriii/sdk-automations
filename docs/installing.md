@@ -27,7 +27,7 @@ run cannot write anywhere those three do not reach. Do not widen it.
 
 The major tag, `@v0` while the Action is pre-1.0, moves on each release, so you get fixes without
 editing the file. To freeze the engine, pin the release's full commit SHA instead and update it
-yourself. Every release is cut from a commit that passed the nightly run against the sandbox.
+yourself. By rule, a release is tagged only from a commit the sandbox conformance workflow passed on.
 
 ## Why there is no checkout step
 

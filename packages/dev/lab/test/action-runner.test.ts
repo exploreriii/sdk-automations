@@ -25,11 +25,18 @@ const parsedOptions = (...argv: string[]) => {
 };
 
 describe("the command line", () => {
+    it("reads --disarm as a switch that runs nothing", () => {
+        const parsed = parseArgs(["--disarm"], ["9.1"]);
+        expect(parsed.ok && parsed.options.disarm).toBe(true);
+        expect(planOf({ only: null, arm: false, long: false }, [], ["9.1"]).selected).toEqual([]);
+    });
+
     it("defaults to the pre-tag batch, unarmed, short, with no pin", () => {
         expect(parsedOptions()).toEqual({
             only: null,
             arm: false,
             long: false,
+            disarm: false,
             engine: null,
             sandbox: null,
             capabilities: [],

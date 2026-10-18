@@ -3,6 +3,7 @@
  * protocol, driven as the person, and put back on every exit. See packages/dev/lab/README.md.
  *
  *   pnpm lab:action --only 9.1,9.2,9.4 [--arm] [--long] [--engine <sha>] [--sandbox owner/repo]
+ *   pnpm lab:action --disarm        the backstop: dry-run and ARM_WRITES=false, nothing run
  */
 
 import { writeFileSync } from "node:fs";
@@ -26,7 +27,14 @@ import type { Context, RateReader } from "./protocols/kit.js";
 import { PRE_TAG, PROTOCOLS } from "./protocols/registry.js";
 import { createEvidence, stampOf } from "./record.js";
 import { createRunReader } from "./runs.js";
-import { ARM_VARIABLE, createSandbox, REF_VARIABLE, WORKFLOW_PATH } from "./sandbox.js";
+import {
+    ARM_VARIABLE,
+    CONFIG_PATH,
+    createSandbox,
+    REF_VARIABLE,
+    withMode,
+    WORKFLOW_PATH,
+} from "./sandbox.js";
 import { execute, exitCodeOf, skippedOutcomes, verdictTable } from "./session.js";
 import { createEngineGuard, createWatch } from "./watch.js";
 
@@ -68,9 +76,11 @@ async function main(argv: readonly string[]): Promise<number> {
         return 2;
     }
     const options: Options = parsed.options;
-    const plan = planOf(options, PROTOCOLS, PRE_TAG);
+    const plan = options.disarm
+        ? { selected: [], skipped: [] }
+        : planOf(options, PROTOCOLS, PRE_TAG);
     for (const skip of plan.skipped) console.log(`skipped ${skip.id}: ${skip.reason}`);
-    if (plan.selected.length === 0) {
+    if (!options.disarm && plan.selected.length === 0) {
         console.log(`\n${verdictTable(skippedOutcomes(plan.skipped))}`);
         return 0;
     }
@@ -101,6 +111,16 @@ async function main(argv: readonly string[]): Promise<number> {
     const facts = await sandbox.inspect();
     if (!facts.workflowPresent)
         throw new Halt(`${WORKFLOW_PATH} is absent from ${facts.defaultBranch}`);
+    if (options.disarm) {
+        if (facts.armWrites !== "false") await sandbox.setVariable(ARM_VARIABLE, "false");
+        const config = facts.configMode === "active" ? await sandbox.fileAt(CONFIG_PATH) : null;
+        if (config !== null)
+            await sandbox.switchConfig(withMode(config.text, "dry-run"), "lab: disarm");
+        console.log(
+            `disarmed ${slug}: ${ARM_VARIABLE} false (was ${facts.armWrites ?? "unset"}), config ${config === null ? (facts.configMode ?? "absent") : "active -> dry-run"}`,
+        );
+        return 0;
+    }
     if (facts.configMode === "active" || facts.armWrites === "true") {
         throw new Halt(
             `the sandbox is armed (config ${facts.configMode ?? "absent"}, ${ARM_VARIABLE} ${facts.armWrites ?? "unset"}); disarm it first`,

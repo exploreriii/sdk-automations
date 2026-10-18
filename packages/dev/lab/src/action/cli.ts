@@ -8,6 +8,8 @@ export interface Options {
     readonly only: readonly string[] | null;
     readonly arm: boolean;
     readonly long: boolean;
+    /** Put the sandbox back to dry-run and `ARM_WRITES=false`, run nothing. */
+    readonly disarm: boolean;
     readonly engine: string | null;
     readonly sandbox: string | null;
     /** Protocol 9.1's capabilities; none is all. */
@@ -20,7 +22,7 @@ export type Parsed =
 
 const VALUED = new Set(["--only", "--engine", "--sandbox", "--capability"]);
 
-const SWITCHES = new Set(["--arm", "--long"]);
+const SWITCHES = new Set(["--arm", "--long", "--disarm"]);
 
 const listOf = (value: string): string[] =>
     value
@@ -67,6 +69,7 @@ export function parseArgs(argv: readonly string[], known: readonly string[]): Pa
             only,
             arm: switches.has("--arm"),
             long: switches.has("--long"),
+            disarm: switches.has("--disarm"),
             engine,
             sandbox,
             capabilities: listOf(values.get("--capability") ?? ""),

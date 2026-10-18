@@ -34,7 +34,7 @@ describe("the fake GitHub answers reads", () => {
         );
         expect(response.headers.get("etag")).toMatch(/^"[0-9a-f]{40}"$/);
         expect(github.calls).toEqual([
-            { path: CONTENTS, status: 200, pool: "core", window: NOW.getTime() },
+            { method: "GET", path: CONTENTS, status: 200, pool: "core", window: NOW.getTime() },
         ]);
     });
 

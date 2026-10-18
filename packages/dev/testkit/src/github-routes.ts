@@ -12,6 +12,7 @@ export const POOL_LIMIT = 5_000;
 export const UPDATED = "2026-09-14T10:00:00.000Z";
 
 export interface GitHubCall {
+    method: string;
     path: string;
     status: number;
     pool: "core" | "graphql";
@@ -205,7 +206,7 @@ export function githubScript(script: GitHubScript) {
         const route = path.replace(/^\/repos\/[^/]+\/[^/]+/, "");
         const window = script.now().getTime();
         if (script.secondaryLimited?.(route) === true) {
-            calls.push({ path, status: 403, pool: "core", window });
+            calls.push({ method: request.method, path, status: 403, pool: "core", window });
             return {
                 status: 403,
                 headers: { "retry-after": String(script.retryAfterSeconds?.() ?? 60) },
@@ -228,7 +229,7 @@ export function githubScript(script: GitHubScript) {
         });
         if (WRITE_METHODS.has(request.method) && route !== "/graphql") {
             if (script.refusesWrites?.() === true) {
-                calls.push({ path, status: 403, pool, window });
+                calls.push({ method: request.method, path, status: 403, pool, window });
                 return {
                     status: 403,
                     headers: limits(),
@@ -239,7 +240,7 @@ export function githubScript(script: GitHubScript) {
                 };
             }
             const written = writeReply(request.method, route, request.body, () => (ids += 1));
-            calls.push({ path, status: written.status, pool, window });
+            calls.push({ method: request.method, path, status: written.status, pool, window });
             return {
                 status: written.status,
                 headers: limits(),
@@ -249,7 +250,7 @@ export function githubScript(script: GitHubScript) {
         const text = script.config();
         const config = route === "/contents/sdk-automations.yml";
         if (config && script.noConfig?.() === true) {
-            calls.push({ path, status: 404, pool, window });
+            calls.push({ method: request.method, path, status: 404, pool, window });
             return {
                 status: 404,
                 headers: limits(),
@@ -266,7 +267,7 @@ export function githubScript(script: GitHubScript) {
             : (ROUTES[route] ?? (/^\/issues\/\d+\/timeline$/.test(route) ? [] : undefined));
         const etag = `"${config ? createHash("sha1").update(text).digest("hex") : "unchanged"}"`;
         const status = request.ifNoneMatch === etag ? 304 : 200;
-        calls.push({ path, status, pool, window });
+        calls.push({ method: request.method, path, status, pool, window });
         return {
             status: body === undefined ? 404 : status,
             headers: limits(pool === "core" ? etag : undefined),

@@ -13,6 +13,7 @@ import {
     startFakeGitHub,
     WEBHOOK_CAPTURES,
     type FakeGitHub,
+    type GitHubCall,
 } from "@hiero-hackers/automation-testkit";
 
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -33,12 +34,19 @@ interface Result {
     readonly stdout: string;
     readonly stderr: string;
     readonly summary: string;
+    /** What the fake was asked during this run alone. */
+    readonly calls: readonly GitHubCall[];
 }
+
+/** A call that would change the repository: anything but a read or the GraphQL query. */
+const isWrite = (call: GitHubCall): boolean =>
+    call.method !== "GET" && !call.path.endsWith("/graphql");
 
 /** The environment the runner sets, with action.yml's defaults for the inputs. The child runs
  * while this process keeps serving as the fake, so it is spawned, never spawned synchronously. */
 async function runOnce(fake: FakeGitHub, run: Run): Promise<Result> {
     const dir = mkdtempSync(join(tmpdir(), "action-smoke-"));
+    const before = fake.calls.length;
     try {
         const eventPath = join(dir, "event.json");
         const summaryPath = join(dir, "summary.md");
@@ -68,17 +76,24 @@ async function runOnce(fake: FakeGitHub, run: Run): Promise<Result> {
         child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
         child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
         const status = await new Promise<number | null>((resolve) => child.on("close", resolve));
-        return { status, stdout, stderr, summary: readFileSync(summaryPath, "utf8") };
+        return {
+            status,
+            stdout,
+            stderr,
+            summary: readFileSync(summaryPath, "utf8"),
+            calls: fake.calls.slice(before),
+        };
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
 }
 
-/** What every run must show; the failures as sentences. */
+/** What every run must show, and whether it may have written; the failures as sentences. */
 function expectations(
     result: Result,
     run: Run,
     status: number,
+    writes: "none" | "attempted",
     ...needles: readonly string[]
 ): string[] {
     const faults: string[] = [];
@@ -88,6 +103,11 @@ function expectations(
     const heading = `## ${run.repository}: ${run.event} (`;
     if (!result.summary.startsWith(heading))
         faults.push(`the summary does not open with ${heading}`);
+    const written = result.calls.filter(isWrite);
+    if (writes === "none" && written.length > 0) {
+        faults.push(`wrote: ${written.map((call) => `${call.method} ${call.path}`).join(", ")}`);
+    }
+    if (writes === "attempted" && written.length === 0) faults.push("attempted no write");
     const seen = `${result.stdout}\n${result.stderr}\n${result.summary}`;
     for (const needle of needles) {
         if (!seen.includes(needle)) faults.push(`nowhere says ${needle}`);
@@ -142,6 +162,7 @@ try {
                 result,
                 run,
                 0,
+                "none",
                 '"event":"deliveryCompleted"',
                 '"kind":"decision"',
                 "(delivery)",
@@ -152,7 +173,7 @@ try {
     report(
         schedule.name,
         swept,
-        expectations(swept, schedule, 0, '"event":"sweepClaimed"', "(sweep)"),
+        expectations(swept, schedule, 0, "none", '"event":"sweepClaimed"', "(sweep)"),
     );
 
     const opened = capturedRun("issues.opened.json");
@@ -166,12 +187,26 @@ try {
             unconfigured,
             opened,
             0,
+            "none",
             "No `sdk-automations.yml` at the default branch",
             "::warning::No `sdk-automations.yml`",
         ),
     );
 
     fake.setConfig(FULL.replace("mode: dry-run", "mode: active"));
+    const lowered = await runOnce(fake, opened);
+    report(
+        "active, writes not armed",
+        lowered,
+        expectations(
+            lowered,
+            opened,
+            0,
+            "none",
+            "::notice::The configuration asked for `active`",
+            "(delivery)",
+        ),
+    );
     fake.refuseWrites(true);
     const forbidden = await runOnce(fake, { ...opened, arm: true });
     fake.refuseWrites(false);
@@ -179,7 +214,7 @@ try {
     report(
         "a write the token may not make",
         forbidden,
-        expectations(forbidden, opened, 0, "refused writeForbidden", "::warning::"),
+        expectations(forbidden, opened, 0, "attempted", "refused writeForbidden", "::warning::"),
     );
 
     fake.secondaryLimit(true, 1);
@@ -192,6 +227,7 @@ try {
             limited,
             opened,
             1,
+            "none",
             "The run exited non-zero: `deliveryAttemptFailed`",
             "::warning::deliveryAttemptFailed",
         ),

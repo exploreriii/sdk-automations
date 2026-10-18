@@ -17,16 +17,13 @@ import { capture, configFor } from "@hiero-hackers/automation-testkit";
 import { hydrateWarnings } from "../../../src/shell/decide/warnings.js";
 import {
     parseActionEnvironment,
-    runAction,
-    runStore,
     type ActionRun,
-    type RunOutcome,
-} from "../../../src/shell/compose/action.js";
+} from "../../../src/shell/compose/action/inputs.js";
+import { runAction, runStore, type RunOutcome } from "../../../src/shell/compose/action/run.js";
 import { explainItem } from "../../../src/shell/observe/explain.js";
 import {
     annotations,
     appendSummary,
-    cell,
     renderSummary,
     ROW_MARKER,
     rowLines,
@@ -374,10 +371,40 @@ describe("appendSummary", () => {
     });
 
     it("escapes a cell so no value can close it, and spells an empty one as a dash", () => {
-        expect(cell(null)).toBe("-");
-        expect(cell("")).toBe("-");
-        expect(cell(3)).toBe("3");
-        expect(cell("a|b\\c\n d")).toBe("a\\|b\\\\c d");
+        const store = runStore();
+        const repository = { owner: "o", repo: "r" } as const;
+        const item = { kind: "issue", number: 5 } as const;
+        const decision = (capability: string, detail: string) => ({
+            passId: `pass-${capability}`,
+            source: "sweep" as const,
+            sourceId: `pass-${capability}`,
+            at: "2026-09-15T10:00:00.000Z",
+            repository,
+            item,
+            capability,
+            verdict: "info",
+            code: null,
+            detail,
+            effectId: null,
+        });
+        store.ledger.decide(decision("escaped", "a|b\\c\n d"));
+        store.ledger.decide(decision("empty", ""));
+        const outcome: RunOutcome = {
+            kind: "sweep",
+            events: [],
+            items: [item],
+            effects: [],
+            modeLowered: false,
+            exitCode: 0,
+        };
+        const text = renderSummary(
+            store,
+            { repository, eventName: "schedule", runUrl: null },
+            outcome,
+        );
+        expect(text).toContain("| escaped | info | - | a\\|b\\\\c d |");
+        expect(text).toContain("| empty | info | - | - |");
+        store.close();
     });
 
     it("names a dead-lettered delivery without a detail, in the line and the warning", () => {

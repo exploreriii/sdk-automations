@@ -6,7 +6,7 @@
 
 import { appendFileSync } from "node:fs";
 import type { ItemRef, RepositoryRef } from "@hiero-hackers/automation-core";
-import type { RunOutcome } from "../compose/action.js";
+import type { RunOutcome } from "../compose/action/run.js";
 import type { EffectOutcome, EffectOutcomeName } from "../effects.js";
 import type { ShellEvent } from "../log.js";
 import { standing } from "./explain.js";
@@ -23,7 +23,7 @@ const LOWERED =
     "The configuration asked for `active`; it was decided as `dry-run` because the workflow did not arm writes.";
 
 /** One table cell: backslashes first, then the pipe, so no input can close the cell. */
-export const cell = (value: string | number | null): string =>
+const cell = (value: string | number | null): string =>
     value === null || value === ""
         ? "-"
         : String(value).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\s+/g, " ");

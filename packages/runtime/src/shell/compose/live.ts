@@ -74,8 +74,10 @@ export interface LiveOptions {
     readonly writes: { readonly appSlug: string } | null;
     readonly killSwitchActive: boolean;
     readonly clock: () => Date;
-    /** What share of each of GitHub's pools the sweep may spend; the rest is the lane's (D192). */
+    /** What share of each of GitHub's pools the sweep may spend; the rest is the lane's (D192). Ignored when `lanes` is `"one"`. */
     readonly share: number;
+    /** `"two"` is the hosted shell's sweep and lane; `"one"` makes `deliveryAllowance` the sweep's own object. */
+    readonly lanes?: "two" | "one";
     /** Comments both lanes may create per hour; `null` takes the client's own ceiling. */
     readonly contentCreationHourly: number | null;
     /** Handed down because the adapter may not import the capabilities package. */
@@ -128,6 +130,7 @@ export function liveGitHub({
     killSwitchActive,
     clock,
     share,
+    lanes = "two",
     contentCreationHourly,
     knownCapabilities,
     ownWrites,
@@ -140,7 +143,7 @@ export function liveGitHub({
     });
     /** The sweep's share of GitHub's pools, for the process. The clock rolls a window nobody can report (D196). */
     const sweepAllowance = createAllowance({
-        share,
+        share: lanes === "one" ? 1 : share,
         clock: () => clock().getTime(),
         onWindow: ({ pool, limit, remaining, resetAt }) => {
             log({ event: "limits", pool, limit, remaining, resetAt });
@@ -150,10 +153,10 @@ export function liveGitHub({
      * The webhook lane's: what the sweep leaves of each pool, and no write cap.
      * GitHub's own numbers are one installation's, so only the sweep's says them.
      */
-    const deliveryAllowance = createAllowance({
-        share: 1 - share,
-        clock: () => clock().getTime(),
-    });
+    const deliveryAllowance =
+        lanes === "one"
+            ? sweepAllowance
+            : createAllowance({ share: 1 - share, clock: () => clock().getTime() });
 
     /** One repository's seams, each built exactly as a one-repository process built them. */
     const seamsIn = (repository: RepositoryRef, allowance: ClientAllowance): RepositorySeams => {

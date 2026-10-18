@@ -13,10 +13,9 @@ import {
     itemNamedBy,
     parseActionEnvironment,
     RUNNER_IDENTITY,
-    runAction,
-    runStore,
     type ActionRun,
-} from "../../../src/shell/compose/action.js";
+} from "../../../src/shell/compose/action/inputs.js";
+import { runAction, runStore } from "../../../src/shell/compose/action/run.js";
 import { explainItem } from "../../../src/shell/observe/explain.js";
 import type { ShellEvent } from "../../../src/shell/log.js";
 import { scriptedGitHub } from "./scripted-github.js";
@@ -96,6 +95,7 @@ describe("the identity the token writes as", () => {
         expect(other.ok && other.run.identity).toEqual({
             appId: "4377258",
             botLogin: "hiero-automations[bot]",
+            slug: "hiero-automations",
         });
     });
 

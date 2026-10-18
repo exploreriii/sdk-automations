@@ -80,6 +80,8 @@ export interface LiveOptions {
     readonly lanes?: "two" | "one";
     /** Comments both lanes may create per hour; `null` takes the client's own ceiling. */
     readonly contentCreationHourly: number | null;
+    /** The GitHub API origin; absent is api.github.com. */
+    readonly apiOrigin?: string;
     /** Handed down because the adapter may not import the capabilities package. */
     readonly knownCapabilities: readonly AdmittedCapability[];
     /** One repository's landed calls, as the adapter's ordering read asks for them (D159). */
@@ -91,6 +93,7 @@ export interface LiveOptions {
 function authenticate(
     auth: LiveAuth,
     clock: () => Date,
+    apiOrigin: string | undefined,
 ): {
     readonly tokenSource: TokenSource;
     readonly identityFor: (appSlug: string) => AppIdentity;
@@ -116,7 +119,7 @@ function authenticate(
     return {
         tokenSource: createTokenSource({
             credentials: { appId, installationId, privateKeyPem },
-            mint: githubMintInstallationToken(),
+            mint: githubMintInstallationToken(apiOrigin === undefined ? {} : { apiOrigin }),
             clock,
         }),
         identityFor: (appSlug) => ({ appId, botLogin: `${appSlug}[bot]` }),
@@ -132,14 +135,16 @@ export function liveGitHub({
     share,
     lanes = "two",
     contentCreationHourly,
+    apiOrigin,
     knownCapabilities,
     ownWrites,
     log,
 }: LiveOptions): LiveGitHub {
-    const { tokenSource, identityFor, identity } = authenticate(auth, clock);
+    const { tokenSource, identityFor, identity } = authenticate(auth, clock, apiOrigin);
     const http = createGitHubHttpClient({
         tokenSource,
         ...(contentCreationHourly === null ? {} : { contentCreationHourly }),
+        ...(apiOrigin === undefined ? {} : { apiOrigin }),
     });
     /** The sweep's share of GitHub's pools, for the process. The clock rolls a window nobody can report (D196). */
     const sweepAllowance = createAllowance({

@@ -80,6 +80,7 @@ export async function runAction(run: ActionRun, options: RunActionOptions): Prom
         share: 1,
         lanes: "one",
         contentCreationHourly: null,
+        ...(run.apiOrigin === null ? {} : { apiOrigin: run.apiOrigin }),
         knownCapabilities: capabilities.map(({ declaration }) => declaration),
         ownWrites: (served) => (item) => store.ledger.landedOn(served, item),
         log,

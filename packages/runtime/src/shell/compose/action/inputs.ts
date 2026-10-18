@@ -21,6 +21,7 @@ export const ACTION_REFUSAL = {
     token: "the token input is required: pass `token: ${{ github.token }}` or leave the default.",
     arm: 'arm-writes must be "true" or "false".',
     run: "GITHUB_RUN_ID is required; the runner sets it.",
+    apiUrl: "GITHUB_API_URL must be an http(s) origin with no path; the runner sets it.",
     identity:
         "bot-login must end in [bot] and app-id must be a whole number: the identity the token writes as, so a run recognises its own comments.",
 } as const;
@@ -33,6 +34,8 @@ export interface ActionRun {
     readonly token: string;
     /** The second gate on writes beside the config's mode; `false` lowers `active` to `dry-run`. */
     readonly armWrites: boolean;
+    /** The GitHub API origin the runner names; `null` is api.github.com. */
+    readonly apiOrigin: string | null;
     /** Whose comments are the run's own: the runner's unless the token belongs to another App; `slug` is the login without `[bot]`. */
     readonly identity: { readonly appId: string; readonly botLogin: string; readonly slug: string };
     /** One GUID per run attempt, so a re-run is a new delivery and a redelivery is not. */
@@ -76,6 +79,24 @@ export const RUNNER_IDENTITY = {
     slug: "github-actions",
 } as const;
 
+/** The origin a `GITHUB_API_URL` names when it is an http(s) origin and nothing more, else `null`. */
+function apiOriginOf(spelled: string): string | null {
+    let url: URL;
+    try {
+        url = new URL(spelled);
+    } catch {
+        return null;
+    }
+    const bare =
+        (url.protocol === "https:" || url.protocol === "http:") &&
+        url.pathname === "/" &&
+        url.search === "" &&
+        url.hash === "" &&
+        url.username === "" &&
+        url.password === "";
+    return bare ? url.origin : null;
+}
+
 /** Pure: every refusal the environment earns, or the run it describes. */
 export function parseActionEnvironment(env: Environment): ParsedRun {
     const errors: string[] = [];
@@ -93,6 +114,9 @@ export function parseActionEnvironment(env: Environment): ParsedRun {
     const botLogin = env["INPUT_BOT-LOGIN"] ?? RUNNER_IDENTITY.botLogin;
     const appId = env["INPUT_APP-ID"] ?? RUNNER_IDENTITY.appId;
     if (!botLogin.endsWith("[bot]") || !/^\d+$/.test(appId)) errors.push(ACTION_REFUSAL.identity);
+    const apiUrl = env["GITHUB_API_URL"];
+    const apiOrigin = apiUrl === undefined ? null : apiOriginOf(apiUrl);
+    if (apiUrl !== undefined && apiOrigin === null) errors.push(ACTION_REFUSAL.apiUrl);
     const slug = botLogin.replace(/\[bot\]$/, "");
     if (errors.length > 0 || repository === null) return { ok: false, errors };
     const server = env["GITHUB_SERVER_URL"];
@@ -104,6 +128,7 @@ export function parseActionEnvironment(env: Environment): ParsedRun {
             eventPath,
             token,
             armWrites: arm === "true",
+            apiOrigin,
             identity: { appId, botLogin, slug },
             deliveryId: deliveryIdOf(runId, env["GITHUB_RUN_ATTEMPT"] ?? "1"),
             runUrl:

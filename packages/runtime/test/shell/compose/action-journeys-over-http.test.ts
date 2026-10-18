@@ -1,7 +1,6 @@
 /**
  * The action-journeys matrix with `fetch` unstubbed, the composition reaching the fake GitHub over
- * HTTP. A shim rewrites api.github.com to the fake's origin until packet H3 gives the composition
- * an API origin of its own; H3 removes the shim.
+ * HTTP at the origin the environment names as `GITHUB_API_URL`.
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -21,22 +20,15 @@ import { parseActionEnvironment } from "../../../src/shell/compose/action/inputs
 import { runAction, runStore } from "../../../src/shell/compose/action/run.js";
 
 const START = new Date("2026-09-15T10:00:00.000Z");
-const API = "https://api.github.com";
-const realFetch = globalThis.fetch;
 
 let fake: FakeGitHub;
 let config = "";
 
 beforeAll(async () => {
     fake = await startFakeGitHub({ now: () => START, config: () => config });
-    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
-        const url = String(input instanceof Request ? input.url : input);
-        return realFetch(url.startsWith(API) ? fake.origin + url.slice(API.length) : url, init);
-    }) as typeof fetch;
 });
 
 afterAll(async () => {
-    globalThis.fetch = realFetch;
     await fake.close();
 });
 
@@ -64,6 +56,7 @@ async function journey(capability: EngineCapability, name: string): Promise<Row[
         GITHUB_RUN_ID: "42",
         GITHUB_RUN_ATTEMPT: "1",
         GITHUB_SERVER_URL: "https://github.com",
+        GITHUB_API_URL: fake.origin,
     });
     if (!parsed.ok) throw new Error(parsed.errors.join("; "));
     config = configFor(capability.declaration.name);

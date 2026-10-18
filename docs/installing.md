@@ -2,7 +2,7 @@
 
 > The Action is pre-1.0 and running in a pilot. A repository adopts it with two files; these pages describe what it does today.
 
-The GitHub Action is experimental and pre-1.0: expect it to change, and start in `dry-run`.
+Expect it to change before 1.0, and start in `dry-run`.
 
 The Action runs the same engine inside your own repository's workflow, with no server to host.
 

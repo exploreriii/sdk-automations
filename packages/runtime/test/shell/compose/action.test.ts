@@ -245,6 +245,23 @@ describe("one run", () => {
         store.close();
     });
 
+    it("decides with nothing enabled when the repository has no configuration file, and says so", async () => {
+        scriptedGitHub({ now: () => START, config: () => "", noConfig: () => true });
+        const store = runStore();
+        const outcome = await runAction(runOf(), {
+            payload: capture("issues.opened.json").bytes(),
+            store,
+            clock: () => START,
+            log: () => undefined,
+        });
+        expect(outcome).toMatchObject({ kind: "delivery", exitCode: 0, configAbsent: true });
+        expect(outcome.events.find((event) => event.event === "deliveryCompleted")).toMatchObject({
+            kind: "decision",
+        });
+        expect(store.ledger.decisionsOn(REPOSITORY, { kind: "issue", number: 164 })).toEqual([]);
+        store.close();
+    });
+
     it("decides an active repository as dry-run while writes are not armed", async () => {
         scriptedGitHub({ now: () => START, config: () => configFor("triageQueue", "active") });
         const store = runStore();

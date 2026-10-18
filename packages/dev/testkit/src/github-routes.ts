@@ -23,6 +23,8 @@ export interface GitHubScript {
     readonly config: () => string;
     /** While true, every request is refused as GitHub refuses one past a secondary limit. */
     readonly secondaryLimited?: (route: string) => boolean;
+    /** The seconds that refusal asks the caller to wait; GitHub's is a minute. */
+    readonly retryAfterSeconds?: () => number;
     /** While true, every write is refused as GitHub refuses an App without the grant. */
     readonly refusesWrites?: () => boolean;
     /** While true, the configuration file is absent. */
@@ -57,6 +59,7 @@ const items = [12, 34].map((number) => ({
 }));
 
 const ROUTES: Record<string, unknown> = {
+    "": { full_name: "scrubbed-1/scrubbed-2", default_branch: "main", private: false },
     "/issues": items,
     "/issues/12/timeline": [{ event: "assigned", assignee: { login: "ada" }, created_at: UPDATED }],
     "/issues/34/timeline": [{ event: "assigned", assignee: { login: "ada" }, created_at: UPDATED }],
@@ -65,7 +68,15 @@ const ROUTES: Record<string, unknown> = {
     "/pulls/34": { draft: false, created_at: UPDATED },
     "/pulls/34/reviews": [],
     "/pulls/34/commits": [{ commit: { committer: { date: UPDATED } } }],
-    "/issues/164": { assignees: [{ login: "scrubbed-1" }] },
+    "/issues/164": {
+        number: 164,
+        state: "open",
+        locked: false,
+        updated_at: UPDATED,
+        labels: [],
+        user: { login: "ada" },
+        assignees: [{ login: "scrubbed-1" }],
+    },
     "/issues/197": { number: 197, assignees: [] },
     "/issues/164/timeline": [],
     "/issues/165/timeline": [],
@@ -197,7 +208,7 @@ export function githubScript(script: GitHubScript) {
             calls.push({ path, status: 403, pool: "core", window });
             return {
                 status: 403,
-                headers: { "retry-after": "60" },
+                headers: { "retry-after": String(script.retryAfterSeconds?.() ?? 60) },
                 body: JSON.stringify({ message: "You have exceeded a secondary rate limit." }),
             };
         }

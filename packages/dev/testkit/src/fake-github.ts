@@ -17,7 +17,8 @@ export interface FakeGitHub {
     readonly calls: readonly GitHubCall[];
     setConfig(text: string): void;
     refuseWrites(on: boolean): void;
-    secondaryLimit(on: boolean): void;
+    /** `retryAfterSeconds` shortens the wait the refusal asks for; GitHub asks a minute. */
+    secondaryLimit(on: boolean, retryAfterSeconds?: number): void;
     noConfig(on: boolean): void;
     close(): Promise<void>;
 }
@@ -26,11 +27,13 @@ export async function startFakeGitHub(options: FakeGitHubOptions): Promise<FakeG
     let config: string | undefined;
     let refusing = false;
     let limited = false;
+    let retryAfter = 60;
     let absent = false;
     const script = githubScript({
         now: options.now,
         config: () => config ?? options.config(),
         secondaryLimited: () => limited,
+        retryAfterSeconds: () => retryAfter,
         refusesWrites: () => refusing,
         noConfig: () => absent,
     });
@@ -62,8 +65,9 @@ export async function startFakeGitHub(options: FakeGitHubOptions): Promise<FakeG
         refuseWrites: (on) => {
             refusing = on;
         },
-        secondaryLimit: (on) => {
+        secondaryLimit: (on, retryAfterSeconds = 60) => {
             limited = on;
+            retryAfter = retryAfterSeconds;
         },
         noConfig: (on) => {
             absent = on;

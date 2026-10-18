@@ -5,7 +5,12 @@
  */
 
 import { CAPABILITIES } from "@hiero-hackers/automation-capabilities";
-import type { DestructiveWarning, EngineCapability, ItemRef } from "@hiero-hackers/automation-core";
+import {
+    ABSENT_CONFIG_REVISION,
+    type DestructiveWarning,
+    type EngineCapability,
+    type ItemRef,
+} from "@hiero-hackers/automation-core";
 import { Store } from "../../../store/index.js";
 import { createApplier, recordedWarningsIn } from "../../apply/apply.js";
 import { createItemDecider, type DecideItem } from "../../decide/item.js";
@@ -34,6 +39,8 @@ export interface RunOutcome {
     readonly effects: readonly EffectOutcome[];
     /** `active` was decided as `dry-run` because the workflow did not arm writes. */
     readonly modeLowered: boolean;
+    /** No `sdk-automations.yml` at the default branch: the run decided with nothing enabled. */
+    readonly configAbsent: boolean;
     readonly exitCode: 0 | 1;
 }
 
@@ -61,6 +68,7 @@ export async function runAction(run: ActionRun, options: RunActionOptions): Prom
     const worker = `action-${run.deliveryId}`;
     const sweeping = run.eventName === "schedule";
     let modeLowered = false;
+    let configAbsent = false;
     const items: ItemRef[] = [];
     const effects: EffectOutcome[] = [];
 
@@ -148,6 +156,9 @@ export async function runAction(run: ActionRun, options: RunActionOptions): Prom
         worker,
         clock,
         log,
+        configured: (_, config) => {
+            if (config.revision === ABSENT_CONFIG_REVISION) configAbsent = true;
+        },
     });
 
     if (!sweeping) {
@@ -172,14 +183,16 @@ export async function runAction(run: ActionRun, options: RunActionOptions): Prom
             items,
             effects,
             modeLowered,
+            configAbsent,
             exitCode: finished ? 0 : 1,
         };
     }
 
     const config = await deliveries.configuration(run.repository, laneSeams.configSource);
     if (config === null) {
-        return { kind: "idle", events, items, effects, modeLowered, exitCode: 0 };
+        return { kind: "idle", events, items, effects, modeLowered, configAbsent, exitCode: 0 };
     }
+    configAbsent = config.revision === ABSENT_CONFIG_REVISION;
     declareSweep({ store, repository: run.repository, config, capabilities, now: clock() });
     const sweep = createSweep({
         store,
@@ -208,6 +221,7 @@ export async function runAction(run: ActionRun, options: RunActionOptions): Prom
         items,
         effects,
         modeLowered,
+        configAbsent,
         exitCode: failed ? 1 : 0,
     };
 }

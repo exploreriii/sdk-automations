@@ -21,6 +21,8 @@ export interface SummaryRun {
 
 const LOWERED =
     "The configuration asked for `active`; it was decided as `dry-run` because the workflow did not arm writes.";
+const ABSENT =
+    "No `sdk-automations.yml` at the default branch: nothing is enabled, so nothing was decided.";
 
 /** One table cell: backslashes first, then the pipe, so no input can close the cell. */
 const cell = (value: string | number | null): string =>
@@ -57,8 +59,21 @@ function failures(events: readonly ShellEvent[]): ShellEvent[] {
     );
 }
 
+/** A delivery completed without a decision: the configuration, or the mode, said why. */
+function undecided(events: readonly ShellEvent[]): ShellEvent[] {
+    return events.filter(
+        (event) =>
+            event.event === "deliveryCompleted" &&
+            event.kind !== "decision" &&
+            event.kind !== "repositoryMismatch",
+    );
+}
+
+/** The first line of a failure's detail: the log keeps the stack, the run page keeps the sentence. */
 const detailOf = (event: ShellEvent): string =>
-    "detail" in event && typeof event.detail === "string" ? event.detail : "";
+    "detail" in event && typeof event.detail === "string"
+        ? (event.detail.split("\n")[0] ?? "")
+        : "";
 
 const named = (event: ShellEvent): string =>
     event.event === "deliveryCompleted" ? `${event.event} (${event.kind})` : event.event;
@@ -89,12 +104,17 @@ export function renderSummary(store: Store, run: SummaryRun, outcome: RunOutcome
     const link = run.runUrl === null ? "" : ` ([run](${run.runUrl}))`;
     const lines = [`## ${owner}/${repo}: ${run.eventName} (${outcome.kind})${link}`, ""];
     if (outcome.modeLowered) lines.push(LOWERED, "");
+    if (outcome.configAbsent) lines.push(ABSENT, "");
     const sections = distinct(outcome.items).map((item) =>
         itemSection(store, run.repository, item),
     );
     const silent = sections.filter((section) => section.length === 0).length;
     lines.push(...sections.flat());
     if (silent > 0) lines.push(`Items decided with no rows: ${String(silent)}.`, "");
+    for (const event of undecided(outcome.events)) {
+        const detail = detailOf(event);
+        lines.push(`No decision: \`${named(event)}\`${detail === "" ? "" : `, ${detail}`}.`, "");
+    }
     const [cause] = failures(outcome.events);
     if (outcome.exitCode !== 0 && cause !== undefined) {
         const detail = detailOf(cause);
@@ -119,17 +139,18 @@ const effectLine = (effect: EffectOutcome): string =>
     `${effect.capability} ${effect.operation} ${spelled(effect.item)} ${effect.outcome}` +
     (effect.code === null ? "" : ` ${effect.code}`);
 
-/** One command per applied or refused effect and per failure, and one notice when the mode was lowered. */
+/** One command per applied or refused effect, per failure and per undecided delivery; one for a lowered mode or an absent file. */
 export function annotations(outcome: RunOutcome): string[] {
     const detail = (event: ShellEvent): string =>
         detailOf(event) === "" ? "" : ` ${detailOf(event)}`;
     return [
         ...(outcome.modeLowered ? [command("notice", LOWERED)] : []),
+        ...(outcome.configAbsent ? [command("warning", ABSENT)] : []),
         ...outcome.effects.flatMap((effect) => {
             const level = LEVEL[effect.outcome];
             return level === undefined ? [] : [command(level, effectLine(effect))];
         }),
-        ...failures(outcome.events).map((event) =>
+        ...[...undecided(outcome.events), ...failures(outcome.events)].map((event) =>
             command("warning", `${named(event)}${detail(event)}`),
         ),
     ];

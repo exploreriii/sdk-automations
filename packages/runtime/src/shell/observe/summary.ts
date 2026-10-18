@@ -55,17 +55,19 @@ function failures(events: readonly ShellEvent[]): ShellEvent[] {
             event.event === "deliveryAttemptFailed" ||
             event.event === "deliveryDeadLettered" ||
             event.event === "sweepFailed" ||
+            (event.event === "configurationUnavailable" && event.reason === "unreadable") ||
             (event.event === "deliveryCompleted" && event.kind === "repositoryMismatch"),
     );
 }
 
-/** A delivery completed without a decision: the configuration, or the mode, said why. */
+/** Nothing was decided and the configuration, or the mode, said why. */
 function undecided(events: readonly ShellEvent[]): ShellEvent[] {
     return events.filter(
         (event) =>
-            event.event === "deliveryCompleted" &&
-            event.kind !== "decision" &&
-            event.kind !== "repositoryMismatch",
+            (event.event === "deliveryCompleted" &&
+                event.kind !== "decision" &&
+                event.kind !== "repositoryMismatch") ||
+            (event.event === "configurationUnavailable" && event.reason === "rejected"),
     );
 }
 
@@ -76,7 +78,9 @@ const detailOf = (event: ShellEvent): string =>
         : "";
 
 const named = (event: ShellEvent): string =>
-    event.event === "deliveryCompleted" ? `${event.event} (${event.kind})` : event.event;
+    event.event === "deliveryCompleted" || event.event === "configurationUnavailable"
+        ? `${event.event} (${event.event === "deliveryCompleted" ? event.kind : event.reason})`
+        : event.event;
 
 /** One item's heading and tables, or nothing when no decision and no effect names it. */
 function itemSection(store: Store, repository: RepositoryRef, item: ItemRef): string[] {

@@ -495,6 +495,41 @@ describe("appendSummary", () => {
         store.close();
     });
 
+    it("says why a sweep found no configuration, as a line when rejected and a failure when unreadable", () => {
+        const store = runStore();
+        const repository = { owner: "o", repo: "r" } as const;
+        const run = { repository, eventName: "schedule", runUrl: null };
+        const rejected: RunOutcome = {
+            kind: "idle",
+            events: [
+                { event: "configurationUnavailable", reason: "rejected", detail: "unknownKey: x" },
+            ],
+            items: [],
+            effects: [],
+            modeLowered: false,
+            configAbsent: false,
+            exitCode: 0,
+        };
+        expect(renderSummary(store, run, rejected)).toContain(
+            "No decision: `configurationUnavailable (rejected)`, unknownKey: x.",
+        );
+        expect(annotations(rejected)).toEqual([
+            "::warning::configurationUnavailable (rejected) unknownKey: x",
+        ]);
+        const unreadable: RunOutcome = {
+            ...rejected,
+            events: [{ event: "configurationUnavailable", reason: "unreadable", detail: "502" }],
+            exitCode: 1,
+        };
+        expect(renderSummary(store, run, unreadable)).toContain(
+            "The run exited non-zero: `configurationUnavailable (unreadable)`, 502.",
+        );
+        expect(annotations(unreadable)).toEqual([
+            "::warning::configurationUnavailable (unreadable) 502",
+        ]);
+        store.close();
+    });
+
     it("says why a delivery completed with no decision, in a line and a warning", () => {
         const store = runStore();
         const outcome: RunOutcome = {

@@ -190,7 +190,19 @@ export async function runAction(run: ActionRun, options: RunActionOptions): Prom
 
     const config = await deliveries.configuration(run.repository, laneSeams.configSource);
     if (config === null) {
-        return { kind: "idle", events, items, effects, modeLowered, configAbsent, exitCode: 0 };
+        // A rejected file is the repository's to fix and completes; a failed read is the run's failure.
+        const unreadable = events.some(
+            (event) => event.event === "configurationUnavailable" && event.reason === "unreadable",
+        );
+        return {
+            kind: "idle",
+            events,
+            items,
+            effects,
+            modeLowered,
+            configAbsent,
+            exitCode: unreadable ? 1 : 0,
+        };
     }
     configAbsent = config.revision === ABSENT_CONFIG_REVISION;
     declareSweep({ store, repository: run.repository, config, capabilities, now: clock() });

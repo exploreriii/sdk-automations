@@ -106,6 +106,7 @@ describe("the API origin", () => {
     it.each([
         "not a url",
         "ftp://api.github.com",
+        "http://ghe.example",
         "https://ghe.example/api/v3",
         "https://api.github.com?x=1",
         "https://api.github.com/#x",
@@ -399,6 +400,25 @@ mappings:
             log: () => undefined,
         });
         expect(outcome).toMatchObject({ kind: "idle", exitCode: 0, items: [] });
+        expect(outcome.events).toContainEqual(
+            expect.objectContaining({ event: "configurationUnavailable", reason: "rejected" }),
+        );
+        store.close();
+    });
+
+    it("exits non-zero on the schedule when the configuration could not be read at all", async () => {
+        scriptedGitHub({ now: () => START, config: () => "", secondaryLimited: () => true });
+        const store = runStore();
+        const outcome = await runAction(runOf({ eventName: "schedule" }), {
+            payload: Buffer.from("{}"),
+            store,
+            clock: () => START,
+            log: () => undefined,
+        });
+        expect(outcome).toMatchObject({ kind: "idle", exitCode: 1, items: [] });
+        expect(outcome.events).toContainEqual(
+            expect.objectContaining({ event: "configurationUnavailable", reason: "unreadable" }),
+        );
         store.close();
     });
 

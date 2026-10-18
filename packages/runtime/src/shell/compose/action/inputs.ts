@@ -21,7 +21,7 @@ export const ACTION_REFUSAL = {
     token: "the token input is required: pass `token: ${{ github.token }}` or leave the default.",
     arm: 'arm-writes must be "true" or "false".',
     run: "GITHUB_RUN_ID is required; the runner sets it.",
-    apiUrl: "GITHUB_API_URL must be an http(s) origin with no path; the runner sets it.",
+    apiUrl: "GITHUB_API_URL must be an https origin with no path (http only on loopback); the runner sets it.",
     identity:
         "bot-login must end in [bot] and app-id must be a whole number: the identity the token writes as, so a run recognises its own comments.",
 } as const;
@@ -79,7 +79,9 @@ export const RUNNER_IDENTITY = {
     slug: "github-actions",
 } as const;
 
-/** The origin a `GITHUB_API_URL` names when it is an http(s) origin and nothing more, else `null`. */
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+/** The origin a `GITHUB_API_URL` names when it is an https origin and nothing more, else `null`; http only on loopback, so a token never crosses a network in clear. */
 function apiOriginOf(spelled: string): string | null {
     let url: URL;
     try {
@@ -88,7 +90,7 @@ function apiOriginOf(spelled: string): string | null {
         return null;
     }
     const bare =
-        (url.protocol === "https:" || url.protocol === "http:") &&
+        (url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK.has(url.hostname))) &&
         url.pathname === "/" &&
         url.search === "" &&
         url.hash === "" &&

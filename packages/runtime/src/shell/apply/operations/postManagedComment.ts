@@ -5,6 +5,7 @@
 
 import {
     MANAGED_COMMENT_KINDS,
+    parseManagedMarker,
     type CommentFact,
     type ManagedCommentKind,
     type ReadBackOutcome,
@@ -20,12 +21,15 @@ const isManagedCommentKind = (value: string): value is ManagedCommentKind =>
 export const ITEM_COMMENT_BUDGET = 3;
 const BUDGET_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** The App's own comments created inside the window; an undated one is outside it. */
+/**
+ * The comments created inside the window that are the App's own or carry its marker under any
+ * name: a run whose identity is misconfigured must still meet the budget. An undated one is outside it.
+ */
 function createdRecently(comments: readonly CommentFact[], now: Date): number {
     const since = now.getTime() - BUDGET_WINDOW_MS;
     return comments.filter(
         (comment) =>
-            comment.authoredByApp &&
+            (comment.authoredByApp || "recognized" in parseManagedMarker(comment.body)) &&
             comment.createdAt !== undefined &&
             Date.parse(comment.createdAt) >= since,
     ).length;
@@ -103,7 +107,7 @@ export const postManagedComment: OperationHandler<"postManagedComment"> = {
         if (created < ITEM_COMMENT_BUDGET) return null;
         return {
             code: "commentBudget",
-            detail: `the App has created ${String(created)} comments on this item in the last day; the budget is ${String(ITEM_COMMENT_BUDGET)}`,
+            detail: `${String(created)} managed comments were created on this item in the last day; the budget is ${String(ITEM_COMMENT_BUDGET)}`,
         };
     },
 

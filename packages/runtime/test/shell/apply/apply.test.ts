@@ -2456,6 +2456,20 @@ describe("the comments one item may receive in a day", () => {
         expect(github.calls).toEqual([]);
     });
 
+    it("counts a marked comment under another name, so a misread identity cannot post without bound", async () => {
+        const effect = commentEffect({ body: "one more" });
+        const others = [dated(1, 1), dated(2, 5), dated(3, 20)].map((comment) => ({
+            ...comment,
+            authoredByApp: false,
+        }));
+        const github = fakeGitHub({ comments: others });
+
+        const outcome = one(await applierOver(github).applyAll([effect], configFor()));
+
+        expect(outcome).toMatchObject({ outcome: "refused", code: "commentBudget" });
+        expect(github.calls).toEqual([]);
+    });
+
     it("creates once the oldest of the three has left the day", async () => {
         const effect = commentEffect({ body: "one more" });
         const github = fakeGitHub({ comments: [dated(1, 1), dated(2, 5), dated(3, 25)] });

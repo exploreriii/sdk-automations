@@ -26,8 +26,8 @@ run cannot write anywhere those three do not reach. Do not widen it.
 ## Pinning
 
 The major tag, `@v0` while the Action is pre-1.0, moves on each release, so you get fixes without
-editing the file. To freeze the engine, pin
-the release's full commit SHA instead and update it yourself.
+editing the file. To freeze the engine, pin the release's full commit SHA instead and update it
+yourself. Every release is cut from a commit that passed the nightly run against the sandbox.
 
 ## Why there is no checkout step
 
@@ -55,6 +55,12 @@ The default token is the workflow's own, and the run recognises its earlier comm
 runner's. If you pass an App's installation token as `token`, set `bot-login` to that App's
 `<slug>[bot]` and `app-id` to its id, or the run will not know its own comments and will post a
 fresh one each time. A personal token is not supported: its comments read as a person's.
+
+## Another GitHub host
+
+The run reads and writes at the API origin the runner names in `GITHUB_API_URL`, so GitHub
+Enterprise Cloud needs nothing set. GitHub Enterprise Server serves its API under a path, which the
+run refuses before it reads anything.
 
 ## Turning it off
 

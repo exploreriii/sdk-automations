@@ -16,6 +16,21 @@ import { text } from "./row.js";
 const isManagedCommentKind = (value: string): value is ManagedCommentKind =>
     (MANAGED_COMMENT_KINDS as readonly string[]).includes(value);
 
+/** Comments the App may CREATE on one item in one day; a rewrite in place never counts (D232). */
+export const ITEM_COMMENT_BUDGET = 3;
+const BUDGET_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** The App's own comments created inside the window; an undated one is outside it. */
+function createdRecently(comments: readonly CommentFact[], now: Date): number {
+    const since = now.getTime() - BUDGET_WINDOW_MS;
+    return comments.filter(
+        (comment) =>
+            comment.authoredByApp &&
+            comment.createdAt !== undefined &&
+            Date.parse(comment.createdAt) >= since,
+    ).length;
+}
+
 /**
  * The comment standing under this call's identity, `null` when there provably is none,
  * or the reason neither could be established. The `null` costs D46's gap: a stale "absent" is what makes a create run twice (protocol 6.5).
@@ -80,6 +95,18 @@ export const postManagedComment: OperationHandler<"postManagedComment"> = {
      * D12, in full: no match creates, a match with the same body is `already`, and a match
      * with a different body is updated in place (D145). Nothing repairs a comment in the background — recovery's read-back matches on IDENTITY alone.
      */
+    /** The day's creations, counted only when this call would create rather than rewrite (D232). */
+    async hold(call, pass) {
+        const listed = await pass.reader.comments(pass.item);
+        if (!listed.ok || listed.value.some(pass.isMine(call.body))) return null;
+        const created = createdRecently(listed.value, pass.clock());
+        if (created < ITEM_COMMENT_BUDGET) return null;
+        return {
+            code: "commentBudget",
+            detail: `the App has created ${String(created)} comments on this item in the last day; the budget is ${String(ITEM_COMMENT_BUDGET)}`,
+        };
+    },
+
     async send(call, pass) {
         const found = await matchedComment(pass, call.body);
         if (!found.ok) return { outcome: "retryLater", detail: found.detail };

@@ -61,8 +61,8 @@ export function modesOf(facts: Facts): ObservedModes {
 // ─── Moving an item ──────────────────────────────────────────────────
 
 /**
- * The cause for moving this item to `meaning`: the edge's first, or its first in `owned` (D242).
- * `null` when the map draws no such edge (D5), or draws none the caller owns.
+ * The cause for moving this item to `meaning`: the edge's first in edge order, or the first in edge
+ * order that `owned` holds (D242). `null` when the map draws no such edge (D5), or none the caller owns.
  */
 export function moveTo(
     facts: Facts,

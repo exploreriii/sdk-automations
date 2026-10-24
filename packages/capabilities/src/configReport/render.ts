@@ -86,7 +86,7 @@ function labelsSetBy(
     ];
 }
 
-/** The positions an enabled block's settings name, and who sets each: an enabled capability, or a person (D243). */
+/** The meanings an enabled block's settings name and does not set, and who may set each: an enabled capability, or a person (D243). */
 function positionsNamedBy(
     config: RepositoryConfig,
     consulted: readonly MappableMeaning[],
@@ -97,11 +97,14 @@ function positionsNamedBy(
         bullet(1, "positions its settings name"),
         ...consulted.map((meaning) => {
             const spelling = config.mappings.labels[meaning] ?? LABEL_DEFAULTS[meaning].name;
+            if (meaning === "blocked") {
+                return bullet(2, `${inert(spelling)} — blocked, a marker; only a person sets it`);
+            }
             const by = setters.get(meaning) ?? [];
             const who =
                 by.length === 0
                     ? "no enabled capability sets it, so a person must"
-                    : `set by ${by.map(inert).join(", ")}`;
+                    : `may be set by ${by.map(inert).join(", ")}`;
             return bullet(2, `${inert(spelling)} — ${meaning}; ${who}`);
         }),
     ];

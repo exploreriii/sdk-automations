@@ -766,8 +766,8 @@ mappings:
                 "    - enabled: true",
                 "    - notClaimableWhen: blocked, awaitingTriage",
                 "  - positions its settings name",
-                "    - status: triage — awaitingTriage; set by triageQueue",
-                "    - status: blocked — blocked; no enabled capability sets it, so a person must",
+                "    - status: triage — awaitingTriage; may be set by triageQueue",
+                "    - status: blocked — blocked, a marker; only a person sets it",
             ].join("\n"),
         );
     });

@@ -45,16 +45,13 @@ describe("declareCapability", () => {
         expect(validateCapabilityDeclarations([declared])).toEqual([]);
     });
 
-    it("keeps a stated labels list, and the boot check holds it to the moves", () => {
-        const stated = declareCapability({
-            ...input,
-            moves: ["checksPassed"],
-            labels: ["needsRevision"],
-        });
-        expect(stated.labels).toEqual(["needsRevision"]);
-        expect(validateCapabilityDeclarations([stated])).toEqual([
-            'capability "fixture": labels ["needsRevision"] are not the positions its moves enter, ["needsReview"]',
-        ]);
+    /** `labels` is not an input: a declared object spread back in keeps the derivation, not a stale list. */
+    it("derives labels again from a declared object spread back in with other moves", () => {
+        const first = declareCapability({ ...input, moves: ["checksPassed"] });
+        const widened = declareCapability({ ...first, moves: ["checksPassed", "checksFailed"] });
+        expect(first.labels).toEqual(["needsReview"]);
+        expect(widened.labels).toEqual(["needsReview", "needsRevision"]);
+        expect(validateCapabilityDeclarations([widened])).toEqual([]);
     });
 });
 

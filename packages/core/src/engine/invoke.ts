@@ -320,7 +320,8 @@ export function screenIntent(
     const grace = screenGrace(intent);
     if (!grace.ok) return grace;
     if (intent.operation === "applyMappedLabel") {
-        // `blocked` is a pause flag, not a position, and only a human may set it (D28, D79).
+        // `blocked` is a pause flag, not a position, and only a human may set it (D28, D79). First,
+        // because no edge enters it: derived `labels` never hold it, so the ownership screens would hide this.
         if (intent.desired.meaning === "blocked") {
             return {
                 ok: false,

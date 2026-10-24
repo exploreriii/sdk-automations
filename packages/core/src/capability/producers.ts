@@ -89,6 +89,7 @@ export interface DeclaringCapability {
         readonly triggers: readonly { readonly kind: string }[];
         readonly facts: readonly FactKind[];
         readonly needs: { readonly [K in FactKind]: readonly FactGroup[] };
+        readonly wants: { readonly [K in FactKind]: readonly FactGroup[] };
     };
 }
 
@@ -96,8 +97,8 @@ export interface DeclaringCapability {
 export type NeededGroups = { readonly [K in FactKind]: readonly FactGroup[] };
 
 /**
- * The groups this repository's enabled schedule capabilities need on `kind`, of
- * those the sweep's row reads. A need declared is a read paid for (D195).
+ * The groups this repository's enabled schedule capabilities need or want on `kind`, of
+ * those the sweep's row reads. A need or a want declared is a read paid for (D195, D244).
  */
 export function groupsNeeded(
     config: RepositoryConfig,
@@ -110,6 +111,7 @@ export function groupsNeeded(
         if (!declaration.triggers.some((trigger) => trigger.kind === "schedule")) continue;
         if (!declaration.facts.includes(kind)) continue;
         for (const need of declaration.needs[kind]) needed.add(need);
+        for (const want of declaration.wants[kind]) needed.add(want);
     }
     // `PRODUCERS`, not `ROWS`: the sweep's row makes both kinds, so there is no null arm.
 

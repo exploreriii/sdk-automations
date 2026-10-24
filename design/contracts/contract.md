@@ -47,8 +47,7 @@ interface DeclaredMappings {
   empty. The filled declaration, `needs` per kind, is what everything below reads.
 - `moves` names the transition causes a capability owns, checked against the map and against `intents`:
   one that may set a position owns an edge, and one that owns edges declares the intent. No cause has two
-  owners. `labels`, the positions those edges enter, follows from it, and a declaration stating both must
-  agree. The parser copies `labels` onto the enabled block, so the configuration report can tell a file's
+  owners. `labels`, the positions those edges enter, follows from it and is never written. The parser copies `labels` onto the enabled block, so the configuration report can tell a file's
   reviewers which labels the App will use, and define if missing (D204). `reads` names the positions it
   consults and does not set, for taxonomy §2.1's tables; `blocked` is the platform's and is never listed.
 - `settings` and `requiredMappings` are the two fields the CONFIGURATION layer reads: the first is the
@@ -169,8 +168,10 @@ interface Intent<K extends IntentOperation> {
   first cause the capability owns. No edge from the item's position, or none it owns, ends the evaluation as
   skipped.
 - `screenIntent` judges what the compiler cannot: capability identity, declared operation, dated cause,
-  the re-derived key, the grace terms, entity/meaning compatibility, pause authority, position conflicts,
-  and transition legality. The intent's shape is the compiler's (D209); the engine contains a non-object
+  the re-derived key, the grace terms, then for a label move pause authority first (no edge enters
+  `blocked`, so the ownership screens would hide it), the meaning's and the cause's ownership
+  (`undeclaredMeaning`, `undeclaredCause`), entity/meaning compatibility, position conflicts, and
+  transition legality. The intent's shape is the compiler's (D209); the engine contains a non-object
   entry as `malformedIntent` and reads nothing else defensively.
 - The engine derives action class and required permission from `INTENT_OPERATIONS`, then derives an
   unforgeable safety world from the record's own projection and the intent's claims.

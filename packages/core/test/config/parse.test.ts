@@ -381,15 +381,15 @@ describe("parseConfig acceptances (design/contracts/config-schema.md)", () => {
      * a raw document again. The corpus holds the rejections; this is the
      * accepting half, and the claim a rejection row cannot make.
      */
-    /** D243: what the report reads to say who sets each named position; a parked block names none. */
-    it("copies the positions a block's settings name onto it, in meaning order", () => {
+    /** D243: what the report reads to say who may set each named meaning; a parked block names none, and a block's own labels are left out. */
+    it("copies the meanings a block's settings name and does not set onto it, in meaning order", () => {
         const result = parseConfig(
             {
                 schemaVersion: 2,
                 capabilities: {
                     gate: {
                         enabled: true,
-                        when: ["blocked", "ready"],
+                        when: ["blocked", "ready", "needsReview"],
                         tier: { enabled: true, only: ["awaitingTriage"] },
                         parked: { enabled: false },
                     },
@@ -406,6 +406,7 @@ describe("parseConfig acceptances (design/contracts/config-schema.md)", () => {
                             parked: block({ only: meanings() }),
                         }),
                         requiredMappings: {},
+                        labels: ["needsReview"],
                     },
                 ],
             },

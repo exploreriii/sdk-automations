@@ -1,5 +1,10 @@
 import { CAPABILITIES } from "@hiero-hackers/automation-capabilities";
-import type { DeclaredTrigger, RequiredMappings, Spec } from "@hiero-hackers/automation-core";
+import type {
+    DeclaredTrigger,
+    MappableMeaning,
+    RequiredMappings,
+    Spec,
+} from "@hiero-hackers/automation-core";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeNewlines, repoRoot, repositoryFiles } from "./repository.js";
@@ -11,7 +16,7 @@ export interface ShippedCapability {
     readonly settings: Spec;
     readonly requiredMappings: RequiredMappings;
     readonly intents: readonly string[];
-    readonly labels: readonly string[];
+    readonly labels: readonly MappableMeaning[];
     readonly moves: readonly string[];
     readonly reads: readonly string[];
     /** The design page's first line, exactly as written. */

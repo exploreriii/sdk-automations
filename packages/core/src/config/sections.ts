@@ -94,7 +94,7 @@ function admissionsOf(known: readonly AdmittedCapability[]): Map<string, Admitte
     return admitted;
 }
 
-/** Every position the resolved settings name through a `meanings` field, in meaning order; a parked block names none (D243). */
+/** Every meaning the resolved settings name through a `meanings` field, in meaning order; a parked block names none (D243). */
 function meaningsNamedIn(
     spec: Spec,
     resolved: Readonly<Record<string, unknown>>,
@@ -281,7 +281,7 @@ export function readCapabilities(
         const labels = declared?.labels ?? [];
         const consults =
             declared !== undefined && read?.ok === true
-                ? meaningsNamedIn(declared.settings, read.value)
+                ? meaningsNamedIn(declared.settings, read.value).filter((m) => !labels.includes(m))
                 : [];
         entries.push([
             name,

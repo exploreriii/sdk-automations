@@ -53,8 +53,9 @@ release after it reads it.
 ## Going active with a backlog
 
 The first active sweep acts on everything already open, not only on what arrives next: the
-dashboard comments on and labels every open pull request, defining any label the repository lacks at
-the spelling in force, and the inactivity ladders start on every stale assignment and every reapable pull request at once. 
+dashboard comments on and labels every open pull request, defining any label the repository lacks
+at the spelling in force, and the inactivity ladders start on every stale assignment and every
+reapable pull request at once.
 
 ## Rolling back
 

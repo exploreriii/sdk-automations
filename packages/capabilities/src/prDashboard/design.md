@@ -80,9 +80,9 @@ capabilities:
 ```
 
 All five checks and `applyLabels` are in the shipped spec. `applyLabels` lists the positions the
-verdict may set: a listed position the file has not mapped is refused with the file, and one
-prDashboard never sets (anything but the two) is reported on the operator surface at every
-evaluation. `docs/capabilities.md` is generated from the spec and is always the shipped list.
+verdict may set: a listed position is written at the file's spelling, the default where the file maps
+none, and defined in the repository when it lacks the label; one prDashboard never sets (anything
+but the two) is reported on the operator surface at every evaluation. `docs/capabilities.md` is generated from the spec and is always the shipped list.
 
 Rules: a check runs only when its `enabled` is explicitly `true` — the platform's own consent rule,
 one level down; omitted or `false` means off, and a kept block with `enabled: false` is a check

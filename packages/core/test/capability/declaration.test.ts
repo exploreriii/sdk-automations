@@ -28,6 +28,35 @@ const declaration: CapabilityDeclaration = {
     intents: ["postManagedComment", "applyMappedLabel"],
 };
 
+describe("declareCapability", () => {
+    const input = {
+        name: "fixture",
+        triggers: [{ kind: "event", event: "pull_request" }],
+        settings: spec({}),
+        resolvers: [],
+        intents: ["applyMappedLabel"],
+    } as const;
+
+    it("derives labels as the positions the moves enter, in map order", () => {
+        const declared = declareCapability({ ...input, moves: ["checksFailed", "checksPassed"] });
+        expect(declared.labels).toEqual(["needsReview", "needsRevision"]);
+        expect(declared.reads).toEqual([]);
+        expect(validateCapabilityDeclarations([declared])).toEqual([]);
+    });
+
+    it("keeps a stated labels list, and the boot check holds it to the moves", () => {
+        const stated = declareCapability({
+            ...input,
+            moves: ["checksPassed"],
+            labels: ["needsRevision"],
+        });
+        expect(stated.labels).toEqual(["needsRevision"]);
+        expect(validateCapabilityDeclarations([stated])).toEqual([
+            'capability "fixture": labels ["needsRevision"] are not the positions its moves enter, ["needsReview"]',
+        ]);
+    });
+});
+
 describe("validateCapabilityDeclarations", () => {
     it("accepts a valid direct declaration set", () => {
         expect(validateCapabilityDeclarations([declaration])).toEqual([]);
@@ -81,6 +110,21 @@ describe("validateCapabilityDeclarations", () => {
         ).toEqual([
             'capability "prDashboard": "merged" closes an item, which is read and never written',
             'capability "prDashboard": transition cause "nonsense" is not on the map',
+        ]);
+    });
+
+    it("reports a repeated label beside a missing one, not as a match", () => {
+        expect(
+            validateCapabilityDeclarations([
+                {
+                    ...declaration,
+                    labels: ["needsReview", "needsReview"],
+                    moves: ["checksPassed", "checksFailed"],
+                },
+            ]),
+        ).toEqual([
+            'capability "prDashboard": duplicate labels entry "needsReview"',
+            'capability "prDashboard": labels ["needsReview","needsReview"] are not the positions its moves enter, ["needsReview","needsRevision"]',
         ]);
     });
 

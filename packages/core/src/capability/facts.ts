@@ -60,13 +60,21 @@ export function modesOf(facts: Facts): ObservedModes {
 
 // ─── Moving an item ──────────────────────────────────────────────────
 
-/** The cause for moving this item to `meaning`, or `null` when the map draws no such edge (D5). */
-export function moveTo(facts: Facts, meaning: MappableMeaning): TransitionCause | null {
+/**
+ * The cause for moving this item to `meaning`: the edge's first, or its first in `owned` (D242).
+ * `null` when the map draws no such edge (D5), or draws none the caller owns.
+ */
+export function moveTo(
+    facts: Facts,
+    meaning: MappableMeaning,
+    owned?: readonly TransitionCause[],
+): TransitionCause | null {
     if (facts.position.kind === "conflict") return null;
     const from: string | null = facts.position.state.meaning;
     const edges: readonly Edge<string, TransitionCause>[] =
         facts.kind === "issue" ? ISSUE_EDGES : PR_EDGES;
-    return edges.find((edge) => edge.from === from && edge.to === meaning)?.causes[0] ?? null;
+    const edge = edges.find((edge) => edge.from === from && edge.to === meaning);
+    return edge?.causes.find((cause) => owned === undefined || owned.includes(cause)) ?? null;
 }
 
 // ─── Who is a person ─────────────────────────────────────────────────

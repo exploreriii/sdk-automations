@@ -607,7 +607,7 @@ describe("prDashboard", () => {
             );
             expect(already.label).toBeNull();
             expect(already.handle.explanations.map((e) => e.summary)).toEqual([
-                "Left the position alone: no edge on the workflow map moves this pull request to needsRevision.",
+                "Left the position alone: no edge prDashboard owns moves this pull request to needsRevision.",
             ]);
             const conflicted = factsFor(
                 prDashboard.declaration,

@@ -44,11 +44,11 @@ function labelIntent(
     const current = facts.position.kind === "position" ? facts.position.state.meaning : null;
     const target = positionFor(rows, facts.readiness.draft, current);
     if (target === null || !applyLabels.includes(target)) return null;
-    if (moveTo(facts, target) === null) {
+    if (moveTo(facts, target, prDashboardDeclaration.moves) === null) {
         // Already there, off the map, or a conflicted position: the engine would refuse, so nothing is asked.
         platform.explain({
             capability: prDashboardDeclaration.name,
-            summary: `Left the position alone: no edge on the workflow map moves this pull request to ${target}.`,
+            summary: `Left the position alone: no edge prDashboard owns moves this pull request to ${target}.`,
             detail: [],
         });
         return null;

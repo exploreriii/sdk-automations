@@ -161,8 +161,9 @@ interface Intent<K extends IntentOperation> {
   is the safe side, and the next delivery re-evaluates.
 - **The cause defaults to the trigger** (the event name, or `sweep`) and is part of the idempotency key, so a
   capability that already states one keeps it: the key is the store's `effect_id` (D65).
-- **A label's transition cause comes from the map** (`moveTo`) when the request leaves it out; no edge from the
-  item's position ends the evaluation as skipped.
+- **A label's transition cause comes from the map** (`moveTo`) when the request leaves it out: the edge's
+  first cause the capability owns. No edge from the item's position, or none it owns, ends the evaluation as
+  skipped.
 - `screenIntent` judges what the compiler cannot: capability identity, declared operation, dated cause,
   the re-derived key, the grace terms, entity/meaning compatibility, pause authority, position conflicts,
   and transition legality. The intent's shape is the compiler's (D209); the engine contains a non-object

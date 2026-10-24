@@ -132,11 +132,16 @@ export class EngineHandle {
     }
 
     intent(request: IntentRequest<IntentOperation>): AnyIntent {
-        const built = buildIntent(this.declaration.name, this.facts, request);
+        const built = buildIntent(
+            this.declaration.name,
+            this.facts,
+            request,
+            this.declaration.moves,
+        );
         if (built !== null) return built as AnyIntent;
         const meaning = "meaning" in request.desired ? request.desired.meaning : "";
         return this.stop(
-            `Skipped: no edge on the workflow map moves this item to ${meaning}.`,
+            `Skipped: no edge this capability owns moves this item to ${meaning}.`,
             `from ${this.facts.position.kind === "conflict" ? "a conflicted position" : (this.facts.position.state.meaning ?? "no position")}`,
         );
     }
@@ -334,7 +339,7 @@ export function screenIntent(
             return {
                 ok: false,
                 code: "undeclaredCause",
-                reason: `"${declaration.name}" does not own the "${intent.desired.cause}" edge`,
+                reason: `"${declaration.name}" does not own the cause "${intent.desired.cause}"`,
             };
         }
         if (projection === null) {

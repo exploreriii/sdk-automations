@@ -192,7 +192,7 @@ export function declareCapability<const D extends DeclarationInput>(d: D): Decla
         moves,
         reads: d.reads ?? [],
     };
-    // THE ONE CAST: the conditional types above are these three defaults, as types.
+    // THE ONE CAST: the conditional types above are these defaults, as types.
     return filled as unknown as Declared<D>;
 }
 
@@ -289,8 +289,10 @@ function isTransitionCause(name: string): name is TransitionCause {
     return ISSUE_CAUSES.some((c) => c === name) || PR_CAUSES.some((c) => c === name);
 }
 
-const sameSet = (a: readonly string[], b: readonly string[]): boolean =>
-    a.length === b.length && a.every((x) => b.includes(x));
+function sameSet(a: readonly string[], b: readonly string[]): boolean {
+    const [x, y] = [new Set(a), new Set(b)];
+    return x.size === y.size && [...x].every((v) => y.has(v));
+}
 
 /** Do the declared meaning, fact, resolver, and intent names exist? */
 function checkAgainstCatalogue(declaration: CapabilityDeclaration): readonly string[] {

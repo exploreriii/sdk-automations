@@ -18,7 +18,9 @@ interface CapabilityDeclaration {
   readonly closed?: boolean;                     // also woken for a closed item; absent is open only (D59)
   readonly settings: Spec;                       // the settings toolkit's spec; its keys are the legal names
   readonly requiredMappings: DeclaredMappings;
-  readonly labels: readonly string[];            // the label meanings it may set; non-empty iff intents holds applyMappedLabel (D204)
+  readonly labels: readonly string[];            // the positions its moves enter (D204)
+  readonly moves: readonly string[];             // the transition causes it owns; non-empty iff intents holds applyMappedLabel (D242)
+  readonly reads: readonly string[];             // the positions it consults and does not set; never `blocked`
   readonly facts: readonly string[];
   readonly needs: Readonly<Record<string, readonly string[]>>; // per kind (D214)
   readonly resolvers: readonly string[];
@@ -42,10 +44,12 @@ interface DeclaredMappings {
   producer yields one kind; a schedule trigger states its kinds), `needs` may be one list — each group
   reaches every declared kind that carries it — or a list per kind, and `requiredMappings` defaults to
   empty. The filled declaration, `needs` per kind, is what everything below reads.
-- `labels` names the meanings a capability may set, checked against the labels family and against
-  `intents`: a capability that may set a position names which, and one that names them declares the
-  intent. The parser copies it onto the enabled block, so the configuration report can tell a file's
-  reviewers which labels the App will use, and define if missing (D204).
+- `moves` names the transition causes a capability owns, checked against the map and against `intents`:
+  one that may set a position owns an edge, and one that owns edges declares the intent. No cause has two
+  owners. `labels`, the positions those edges enter, follows from it, and a declaration stating both must
+  agree. The parser copies `labels` onto the enabled block, so the configuration report can tell a file's
+  reviewers which labels the App will use, and define if missing (D204). `reads` names the positions it
+  consults and does not set, for taxonomy §2.1's tables; `blocked` is the platform's and is never listed.
 - `settings` and `requiredMappings` are the two fields the CONFIGURATION layer reads: the first is the
   spec every capability block is read against — its keys are the legal names a block may carry beside
   `enabled`, and its fields judge the values, at parse time, with the rest of the file — and the

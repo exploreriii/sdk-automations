@@ -200,15 +200,6 @@ function screenTransition(
         };
     }
 
-    // `blocked` is a pause flag, not a position, and only a human may set it (D28, D79).
-    if (intent.desired.meaning === "blocked") {
-        return {
-            ok: false,
-            code: "pauseNotCapabilityWritable",
-            reason: "pausing an item withholds it from every capability, so only a human may set `blocked` (D79); a capability that must stop work needs the immediatePreventive gate (D54)",
-        };
-    }
-
     const wrongEntity = (meaning: string): IntentScreen => ({
         ok: false,
         code: "meaningWrongEntity",
@@ -324,11 +315,26 @@ export function screenIntent(
     const grace = screenGrace(intent);
     if (!grace.ok) return grace;
     if (intent.operation === "applyMappedLabel") {
+        // `blocked` is a pause flag, not a position, and only a human may set it (D28, D79).
+        if (intent.desired.meaning === "blocked") {
+            return {
+                ok: false,
+                code: "pauseNotCapabilityWritable",
+                reason: "pausing an item withholds it from every capability, so only a human may set `blocked` (D79); a capability that must stop work needs the immediatePreventive gate (D54)",
+            };
+        }
         if (!declaration.labels.includes(intent.desired.meaning)) {
             return {
                 ok: false,
                 code: "undeclaredMeaning",
                 reason: `"${declaration.name}" did not declare label meaning "${intent.desired.meaning}"`,
+            };
+        }
+        if (!declaration.moves.includes(intent.desired.cause)) {
+            return {
+                ok: false,
+                code: "undeclaredCause",
+                reason: `"${declaration.name}" does not own the "${intent.desired.cause}" edge`,
             };
         }
         if (projection === null) {

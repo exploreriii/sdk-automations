@@ -45,7 +45,9 @@ describe("declared shape", () => {
             ],
             settings: PR_DASHBOARD_SETTINGS,
             requiredMappings: {},
-            labels: ["needsRevision", "needsReview"],
+            labels: ["needsReview", "needsRevision"],
+            moves: ["checksPassed", "checksFailed", "revisionResolved"],
+            reads: ["readyToMerge"],
             facts: ["pullRequest"],
             needs: { issue: [], pullRequest: ["readiness"] },
             resolvers: [
@@ -71,6 +73,8 @@ describe("declared shape", () => {
             settings: TRIAGE_QUEUE_SETTINGS,
             requiredMappings: { labels: ["awaitingTriage"] },
             labels: ["awaitingTriage"],
+            moves: ["intakeObserved"],
+            reads: ["ready"],
             facts: ["issue"],
             needs: { issue: ["locked", "skills"], pullRequest: [] },
             resolvers: ["isAutomationActor"],
@@ -85,6 +89,8 @@ describe("declared shape", () => {
             settings: INACTIVITY_SETTINGS,
             requiredMappings: {},
             labels: [],
+            moves: [],
+            reads: ["needsReview", "needsRevision"],
             facts: ["issue", "pullRequest"],
             needs: {
                 issue: ["assignees", "links"],

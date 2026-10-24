@@ -139,6 +139,7 @@ outright (D198).
 | `facts` / `needs` | a `pullRequest` record with the `readiness` group (draft or ready), which the `pull_request` producer reads |
 | `resolvers` | `isAutomationActor` (the author; no request) · `linkedIssues` · `commitAttestations` (read once for both commit checks) · `mergeability` · `assigneesOf` (one read per linked issue; an ISSUE number) — every read a confirmed matrix row (protocol 6.9) |
 | `intents` | `postManagedComment` (`summary`) · `applyMappedLabel` (`needsReview`/`needsRevision`) |
+| `moves` / `reads` | owns `checksPassed`, `checksFailed` and `revisionResolved`, so sets `needsReview` and `needsRevision`; reads `readyToMerge`, a person's position it leaves alone |
 | `requiredMappings` | none — `applyLabels` demands the mapping of each position it lists |
 | Permissions | repository: `pull_requests:read`, `issues:read`, `issues:write` · organization: none |
 

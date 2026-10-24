@@ -20,6 +20,13 @@ import { INTENT_OPERATIONS } from "../intents/index.js";
 import type { ProducerName, WebhookProducer } from "./producers.js";
 import type { Spec } from "../config/spec.js";
 import { producerReads, producersReading, producesKind } from "./producers.js";
+import {
+    CLOSURE_CAUSES,
+    ISSUE_CAUSES,
+    PR_CAUSES,
+    positionsEnteredBy,
+    type TransitionCause,
+} from "../workflow/index.js";
 
 /**
  * contract.md §1 triggers: what a capability wants to be woken for. An event
@@ -48,8 +55,12 @@ export interface CapabilityDeclaration {
     readonly closed?: boolean;
     readonly settings: Spec;
     readonly requiredMappings: DeclaredMappings;
-    /** The label meanings it may set — non-empty exactly when `intents` holds `applyMappedLabel` (D204). */
+    /** The positions it may set: the ones its `moves` end on (D204). */
     readonly labels: readonly string[];
+    /** The transition causes it owns on the map — non-empty exactly when `intents` holds `applyMappedLabel` (D242). */
+    readonly moves: readonly string[];
+    /** The positions it consults and does not set; `blocked` is the platform's pause and is never listed (D28). */
+    readonly reads: readonly string[];
     readonly facts: readonly string[];
     /** Per kind — a need declared is a read paid for: the sweep reads these and no more (D195, D214). */
     readonly needs: Readonly<Record<string, readonly string[]>>;
@@ -68,20 +79,25 @@ export type NeedsInput =
 export interface TypedDeclaration extends CapabilityDeclaration {
     readonly requiredMappings: RequiredMappings;
     readonly labels: readonly MappableMeaning[];
+    readonly moves: readonly TransitionCause[];
+    readonly reads: readonly MappableMeaning[];
     readonly facts: readonly FactKind[];
     readonly needs: NeedsPerKind;
     readonly resolvers: readonly ResolverName[];
     readonly intents: readonly IntentOperation[];
 }
 
-/** What an author writes: the three lists an event trigger can imply are optional. */
+/** What an author writes: `labels` follows from `moves`, and the lists an event trigger can imply are optional. */
 export interface DeclarationInput {
     readonly name: string;
     readonly triggers: readonly DeclaredTrigger[];
     readonly closed?: boolean;
     readonly settings: Spec;
     readonly requiredMappings?: RequiredMappings;
+    /** The positions the `moves` enter; derived when left out, and held to them when stated. */
     readonly labels?: readonly MappableMeaning[];
+    readonly moves?: readonly TransitionCause[];
+    readonly reads?: readonly MappableMeaning[];
     readonly facts?: readonly FactKind[];
     readonly needs?: NeedsInput;
     readonly resolvers: readonly ResolverName[];
@@ -119,9 +135,11 @@ type NeedsOf<N, Kinds extends FactKind> = {
 /** The input with its defaults filled, each list kept as the literal tuple written. */
 export type Declared<D extends DeclarationInput> = Omit<
     D,
-    "facts" | "needs" | "requiredMappings" | "labels"
+    "facts" | "needs" | "requiredMappings" | "moves" | "reads"
 > & {
-    readonly labels: D["labels"] extends readonly MappableMeaning[] ? D["labels"] : readonly [];
+    readonly labels: readonly MappableMeaning[];
+    readonly moves: D["moves"] extends readonly TransitionCause[] ? D["moves"] : readonly [];
+    readonly reads: D["reads"] extends readonly MappableMeaning[] ? D["reads"] : readonly [];
     readonly facts: KindsOf<D>;
     readonly needs: NeedsOf<D["needs"], KindsOf<D>[number]>;
     readonly requiredMappings: D["requiredMappings"] extends RequiredMappings
@@ -164,12 +182,15 @@ function needsPerKind(needs: NeedsInput | undefined, kinds: readonly FactKind[])
  */
 export function declareCapability<const D extends DeclarationInput>(d: D): Declared<D> {
     const facts = d.facts ?? kindsImpliedBy(d.triggers);
+    const moves = d.moves ?? [];
     const filled = {
         ...d,
         facts,
         needs: needsPerKind(d.needs, facts),
         requiredMappings: d.requiredMappings ?? {},
-        labels: d.labels ?? [],
+        labels: d.labels ?? positionsEnteredBy(moves),
+        moves,
+        reads: d.reads ?? [],
     };
     // THE ONE CAST: the conditional types above are these three defaults, as types.
     return filled as unknown as Declared<D>;
@@ -214,16 +235,20 @@ function validateDeclaration(d: CapabilityDeclaration): readonly string[] {
     }
 
     const setsLabels = d.intents.includes("applyMappedLabel");
-    if (setsLabels && d.labels.length === 0) {
-        errors.push(`${at}: may set a position but names no label meaning in \`labels\``);
+    if (setsLabels && d.moves.length === 0) {
+        errors.push(`${at}: may set a position but owns no edge in \`moves\``);
     }
-    if (!setsLabels && d.labels.length > 0) {
-        errors.push(`${at}: names label meanings but never declares the applyMappedLabel intent`);
+    if (!setsLabels && d.moves.length > 0) {
+        errors.push(
+            `${at}: owns edges in \`moves\` but never declares the applyMappedLabel intent`,
+        );
     }
 
     // No `settings` row: a spec's keys are unique by construction.
     const lists: (readonly [string, readonly string[]])[] = [
         ["labels", d.labels],
+        ["moves", d.moves],
+        ["reads", d.reads],
         ["facts", d.facts],
         ...Object.entries(d.needs).map(([kind, groups]) => [`needs.${kind}`, groups] as const),
         ["resolvers", d.resolvers],
@@ -260,6 +285,13 @@ function isIntentOperation(name: string): name is IntentOperation {
     return Object.hasOwn(INTENT_OPERATIONS, name);
 }
 
+function isTransitionCause(name: string): name is TransitionCause {
+    return ISSUE_CAUSES.some((c) => c === name) || PR_CAUSES.some((c) => c === name);
+}
+
+const sameSet = (a: readonly string[], b: readonly string[]): boolean =>
+    a.length === b.length && a.every((x) => b.includes(x));
+
 /** Do the declared meaning, fact, resolver, and intent names exist? */
 function checkAgainstCatalogue(declaration: CapabilityDeclaration): readonly string[] {
     const errors: string[] = [];
@@ -274,6 +306,29 @@ function checkAgainstCatalogue(declaration: CapabilityDeclaration): readonly str
     for (const meaning of declaration.labels) {
         if (!MAPPABLE_MEANINGS.some((name) => name === meaning)) {
             errors.push(`${at}: label meaning "${meaning}" is not in the labels family`);
+        }
+    }
+    // Closure is read from GitHub and never written (D47), so no capability may own a closing cause.
+    for (const cause of declaration.moves) {
+        if (!isTransitionCause(cause)) {
+            errors.push(`${at}: transition cause "${cause}" is not on the map`);
+        } else if (CLOSURE_CAUSES.some((c) => c === cause)) {
+            errors.push(`${at}: "${cause}" closes an item, which is read and never written`);
+        }
+    }
+    const entered = positionsEnteredBy(declaration.moves.filter(isTransitionCause));
+    if (!sameSet(declaration.labels, entered)) {
+        errors.push(
+            `${at}: labels ${JSON.stringify(declaration.labels)} are not the positions its moves enter, ${JSON.stringify(entered)}`,
+        );
+    }
+    for (const meaning of declaration.reads) {
+        if (!MAPPABLE_MEANINGS.some((name) => name === meaning)) {
+            errors.push(`${at}: read meaning "${meaning}" is not in the labels family`);
+        } else if (meaning === "blocked") {
+            errors.push(`${at}: reads "blocked", the pause every capability is held to (D28)`);
+        } else if (declaration.labels.includes(meaning)) {
+            errors.push(`${at}: reads "${meaning}", a position it sets and so reads by right`);
         }
     }
     for (const fact of declaration.facts) {
@@ -359,9 +414,9 @@ export function validateCapabilityDeclarations(
     for (const name of duplicates(declarations.map((declaration) => declaration.name))) {
         errors.push(`duplicate capability name "${name}"`);
     }
-    // One automatic writer per position (taxonomy.md §2.2).
-    for (const meaning of duplicates(declarations.flatMap(({ labels }) => [...new Set(labels)]))) {
-        errors.push(`label meaning "${meaning}" is set by more than one capability`);
+    // One automatic edge has one owner (taxonomy.md §2.2, D242).
+    for (const cause of duplicates(declarations.flatMap(({ moves }) => [...new Set(moves)]))) {
+        errors.push(`transition cause "${cause}" is owned by more than one capability`);
     }
     return errors;
 }

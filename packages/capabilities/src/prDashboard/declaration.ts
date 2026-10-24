@@ -1,7 +1,6 @@
 /** What prDashboard is woken for, reads, asks and may do — the declaration alone, so `rows.ts` and `capability.ts` share it without a cycle. */
 
 import { declareCapability, type PlatformHandle } from "@hiero-hackers/automation-core/author";
-import { VERDICT_POSITIONS } from "./checks.js";
 import { PR_DASHBOARD_SETTINGS } from "./settings.js";
 
 export const prDashboardDeclaration = declareCapability({
@@ -12,7 +11,8 @@ export const prDashboardDeclaration = declareCapability({
     ],
     needs: ["readiness"],
     settings: PR_DASHBOARD_SETTINGS,
-    labels: VERDICT_POSITIONS,
+    moves: ["checksPassed", "checksFailed", "revisionResolved"],
+    reads: ["readyToMerge"],
     resolvers: [
         "isAutomationActor",
         "linkedIssues",

@@ -12,6 +12,8 @@ export interface ShippedCapability {
     readonly requiredMappings: RequiredMappings;
     readonly intents: readonly string[];
     readonly labels: readonly string[];
+    readonly moves: readonly string[];
+    readonly reads: readonly string[];
     /** The design page's first line, exactly as written. */
     readonly title: string;
     /** The half after the em-dash — the whole line when the title is not in shape. */
@@ -46,6 +48,8 @@ export function shippedCapabilities(): readonly ShippedCapability[] {
             settings: declaration.settings,
             requiredMappings: declaration.requiredMappings,
             labels: declaration.labels,
+            moves: declaration.moves,
+            reads: declaration.reads,
             intents: declaration.intents,
             title,
             purpose: DESIGN_TITLE.exec(title)?.[1] ?? title,

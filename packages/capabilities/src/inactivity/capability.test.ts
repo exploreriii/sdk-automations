@@ -321,7 +321,7 @@ describe("the pull-request ladder judges the contributor's wait", () => {
         expect(await decide(record)).toEqual([]);
     });
 
-    /** The label says the reviewers' wait; the review fact says the author's. The fact decides (D241). */
+    /** The label says the reviewers' wait; the review fact says the author's. The fact decides (D240). */
     it("PR in `needsReview` after a review requested changes", async () => {
         const sentBack = pullRecord(
             { position: position({ meaning: "needsReview" }) },

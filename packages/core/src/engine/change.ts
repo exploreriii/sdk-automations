@@ -39,7 +39,7 @@ export function writeRequestFor(intent: AnyIntent): WriteRequest {
 
 type Labels = RepositoryConfig["mappings"]["labels"];
 
-/** The change as the maintainer will see it: a position move names the label in force (D238). */
+/** The change as the maintainer will see it: a position move names the label in force. */
 function rehearsed(intent: AnyIntent, labels: Labels): string {
     const change = describeChange(intent);
     if (intent.operation !== "applyMappedLabel") return change;

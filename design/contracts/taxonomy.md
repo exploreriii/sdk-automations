@@ -113,7 +113,7 @@ repairs automatically.
 
 The rule is enforced per edge: a capability sets only the positions its `moves` enter
 (`undeclaredMeaning` otherwise), along a cause it owns (`undeclaredCause`), no cause may be owned by two
-capabilities, and the Owner column must name exactly those owners (D220, D242). Two capabilities may
+capabilities, and the Owner column must name exactly those owners (D220, D243). Two capabilities may
 enter one position by different edges. Moving an item OUT of a position needs no ownership of it:
 `prDashboard` may move a person's `readyToMerge` to `needsRevision` along `checksFailed`. A position a
 capability consults and does not set is named in its `reads`, and the Read-by column must name it.

@@ -77,7 +77,7 @@ function runOf(overrides: Partial<ActionRun> = {}): ActionRun {
 const kinds = (events: readonly ShellEvent[]): string[] => events.map(({ event }) => event);
 
 describe("the capability set", () => {
-    /** The same refusal the hosted shell makes at boot (D242): before any read of GitHub. */
+    /** The same refusal the hosted shell makes at boot (D243): before any read of GitHub. */
     it("refuses a set in which one cause has two owners", async () => {
         const owner = CAPABILITIES.find(({ declaration }) => declaration.moves.length > 0);
         if (owner === undefined) throw new Error("no shipped capability owns an edge");

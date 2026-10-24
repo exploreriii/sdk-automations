@@ -26,7 +26,7 @@ import {
 import {
     CONFIRMED_SWEEP_READS,
     createFactsReader,
-    readChangesRequested,
+    readChangesRequestedAt,
     readDraft,
     readLastCommitAt,
     readPullRequestActivity,
@@ -161,7 +161,11 @@ function wholeRepository(): Readonly<Record<string, ResponseStep>> {
 /** The pull request's own reads, answering every fact the review group folds. */
 const REVIEW_ROUTES = {
     "/pulls/34/reviews": json([
-        { state: "CHANGES_REQUESTED", user: { login: "linus" } },
+        {
+            state: "CHANGES_REQUESTED",
+            user: { login: "linus" },
+            submitted_at: "2026-08-26T00:00:00Z",
+        },
         { state: "COMMENTED", user: { login: "linus" } },
     ]),
     "/pulls/34/commits": json([
@@ -652,7 +656,7 @@ describe("the review group — the three reads protocol 6.9 confirmed", () => {
 
         expect(record.review).not.toBe(UNREAD);
         expect(record.review).toEqual({
-            changesRequested: true,
+            changesRequestedAt: new Date("2026-08-26T00:00:00Z"),
             reapableSince: {
                 needsRevision: new Date("2026-08-27T00:00:00Z"),
                 changesRequested: new Date("2026-08-26T00:00:00Z"),
@@ -666,7 +670,7 @@ describe("the review group — the three reads protocol 6.9 confirmed", () => {
         await expect(readReview(context(), 34)).resolves.toEqual({
             ok: true,
             value: {
-                changesRequested: true,
+                changesRequestedAt: new Date("2026-08-26T00:00:00Z"),
                 reapableSince: {
                     // The no-file configuration maps every meaning by default (D203), so the labeled event dates it.
                     needsRevision: new Date("2026-08-27T00:00:00Z"),
@@ -678,16 +682,51 @@ describe("the review group — the three reads protocol 6.9 confirmed", () => {
         });
     });
 
-    it("folds each reviewer to their latest DECIDING state, ignoring comments", async () => {
-        const dismissed = {
+    const review = (login: string, state: string, at: string) => ({
+        state,
+        user: { login },
+        submitted_at: at,
+    });
+
+    it.each(["DISMISSED", "APPROVED"])(
+        "folds each reviewer to their latest DECIDING state: %s lifts a request",
+        async (state) => {
+            const lifted = {
+                "/pulls/34/reviews": json([
+                    review("linus", "CHANGES_REQUESTED", "2026-08-26T00:00:00Z"),
+                    review("linus", state, "2026-08-27T00:00:00Z"),
+                ]),
+            };
+            await expect(readChangesRequestedAt(context(lifted), 34)).resolves.toEqual({
+                ok: true,
+                value: null,
+            });
+        },
+    );
+
+    it("answers the newest change request still standing, whoever made it", async () => {
+        const reviews = {
             "/pulls/34/reviews": json([
-                { state: "CHANGES_REQUESTED", user: { login: "linus" } },
-                { state: "DISMISSED", user: { login: "linus" } },
+                review("linus", "CHANGES_REQUESTED", "2026-08-26T00:00:00Z"),
+                review("ada", "CHANGES_REQUESTED", "2026-08-28T00:00:00Z"),
+                review("grace", "CHANGES_REQUESTED", "2026-08-29T00:00:00Z"),
+                review("grace", "APPROVED", "2026-08-30T00:00:00Z"),
+                review("linus", "COMMENTED", "2026-08-31T00:00:00Z"),
             ]),
         };
-        await expect(readChangesRequested(context(dismissed), 34)).resolves.toEqual({
+        await expect(readChangesRequestedAt(context(reviews), 34)).resolves.toEqual({
             ok: true,
-            value: false,
+            value: new Date("2026-08-28T00:00:00Z"),
+        });
+    });
+
+    it("refuses an undated change request rather than guessing when it stood", async () => {
+        const undated = {
+            "/pulls/34/reviews": json([{ state: "CHANGES_REQUESTED", user: { login: "linus" } }]),
+        };
+        await expect(readChangesRequestedAt(context(undated), 34)).resolves.toEqual({
+            ok: false,
+            detail: "#34 reviews: a change request was undated",
         });
     });
 
@@ -712,6 +751,37 @@ describe("the review group — the three reads protocol 6.9 confirmed", () => {
         ).resolves.toEqual({
             ok: true,
             value: null,
+        });
+    });
+
+    /** `count` commits a minute apart, paged as GitHub pages them; the last is the newest. */
+    const commitPages = (count: number): Record<string, ResponseStep> => {
+        const commits = Array.from({ length: count }, (_, minute) => ({
+            commit: {
+                committer: { date: new Date(Date.UTC(2026, 7, 1, 0, minute)).toISOString() },
+            },
+        }));
+        const pages = Math.ceil(count / 100);
+        const last = { link: `<https://api.github.com/x?page=${String(pages)}>; rel="last"` };
+        return Object.fromEntries(
+            Array.from({ length: pages }, (_, index) => [
+                `/pulls/34/commits?per_page=100&page=${String(index + 1)}`,
+                json(commits.slice(index * 100, (index + 1) * 100), index === 0 ? last : undefined),
+            ]),
+        );
+    };
+
+    it("reads the newest of 249 commits, one short of GitHub's ceiling", async () => {
+        await expect(readLastCommitAt(context(commitPages(249)), 34)).resolves.toEqual({
+            ok: true,
+            value: new Date(Date.UTC(2026, 7, 1, 0, 248)),
+        });
+    });
+
+    it("refuses a pull request whose commits reach GitHub's 250 ceiling", async () => {
+        await expect(readLastCommitAt(context(commitPages(250)), 34)).resolves.toEqual({
+            ok: false,
+            detail: "#34 commits: GitHub lists at most 250, and this pull request reached that limit",
         });
     });
 

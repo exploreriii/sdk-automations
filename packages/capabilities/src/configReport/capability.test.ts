@@ -736,7 +736,7 @@ mappings:
         );
     });
 
-    /** A hand-built block: the positions its settings name, and who sets each (D243). */
+    /** A hand-built block: the positions its settings name, and who sets each (D244). */
     it("says who sets each position a block's settings name, or that a person must", () => {
         const body = renderConfiguration("sha256:consults", {
             revision: "sha256:consults",

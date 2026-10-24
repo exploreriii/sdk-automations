@@ -86,7 +86,7 @@ function labelsSetBy(
     ];
 }
 
-/** The meanings an enabled block's settings name and does not set, and who may set each: an enabled capability, or a person (D243). */
+/** The meanings an enabled block's settings name and does not set, and who may set each: an enabled capability, or a person (D244). */
 function positionsNamedBy(
     config: RepositoryConfig,
     consulted: readonly MappableMeaning[],

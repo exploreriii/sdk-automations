@@ -35,7 +35,7 @@ export type VerdictPosition = (typeof VERDICT_POSITIONS)[number];
 /**
  * Any failure asks for revision; so does a review that requested changes, from `needsReview` alone.
  * Review is asked only when every row passes on a ready pull request whose review state is read and
- * clear, from no position or `needsRevision`: never from `readyToMerge`, never unread, as on a webhook (D244).
+ * clear, from no position or `needsRevision`: never from `readyToMerge`, never unread, as on a webhook (D245).
  */
 export function positionFor(
     rows: readonly Row[],

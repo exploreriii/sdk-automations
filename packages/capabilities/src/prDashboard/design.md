@@ -90,7 +90,7 @@ one level down; omitted or `false` means off, and a kept block with `enabled: fa
 parked, not a check running. `assignedIssues` nests inside `linkedIssues`, so its dependency is
 structural — anywhere else it is an unknown key. A missing guide renders without the link.
 `needsRevision` follows any failure, and a review that requested changes, from `needsReview` alone
-(the map's `reviewRequestedChanges` edge, D244); `needsReview` only when every enabled check passes
+(the map's `reviewRequestedChanges` edge, D245); `needsReview` only when every enabled check passes
 on a pull request marked ready for review whose review state is read and clear — never on a draft,
 never while a check is undetermined, never on a webhook run, which reads no review state: the hourly
 sweep asks. The label moves along the workflow map's edge; a pull request the map cannot move

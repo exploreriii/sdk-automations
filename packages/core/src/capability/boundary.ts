@@ -17,7 +17,7 @@ import { readSettings, type SettingsOf, type SettingsView } from "../config/spec
 
 // ─── Typed projections ───────────────────────────────────────────────
 
-/** The fact union a declaration receives — one member per declared kind, read with that kind's needs, its wants as read or not (D214, D244). */
+/** The fact union a declaration receives — one member per declared kind, read with that kind's needs, its wants as read or not (D214, D245). */
 export type FactsFor<D extends TypedDeclaration> = {
     [K in D["facts"][number]]: ReadGroups<
         Extract<Facts, { kind: K }>,

@@ -98,7 +98,7 @@ export type NeededGroups = { readonly [K in FactKind]: readonly FactGroup[] };
 
 /**
  * The groups this repository's enabled schedule capabilities need or want on `kind`, of
- * those the sweep's row reads. A need or a want declared is a read paid for (D195, D244).
+ * those the sweep's row reads. A need or a want declared is a read paid for (D195, D245).
  */
 export function groupsNeeded(
     config: RepositoryConfig,

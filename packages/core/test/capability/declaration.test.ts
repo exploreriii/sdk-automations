@@ -72,7 +72,7 @@ describe("validateCapabilityDeclarations", () => {
         ).toContain('transition cause "checksPassed" is owned by more than one capability');
     });
 
-    /** Ownership is per edge, so two capabilities may enter one position by different causes (D242). */
+    /** Ownership is per edge, so two capabilities may enter one position by different causes (D243). */
     it("accepts two capabilities entering one position along their own edges", () => {
         const triage = {
             ...declaration,
@@ -111,7 +111,7 @@ describe("validateCapabilityDeclarations", () => {
         ]);
     });
 
-    /** A want is read by some trigger's producer, never by all of them (D244). */
+    /** A want is read by some trigger's producer, never by all of them (D245). */
     it("holds a want to being read by some trigger's producer, and to not being a need", () => {
         const wanting = { ...declaration, wants: { pullRequest: ["review"] } };
         expect(validateCapabilityDeclarations([wanting])).toEqual([

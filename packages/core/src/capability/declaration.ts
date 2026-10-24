@@ -57,14 +57,14 @@ export interface CapabilityDeclaration {
     readonly requiredMappings: DeclaredMappings;
     /** The positions it may set: the ones its `moves` end on (D204). */
     readonly labels: readonly string[];
-    /** The transition causes it owns on the map — non-empty exactly when `intents` holds `applyMappedLabel` (D242). */
+    /** The transition causes it owns on the map — non-empty exactly when `intents` holds `applyMappedLabel` (D243). */
     readonly moves: readonly string[];
     /** The positions it consults and does not set; `blocked` is the platform's pause and is never listed (D28). */
     readonly reads: readonly string[];
     readonly facts: readonly string[];
     /** Per kind — a need declared is a read paid for: the sweep reads these and no more (D195, D214). */
     readonly needs: Readonly<Record<string, readonly string[]>>;
-    /** Per kind — groups read when the producer has them, `"unread"` otherwise, never a skip (D244). */
+    /** Per kind — groups read when the producer has them, `"unread"` otherwise, never a skip (D245). */
     readonly wants: Readonly<Record<string, readonly string[]>>;
     readonly resolvers: readonly string[];
     readonly intents: readonly string[];
@@ -423,7 +423,7 @@ function needsUnreadBy(
     return errors;
 }
 
-/** A want nobody reads is dead: some trigger's producer must read it, on some occasion (D244). */
+/** A want nobody reads is dead: some trigger's producer must read it, on some occasion (D245). */
 function wantsNobodyReads(declaration: CapabilityDeclaration): readonly string[] {
     const producers: ProducerName[] = declaration.triggers.map((trigger) =>
         trigger.kind === "schedule" ? "sweep" : trigger.event,
@@ -468,7 +468,7 @@ export function validateCapabilityDeclarations(
     for (const name of duplicates(declarations.map((declaration) => declaration.name))) {
         errors.push(`duplicate capability name "${name}"`);
     }
-    // One automatic edge has one owner (taxonomy.md §2.2, D242).
+    // One automatic edge has one owner (taxonomy.md §2.2, D243).
     for (const cause of duplicates(declarations.flatMap(({ moves }) => [...new Set(moves)]))) {
         errors.push(`transition cause "${cause}" is owned by more than one capability`);
     }

@@ -19,11 +19,11 @@ interface CapabilityDeclaration {
   readonly settings: Spec;                       // the settings toolkit's spec; its keys are the legal names
   readonly requiredMappings: DeclaredMappings;
   readonly labels: readonly string[];            // the positions its moves enter (D204)
-  readonly moves: readonly string[];             // the transition causes it owns; non-empty iff intents holds applyMappedLabel (D242)
+  readonly moves: readonly string[];             // the transition causes it owns; non-empty iff intents holds applyMappedLabel (D243)
   readonly reads: readonly string[];             // the positions it consults and does not set; never `blocked`
   readonly facts: readonly string[];
   readonly needs: Readonly<Record<string, readonly string[]>>; // per kind (D214)
-  readonly wants: Readonly<Record<string, readonly string[]>>; // per kind: read when the producer has it, "unread" otherwise, never a skip (D244)
+  readonly wants: Readonly<Record<string, readonly string[]>>; // per kind: read when the producer has it, "unread" otherwise, never a skip (D245)
   readonly resolvers: readonly string[];
   readonly intents: readonly string[];
 }
@@ -62,7 +62,7 @@ interface DeclaredMappings {
   it does not declare, or a group that kind does not carry — `review` on an issue — is a boot error (D214).
   `wants` names groups the capability reads when the producer has them: a want arrives `"unread"` on a
   producer that does not read it, and the capability is still invoked; one no trigger's producer reads,
-  or one the capability already needs, is a boot error (D244).
+  or one the capability already needs, is a boot error (D245).
 - `TypedDeclaration` narrows mapping, fact, group, resolver, and intent names to the closed platform
   catalogues, which is also what lets a declaration serve as an `AdmittedCapability` uncast.
 - `declareCapability<const D>` preserves those lists as literal tuples so the boundary can project exact

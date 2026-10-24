@@ -1,7 +1,7 @@
 /**
  * `design/contracts/taxonomy.md` §2.1 holds two tables to the shipped declarations: an automatic
  * edge's owner is the capability whose `moves` names its cause, and a position's readers are the
- * capabilities whose `reads` name it (D220, D242). Prose in a cell — "A person", "None", "—" — names
+ * capabilities whose `reads` name it (D220, D243). Prose in a cell — "A person", "None", "—" — names
  * no capability.
  */
 

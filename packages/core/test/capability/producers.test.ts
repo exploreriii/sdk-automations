@@ -150,7 +150,7 @@ describe("the groups a repository's enabled set needs", () => {
         expect(groupsNeeded(config, SHIPPED, "issue")).toEqual(["assignees", "links"]);
     });
 
-    /** A want is a paid read too (D244): a capability enabled alone has its wanted group on the sweep. */
+    /** A want is a paid read too (D245): a capability enabled alone has its wanted group on the sweep. */
     it("reads a want as it reads a need, on the want's own account", () => {
         expect(groupsNeeded(enabling("dash"), SHIPPED, "pullRequest")).toEqual([
             "review",

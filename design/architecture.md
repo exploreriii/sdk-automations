@@ -116,7 +116,7 @@ The registry in `packages/core/src/capability/producers.ts`, read off the group 
 need no producer of its trigger reads does not boot. The record is judged again on the day — a group
 that failed to read, or that the matrix has not confirmed, arrives `"unread"` and `decide()` skips
 the capability with `factsUnread`, so it never branches on what woke the platform. A group a
-capability WANTS rather than needs is the one stated exception (D244): it arrives read or `"unread"`
+capability WANTS rather than needs is the one stated exception (D245): it arrives read or `"unread"`
 with no skip, and the capability says what it does without it.
 
 *Contract: [`contracts/facts.md`](contracts/facts.md), generated from the registry ·

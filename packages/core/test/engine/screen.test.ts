@@ -126,7 +126,7 @@ describe("screenIntent", () => {
         });
     });
 
-    /** Ownership is per edge: a position's writer along one cause does not own its other edges (D242). */
+    /** Ownership is per edge: a position's writer along one cause does not own its other edges (D243). */
     it("refuses an edge into a declared position that the capability does not own", () => {
         const triage = declareCapability({ ...FIXTURE, moves: ["triageCompleted"] });
         const reclaim = intent({ desired: { meaning: "ready", cause: "reclaimCompleted" } });

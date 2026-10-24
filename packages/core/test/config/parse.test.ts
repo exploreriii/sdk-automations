@@ -381,7 +381,7 @@ describe("parseConfig acceptances (design/contracts/config-schema.md)", () => {
      * a raw document again. The corpus holds the rejections; this is the
      * accepting half, and the claim a rejection row cannot make.
      */
-    /** D243: what the report reads to say who may set each named meaning; a parked block names none, and a block's own labels are left out. */
+    /** D244: what the report reads to say who may set each named meaning; a parked block names none, and a block's own labels are left out. */
     it("copies the meanings a block's settings name and does not set onto it, in meaning order", () => {
         const result = parseConfig(
             {

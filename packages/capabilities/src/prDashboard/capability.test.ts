@@ -574,7 +574,7 @@ describe("prDashboard", () => {
             expect(label).toEqual({ meaning: "needsReview", cause: "checksPassed" });
         });
 
-        /** A webhook record carries no review state (D244): the dashboard posts, the sweep asks for the label. */
+        /** A webhook record carries no review state (D245): the dashboard posts, the sweep asks for the label. */
         it("asks no needsReview on a webhook run, whose record holds the review state unread", async () => {
             const { intents, label, handle } = await evaluate(
                 labelling(BOTH, LINKS),

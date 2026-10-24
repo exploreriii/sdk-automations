@@ -33,7 +33,7 @@ export function snapshotPath(file: string): string {
 export function admittedCapabilities(): readonly AdmittedCapability[] {
     return (
         shippedCapabilities()
-            // With `labels`, as the shell admits them: the block copies rest on it (D204, D243).
+            // With `labels`, as the shell admits them: the block copies rest on it (D204, D244).
             .map(({ name, settings, requiredMappings, labels }) => ({
                 name,
                 settings,

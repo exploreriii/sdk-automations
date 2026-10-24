@@ -60,7 +60,7 @@ export interface PullRequestFacts {
     readonly assignees: readonly AssigneeClock[] | Unread;
     readonly links: { readonly issues: readonly LinkedIssue[] } | Unread;
     readonly review: {
-        readonly changesRequested: boolean;
+        readonly changesRequestedAt: Date | null;
         readonly reapableSince: Date;
         readonly lastCommitAt: Date | null;
     } | Unread;
@@ -156,7 +156,7 @@ declareCapability({
   trigger is refused at boot, because the webhook reads no group and the capability would be
   skipped on every delivery instead. The refusal names the trigger, the group, and the producers
   that do read it.
-- `wants` names a group the capability reads when it is there (D244): `prDashboard` wants `review`,
+- `wants` names a group the capability reads when it is there (D245): `prDashboard` wants `review`,
   which the sweep reads and the `pull_request` webhook does not. A want is checked like a need
   against the kinds and the catalogue, but against the producers only for being read by SOME
   trigger's producer; a want the capability also needs is refused.

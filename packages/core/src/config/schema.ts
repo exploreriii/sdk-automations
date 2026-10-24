@@ -54,7 +54,7 @@ export const RESERVED_BLOCK_KEYS = {
 
 // ─── The shape of a document ─────────────────────────────────────────
 
-/** One capability's block. `settings` is spec-resolved (§3); `labels` and `consults` (the meanings its settings name and it does not set) are copied in, never written (D204, D243). */
+/** One capability's block. `settings` is spec-resolved (§3); `labels` and `consults` (the meanings its settings name and it does not set) are copied in, never written (D204, D244). */
 export interface CapabilityConfig {
     readonly enabled: boolean;
     /** The mode the block STATED, never above the file's; absent inherits it (`effectiveMode`). */

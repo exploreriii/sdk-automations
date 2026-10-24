@@ -49,12 +49,25 @@ export function meaningsOf(facts: Facts): readonly MappableMeaning[] {
     return observedMeaningsOf<MappableMeaning>(facts.position);
 }
 
+/** The two review facts the outstanding rule reads. */
+type ChangeRequestFacts = Pick<
+    Exclude<PullRequestFacts["review"], Unread>,
+    "changesRequestedAt" | "lastCommitAt"
+>;
+
+/** A change request is outstanding until a commit newer than it hands the wait back (D241). */
+export function changesOutstanding(review: ChangeRequestFacts): boolean {
+    const requested = review.changesRequestedAt;
+    if (requested === null) return false;
+    return review.lastCommitAt === null || review.lastCommitAt.getTime() <= requested.getTime();
+}
+
 /** Which pull-request modes this record READ; one nobody read is left out, not `false`. */
 export function modesOf(facts: Facts): ObservedModes {
     if (facts.kind !== "pullRequest") return {};
     return {
         ...(facts.readiness === UNREAD ? {} : { draft: facts.readiness.draft }),
-        ...(facts.review === UNREAD ? {} : { changesRequested: facts.review.changesRequested }),
+        ...(facts.review === UNREAD ? {} : { changesRequested: changesOutstanding(facts.review) }),
     };
 }
 
@@ -62,7 +75,7 @@ export function modesOf(facts: Facts): ObservedModes {
 
 /**
  * The cause for moving this item to `meaning`: the edge's first in edge order, or the first in edge
- * order that `owned` holds (D242). `null` when the map draws no such edge (D5), or none the caller owns.
+ * order that `owned` holds (D243). `null` when the map draws no such edge (D5), or none the caller owns.
  */
 export function moveTo(
     facts: Facts,

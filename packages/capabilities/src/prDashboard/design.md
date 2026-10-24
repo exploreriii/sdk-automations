@@ -180,5 +180,6 @@ outright (D198).
 | A position the map cannot move | left alone; the operator is told |
 | Maintainer moved it to `readyToMerge`, every check passes | left alone; a failure still moves it to `needsRevision` |
 | Assignee login differs from the author's in case | counted as assigned |
-| `applyLabels` names an unmapped position | the file is refused |
+| `applyLabels` names a position the file does not map | set at its default spelling (D203) |
+| `applyLabels` names no meaning | the file is refused |
 | `applyLabels` names a position never set | reported; the listed ones still set |

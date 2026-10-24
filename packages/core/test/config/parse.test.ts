@@ -1,7 +1,15 @@
 import { DEFAULT_LABEL_MAPPINGS } from "../../src/config/label-defaults.js";
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
-import { duration, flag, section, spec, writeDuration } from "../../src/capability/index.js";
+import {
+    block,
+    duration,
+    flag,
+    meanings,
+    section,
+    spec,
+    writeDuration,
+} from "../../src/capability/index.js";
 import {
     describeSpec,
     parseConfig,
@@ -373,6 +381,45 @@ describe("parseConfig acceptances (design/contracts/config-schema.md)", () => {
      * a raw document again. The corpus holds the rejections; this is the
      * accepting half, and the claim a rejection row cannot make.
      */
+    /** D243: what the report reads to say who sets each named position; a parked block names none. */
+    it("copies the positions a block's settings name onto it, in meaning order", () => {
+        const result = parseConfig(
+            {
+                schemaVersion: 2,
+                capabilities: {
+                    gate: {
+                        enabled: true,
+                        when: ["blocked", "ready"],
+                        tier: { enabled: true, only: ["awaitingTriage"] },
+                        parked: { enabled: false },
+                    },
+                },
+            },
+            {
+                revision: "rev-test",
+                knownCapabilities: [
+                    {
+                        name: "gate",
+                        settings: spec({
+                            when: meanings(),
+                            tier: block({ only: meanings() }),
+                            parked: block({ only: meanings() }),
+                        }),
+                        requiredMappings: {},
+                    },
+                ],
+            },
+        );
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.config.capabilities.gate?.consults).toEqual([
+                "awaitingTriage",
+                "ready",
+                "blocked",
+            ]);
+        }
+    });
+
     it("stores a settings block as the spec resolved it, defaults and all", () => {
         const result = parseConfig(
             {

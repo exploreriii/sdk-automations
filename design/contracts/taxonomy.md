@@ -57,7 +57,7 @@ name it in `reads`. `ownership-drift.test.ts` holds both tables to the shipped d
 | ∅ | `needsReview` | `checksPassed` | `prDashboard` |
 | ∅ | `needsRevision` | `checksFailed` | `prDashboard` |
 | `needsReview` | `needsRevision` | `checksFailed` | `prDashboard` |
-| `needsReview` | `needsRevision` | `reviewRequestedChanges` | None |
+| `needsReview` | `needsRevision` | `reviewRequestedChanges` | `prDashboard` |
 | `needsRevision` | `needsReview` | `revisionResolved` | `prDashboard` |
 | `needsReview` | `readyToMerge` | `reviewPolicySatisfied` | A person |
 | `readyToMerge` | `needsReview` | `approvalInvalidated` | A person |

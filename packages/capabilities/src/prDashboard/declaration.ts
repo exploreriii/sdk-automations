@@ -10,8 +10,10 @@ export const prDashboardDeclaration = declareCapability({
         { kind: "schedule", description: "hourly recheck of every open pull request" },
     ],
     needs: ["readiness"],
+    /** Read on the sweep only: a webhook record carries it `"unread"`, and the verdict says so (D244). */
+    wants: ["review"],
     settings: PR_DASHBOARD_SETTINGS,
-    moves: ["checksPassed", "checksFailed", "revisionResolved"],
+    moves: ["checksPassed", "checksFailed", "revisionResolved", "reviewRequestedChanges"],
     reads: ["readyToMerge"],
     resolvers: [
         "isAutomationActor",

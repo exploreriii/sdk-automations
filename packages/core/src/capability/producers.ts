@@ -116,13 +116,15 @@ export function groupsNeeded(
     return PRODUCERS.sweep[kind].filter((group) => needed.has(group));
 }
 
-/** One record with the named groups read, every other group `Unread` — facts.md §3. */
-export type ReadGroups<F extends Facts, N extends FactGroup> = {
+/** One record with the needed groups read, the wanted ones as the producer left them, every other group `Unread` — facts.md §3. */
+export type ReadGroups<F extends Facts, N extends FactGroup, W extends FactGroup = never> = {
     readonly [K in keyof F]: K extends N
         ? Exclude<F[K], Unread>
-        : K extends FactGroup
-          ? Unread
-          : F[K];
+        : K extends W
+          ? F[K]
+          : K extends FactGroup
+            ? Unread
+            : F[K];
 };
 
 /** The record shape producer `P` may build for kind `K`; the row it omits is `Unread`. */

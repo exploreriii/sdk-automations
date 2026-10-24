@@ -64,6 +64,8 @@ export interface CapabilityDeclaration {
     readonly facts: readonly string[];
     /** Per kind — a need declared is a read paid for: the sweep reads these and no more (D195, D214). */
     readonly needs: Readonly<Record<string, readonly string[]>>;
+    /** Per kind — groups read when the producer has them, `"unread"` otherwise, never a skip (D244). */
+    readonly wants: Readonly<Record<string, readonly string[]>>;
     readonly resolvers: readonly string[];
     readonly intents: readonly string[];
 }
@@ -83,6 +85,7 @@ export interface TypedDeclaration extends CapabilityDeclaration {
     readonly reads: readonly MappableMeaning[];
     readonly facts: readonly FactKind[];
     readonly needs: NeedsPerKind;
+    readonly wants: NeedsPerKind;
     readonly resolvers: readonly ResolverName[];
     readonly intents: readonly IntentOperation[];
 }
@@ -100,6 +103,7 @@ export interface DeclarationInput {
     readonly reads?: readonly MappableMeaning[];
     readonly facts?: readonly FactKind[];
     readonly needs?: NeedsInput;
+    readonly wants?: NeedsInput;
     readonly resolvers: readonly ResolverName[];
     readonly intents: readonly IntentOperation[];
 }
@@ -135,13 +139,14 @@ type NeedsOf<N, Kinds extends FactKind> = {
 /** The input with its defaults filled, each list kept as the literal tuple written. */
 export type Declared<D extends DeclarationInput> = Omit<
     D,
-    "facts" | "needs" | "requiredMappings" | "moves" | "reads"
+    "facts" | "needs" | "wants" | "requiredMappings" | "moves" | "reads"
 > & {
     readonly labels: readonly MappableMeaning[];
     readonly moves: D["moves"] extends readonly TransitionCause[] ? D["moves"] : readonly [];
     readonly reads: D["reads"] extends readonly MappableMeaning[] ? D["reads"] : readonly [];
     readonly facts: KindsOf<D>;
     readonly needs: NeedsOf<D["needs"], KindsOf<D>[number]>;
+    readonly wants: NeedsOf<D["wants"], KindsOf<D>[number]>;
     readonly requiredMappings: D["requiredMappings"] extends RequiredMappings
         ? D["requiredMappings"]
         : Record<never, never>;
@@ -187,6 +192,7 @@ export function declareCapability<const D extends DeclarationInput>(d: D): Decla
         ...d,
         facts,
         needs: needsPerKind(d.needs, facts),
+        wants: needsPerKind(d.wants, facts),
         requiredMappings: d.requiredMappings ?? {},
         labels: d.labels ?? positionsEnteredBy(moves),
         moves,
@@ -251,6 +257,7 @@ function validateDeclaration(d: CapabilityDeclaration): readonly string[] {
         ["reads", d.reads],
         ["facts", d.facts],
         ...Object.entries(d.needs).map(([kind, groups]) => [`needs.${kind}`, groups] as const),
+        ...Object.entries(d.wants).map(([kind, groups]) => [`wants.${kind}`, groups] as const),
         ["resolvers", d.resolvers],
         ["intents", d.intents],
         ...MAPPING_FAMILIES.map(
@@ -338,20 +345,26 @@ function checkAgainstCatalogue(declaration: CapabilityDeclaration): readonly str
             errors.push(`${at}: fact kind "${fact}" is not in the fact catalogue`);
         }
     }
-    // facts.md §3: a need is satisfiable only on a declared kind that carries the group.
-    for (const [kind, groups] of Object.entries(declaration.needs)) {
-        if (groups.length === 0) continue;
-        const known = isFactKind(kind);
-        if (!known) errors.push(`${at}: needs name "${kind}", which is not a fact kind`);
-        const declared = known && declaration.facts.includes(kind);
-        if (known && !declared) {
-            errors.push(`${at}: needs groups on ${kind} records, a kind it does not declare`);
-        }
-        for (const need of groups) {
-            if (!isFactGroup(need)) {
-                errors.push(`${at}: fact group "${need}" is not in the fact catalogue`);
-            } else if (declared && !carriesFactGroup(kind, need)) {
-                errors.push(`${at}: the ${kind} record carries no group "${need}"`);
+    // facts.md §3: a need or want is satisfiable only on a declared kind that carries the group.
+    for (const verb of ["needs", "wants"] as const) {
+        for (const [kind, groups] of Object.entries(declaration[verb])) {
+            if (groups.length === 0) continue;
+            const known = isFactKind(kind);
+            if (!known) errors.push(`${at}: ${verb} name "${kind}", which is not a fact kind`);
+            const declared = known && declaration.facts.includes(kind);
+            if (known && !declared) {
+                errors.push(`${at}: ${verb} groups on ${kind} records, a kind it does not declare`);
+            }
+            for (const group of groups) {
+                if (!isFactGroup(group)) {
+                    errors.push(`${at}: fact group "${group}" is not in the fact catalogue`);
+                } else if (declared && !carriesFactGroup(kind, group)) {
+                    errors.push(`${at}: the ${kind} record carries no group "${group}"`);
+                } else if (verb === "wants" && (declaration.needs[kind] ?? []).includes(group)) {
+                    errors.push(
+                        `${at}: wants "${group}" on ${kind} records, which it already needs`,
+                    );
+                }
             }
         }
     }
@@ -391,7 +404,28 @@ function needsUnreadBy(
     return errors;
 }
 
-/** Is every declared need answered by the producer each trigger wakes? */
+/** A want nobody reads is dead: some trigger's producer must read it, on some occasion (D244). */
+function wantsNobodyReads(declaration: CapabilityDeclaration): readonly string[] {
+    const producers: ProducerName[] = declaration.triggers.map((trigger) =>
+        trigger.kind === "schedule" ? "sweep" : trigger.event,
+    );
+    const errors: string[] = [];
+    for (const kind of declaration.facts.filter(isFactKind)) {
+        for (const want of (declaration.wants[kind] ?? []).filter(isFactGroup)) {
+            if (!carriesFactGroup(kind, want)) continue;
+            if (producers.some((p) => producesKind(p, kind) && producerReads(p, kind, want)))
+                continue;
+            errors.push(
+                `${at(declaration)}: wants "${want}" on ${kind} records, which no trigger's producer reads — read by: ${producersReading(kind, want).join(", ")}`,
+            );
+        }
+    }
+    return errors;
+}
+
+const at = (declaration: CapabilityDeclaration): string => `capability "${declaration.name}"`;
+
+/** Is every declared need answered by the producer each trigger wakes, and every want by one of them? */
 function checkAgainstProducers(declaration: CapabilityDeclaration): readonly string[] {
     const errors: string[] = [];
     for (const trigger of declaration.triggers) {
@@ -401,6 +435,7 @@ function checkAgainstProducers(declaration: CapabilityDeclaration): readonly str
         }
         errors.push(...needsUnreadBy(declaration, trigger.event, `the "${trigger.event}" trigger`));
     }
+    errors.push(...wantsNobodyReads(declaration));
     return errors;
 }
 

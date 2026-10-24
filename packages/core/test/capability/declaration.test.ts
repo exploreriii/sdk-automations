@@ -24,6 +24,7 @@ const declaration: CapabilityDeclaration = {
      * declaration the boot check exists to refuse — asserted below.
      */
     needs: {},
+    wants: {},
     resolvers: ["linkedIssues"],
     intents: ["postManagedComment", "applyMappedLabel"],
 };
@@ -111,6 +112,32 @@ describe("validateCapabilityDeclarations", () => {
             'capability "prDashboard": "merged" closes an item, which is read and never written',
             'capability "prDashboard": transition cause "nonsense" is not on the map',
         ]);
+    });
+
+    /** A want is read by some trigger's producer, never by all of them (D244). */
+    it("holds a want to being read by some trigger's producer, and to not being a need", () => {
+        const wanting = { ...declaration, wants: { pullRequest: ["review"] } };
+        expect(validateCapabilityDeclarations([wanting])).toEqual([
+            'capability "prDashboard": wants "review" on pullRequest records, which no trigger\'s producer reads — read by: sweep',
+        ]);
+        const swept = {
+            ...wanting,
+            triggers: [
+                ...declaration.triggers,
+                { kind: "schedule", description: "hourly" } as const,
+            ],
+        };
+        expect(validateCapabilityDeclarations([swept])).toEqual([]);
+        // Needed as well: the want is refused, and the webhook trigger's unread need beside it.
+        expect(
+            validateCapabilityDeclarations([{ ...swept, needs: { pullRequest: ["review"] } }]),
+        ).toEqual([
+            'capability "prDashboard": wants "review" on pullRequest records, which it already needs',
+            'capability "prDashboard": the "pull_request" trigger leaves "review" unread on a pullRequest record, so every delivery it wakes is skipped — read by: sweep',
+        ]);
+        expect(
+            validateCapabilityDeclarations([{ ...swept, wants: { pullRequest: ["nonsense"] } }]),
+        ).toEqual(['capability "prDashboard": fact group "nonsense" is not in the fact catalogue']);
     });
 
     it("reports a repeated label beside a missing one, not as a match", () => {
@@ -338,6 +365,7 @@ describe("validateCapabilityDeclarations", () => {
             "resolvers",
             "settings",
             "triggers",
+            "wants",
         ]);
     });
 });

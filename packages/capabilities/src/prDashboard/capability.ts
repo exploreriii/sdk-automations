@@ -4,7 +4,12 @@
  * verdict earns. The rows are `rows.ts`, the judgements `checks.ts`, the words `messages.ts`.
  */
 
-import { moveTo, type Capability, type IntentFor } from "@hiero-hackers/automation-core/author";
+import {
+    moveTo,
+    UNREAD,
+    type Capability,
+    type IntentFor,
+} from "@hiero-hackers/automation-core/author";
 import {
     determined,
     positionFor,
@@ -42,8 +47,11 @@ function labelIntent(
         });
     }
     const current = facts.position.kind === "position" ? facts.position.state.meaning : null;
-    const target = positionFor(rows, facts.readiness.draft, current);
+    const changesRequested = facts.review === UNREAD ? null : facts.review.changesRequested;
+    const target = positionFor(rows, facts.readiness.draft, current, changesRequested);
     if (target === null || !applyLabels.includes(target)) return null;
+    // The review earned the verdict, not the checks: the cause says so, and the map draws that edge from needsReview alone.
+    const byReview = target === "needsRevision" && !rows.some((row) => row.outcome === "fail");
     if (moveTo(facts, target, prDashboardDeclaration.moves) === null) {
         // Already there, off the map, or a conflicted position: the engine would refuse, so nothing is asked.
         platform.explain({
@@ -55,9 +63,13 @@ function labelIntent(
     }
     return platform.intent({
         operation: "applyMappedLabel",
-        desired: { meaning: target },
+        desired: byReview
+            ? { meaning: target, cause: "reviewRequestedChanges" }
+            : { meaning: target },
         cause: "pullRequestChecked",
-        explain: `Set the position to ${target} from the checks' verdict.`,
+        explain: byReview
+            ? "Set the position to needsRevision: a review requested changes."
+            : `Set the position to ${target} from the checks' verdict.`,
     });
 }
 

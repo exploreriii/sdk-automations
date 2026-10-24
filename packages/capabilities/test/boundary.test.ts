@@ -46,10 +46,11 @@ describe("declared shape", () => {
             settings: PR_DASHBOARD_SETTINGS,
             requiredMappings: {},
             labels: ["needsReview", "needsRevision"],
-            moves: ["checksPassed", "checksFailed", "revisionResolved"],
+            moves: ["checksPassed", "checksFailed", "revisionResolved", "reviewRequestedChanges"],
             reads: ["readyToMerge"],
             facts: ["pullRequest"],
             needs: { issue: [], pullRequest: ["readiness"] },
+            wants: { issue: [], pullRequest: ["review"] },
             resolvers: [
                 "isAutomationActor",
                 "linkedIssues",
@@ -77,6 +78,7 @@ describe("declared shape", () => {
             reads: ["ready"],
             facts: ["issue"],
             needs: { issue: ["locked", "skills"], pullRequest: [] },
+            wants: { issue: [], pullRequest: [] },
             resolvers: ["isAutomationActor"],
             intents: ["applyMappedLabel", "postManagedComment", "lockIssue", "unlockIssue"],
         });
@@ -96,6 +98,7 @@ describe("declared shape", () => {
                 issue: ["assignees", "links"],
                 pullRequest: ["assignees", "review", "readiness"],
             },
+            wants: { issue: [], pullRequest: [] },
             resolvers: ["isAutomationActor"],
             intents: ["postManagedComment", "releaseAssignment", "closePullRequest"],
         });

@@ -42,7 +42,11 @@
                     "needsRevision",
                     "needsReview"
                 ]
-            }
+            },
+            "consults": [
+                "needsReview",
+                "needsRevision"
+            ]
         },
         "configReport": {
             "enabled": true,
@@ -120,7 +124,12 @@
                 "unassign": {
                     "enabled": true
                 }
-            }
+            },
+            "consults": [
+                "awaitingTriage",
+                "ready",
+                "blocked"
+            ]
         }
     },
     "mappings": {

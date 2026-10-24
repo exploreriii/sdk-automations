@@ -344,7 +344,7 @@ describe("the pull-request ladder judges the contributor's wait", () => {
         ]);
     });
 
-    /** The first diamond is the meaning, whatever mode the pull request is in. */
+    /** The first diamond is the meaning and the review fact, whatever the pull request's mode. */
     it("leaves a draft carrying `needsReview` alone, mode or no mode", async () => {
         const awaited = pullRecord({ position: position({ meaning: "needsReview" }) });
 

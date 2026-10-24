@@ -66,7 +66,8 @@ const REVIEWED_AT = new Date("2026-07-01T00:00:00.000Z");
 const swept = (
     state: Partial<WorkItemState<PrMeaning>> = {},
     draft = false,
-    changesRequested = false,
+    changesRequestedAt: Date | null = null,
+    lastCommitAt: Date | null = null,
 ) =>
     factsFor(
         prDashboard.declaration,
@@ -74,13 +75,13 @@ const swept = (
             item: ITEM,
             readiness: { draft },
             review: {
-                changesRequested,
+                changesRequestedAt,
                 reapableSince: {
                     needsRevision: REVIEWED_AT,
                     changesRequested: REVIEWED_AT,
                     draft: REVIEWED_AT,
                 },
-                lastCommitAt: null,
+                lastCommitAt,
             },
             position: {
                 kind: "position",
@@ -589,7 +590,7 @@ describe("prDashboard", () => {
             const { intents, label } = await evaluate(
                 labelling(BOTH, LINKS),
                 answers({ linkedIssues: [ISSUE_11] }),
-                swept({ meaning: "needsReview" }, false, true),
+                swept({ meaning: "needsReview" }, false, REVIEWED_AT),
             );
             expect(label).toEqual({ meaning: "needsRevision", cause: "reviewRequestedChanges" });
             expect(intents[1]?.explanation.summary).toBe(
@@ -602,13 +603,13 @@ describe("prDashboard", () => {
             const fresh = await evaluate(
                 labelling(BOTH, LINKS),
                 answers({ linkedIssues: [ISSUE_11] }),
-                swept({}, false, true),
+                swept({}, false, REVIEWED_AT),
             );
             expect(fresh.label).toBeNull();
             const approved = await evaluate(
                 labelling(BOTH, LINKS),
                 answers({ linkedIssues: [ISSUE_11] }),
-                swept({ meaning: "readyToMerge" }, false, true),
+                swept({ meaning: "readyToMerge" }, false, REVIEWED_AT),
             );
             expect(approved.label).toBeNull();
         });
@@ -617,9 +618,26 @@ describe("prDashboard", () => {
             const { label } = await evaluate(
                 labelling(BOTH, LINKS),
                 answers({ linkedIssues: [] }),
-                swept({ meaning: "needsReview" }, false, true),
+                swept({ meaning: "needsReview" }, false, REVIEWED_AT),
             );
             expect(label).toEqual({ meaning: "needsRevision", cause: "checksFailed" });
+        });
+
+        /** A newer commit answers the request (D241), as inactivity reads it. */
+        it("treats a change request answered by a newer commit as no longer standing", async () => {
+            const answered = new Date(REVIEWED_AT.getTime() + 60_000);
+            const kept = await evaluate(
+                labelling(BOTH, LINKS),
+                answers({ linkedIssues: [ISSUE_11] }),
+                swept({ meaning: "needsReview" }, false, REVIEWED_AT, answered),
+            );
+            expect(kept.label).toBeNull();
+            const resolved = await evaluate(
+                labelling(BOTH, LINKS),
+                answers({ linkedIssues: [ISSUE_11] }),
+                swept({ meaning: "needsRevision" }, false, REVIEWED_AT, answered),
+            );
+            expect(resolved.label).toEqual({ meaning: "needsReview", cause: "revisionResolved" });
         });
 
         it("resolves a revision when the checks pass again and no review stands against it", async () => {

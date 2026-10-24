@@ -89,14 +89,16 @@ Rules: a check runs only when its `enabled` is explicitly `true` — the platfor
 one level down; omitted or `false` means off, and a kept block with `enabled: false` is a check
 parked, not a check running. `assignedIssues` nests inside `linkedIssues`, so its dependency is
 structural — anywhere else it is an unknown key. A missing guide renders without the link.
-`needsRevision` follows any failure, and a review that requested changes, from `needsReview` alone
-(the map's `reviewRequestedChanges` edge, D245); `needsReview` only when every enabled check passes
-on a pull request marked ready for review whose review state is read and clear — never on a draft,
-never while a check is undetermined, never on a webhook run, which reads no review state: the hourly
-sweep asks. The label moves along the workflow map's edge; a pull request the map cannot move
-(already there, a conflicted position) keeps its position, and the operator is told. `needsReview`
-is asked only from no position or `needsRevision`: a pull request a maintainer moved to
-`readyToMerge` is theirs, and passing checks never pull it back.
+`needsRevision` follows any failure, and an outstanding change request, from `needsReview` alone
+(the map's `reviewRequestedChanges` edge, D245). A request is outstanding until a commit newer than
+it answers it — core's `changesOutstanding`, the rule inactivity reads too (D241). `needsReview` only
+when every enabled check passes on a pull request marked ready for review whose review state is read
+and clear of outstanding requests — never on a draft, never while a check is undetermined, never
+on a webhook run, which reads no review state: the hourly sweep asks. The label moves along the
+workflow map's edge; a pull request the map cannot move (already there, a conflicted position) keeps
+its position, and the operator is told. `needsReview` is asked only from no position or
+`needsRevision`: a pull request a maintainer moved to `readyToMerge` is theirs, and passing checks
+never pull it back.
 
 ## How it works
 
@@ -116,7 +118,7 @@ flowchart LR
     R --> S["each check: pass · fail · undetermined"]
     S -->|"no check determined"| N1["skipped, with the operator told why"]
     S --> I["postManagedComment — update in place"]
-    S -->|"applyLabels lists it"| L["needsRevision on any fail, or on changes requested from needsReview · needsReview when all pass, ready, and the sweep read no change request"]
+    S -->|"applyLabels lists it"| L["needsRevision on any fail, or on an outstanding change request from needsReview · needsReview when all pass, ready, and the sweep read none outstanding"]
 ```
 
 One guard is the platform's: a closed or merged item never reaches a capability that has not
@@ -185,6 +187,7 @@ outright (D198).
 | A review requested changes, every check passes, at `needsReview` | `needsRevision` by `reviewRequestedChanges`, and the explanation says a review earned it |
 | A review requested changes from no position or `readyToMerge` | left alone — the map draws that edge from `needsReview` only |
 | A review requested changes and a check fails | `needsRevision` by `checksFailed` — the checks speak first |
+| A review requested changes, then a newer commit, every check passes | the request is answered: `needsReview` stays, and `needsRevision` resolves to `needsReview` |
 | A position the map cannot move | left alone; the operator is told |
 | Maintainer moved it to `readyToMerge`, every check passes | left alone; a failure still moves it to `needsRevision` |
 | Assignee login differs from the author's in case | counted as assigned |

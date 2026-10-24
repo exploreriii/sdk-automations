@@ -5,6 +5,7 @@
  */
 
 import {
+    changesOutstanding,
     moveTo,
     UNREAD,
     type Capability,
@@ -47,8 +48,8 @@ function labelIntent(
         });
     }
     const current = facts.position.kind === "position" ? facts.position.state.meaning : null;
-    const changesRequested = facts.review === UNREAD ? null : facts.review.changesRequested;
-    const target = positionFor(rows, facts.readiness.draft, current, changesRequested);
+    const outstanding = facts.review === UNREAD ? null : changesOutstanding(facts.review);
+    const target = positionFor(rows, facts.readiness.draft, current, outstanding);
     if (target === null || !applyLabels.includes(target)) return null;
     // The review earned the verdict, not the checks: the cause says so, and the map draws that edge from needsReview alone.
     const byReview = target === "needsRevision" && !rows.some((row) => row.outcome === "fail");

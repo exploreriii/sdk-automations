@@ -33,7 +33,7 @@ export const VERDICT_POSITIONS = ["needsRevision", "needsReview"] as const;
 export type VerdictPosition = (typeof VERDICT_POSITIONS)[number];
 
 /**
- * Any failure asks for revision; so does a review that requested changes, from `needsReview` alone.
+ * Any failure asks for revision; so does an outstanding change request (D241), from `needsReview` alone.
  * Review is asked only when every row passes on a ready pull request whose review state is read and
  * clear, from no position or `needsRevision`: never from `readyToMerge`, never unread, as on a webhook (D245).
  */
@@ -41,15 +41,15 @@ export function positionFor(
     rows: readonly Row[],
     draft: boolean,
     current: string | null,
-    changesRequested: boolean | null,
+    changesOutstanding: boolean | null,
 ): VerdictPosition | null {
     if (rows.some((row) => row.outcome === "fail")) return "needsRevision";
-    if (changesRequested === true) return current === "needsReview" ? "needsRevision" : null;
+    if (changesOutstanding === true) return current === "needsReview" ? "needsRevision" : null;
     const reviewable = current === null || current === "needsRevision";
     if (
         !draft &&
         reviewable &&
-        changesRequested === false &&
+        changesOutstanding === false &&
         rows.every((row) => row.outcome === "pass")
     ) {
         return "needsReview";

@@ -74,7 +74,7 @@ checks: # default — The quality checks this repository runs — each one off u
     assignedIssues: # off until enabled — Say so when the author is not assigned to every linked issue
       enabled: true
       # guide: "…" — optional; A page explaining how to get assigned, shown to the contributor when this check fails
-applyLabels: [] # none — The positions the dashboard may set: needsRevision on any failure, or when a review requested changes; needsReview when every check passes on a ready pull request the sweep read clear of change requests
+applyLabels: [] # none — The positions the dashboard may set: needsRevision on any failure, or when a review's change request is outstanding; needsReview when every check passes on a ready pull request the sweep read clear of outstanding change requests
 ```
 
 ### `inactivity`
